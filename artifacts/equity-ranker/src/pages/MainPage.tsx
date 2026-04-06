@@ -45,7 +45,6 @@ import {
   RefreshCw,
   Loader2,
   Columns3,
-  Star,
   RotateCcw,
 } from "lucide-react";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -133,6 +132,37 @@ export default function MainPage() {
     clusterK: 10,
     clusterLookback: 252,
   });
+
+  // Alpha highlight state — persisted in localStorage
+  const [topN, setTopN] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("qt:topHighlight");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const mode = parsed.topNMode === 'pct' ? 'pct' : 'n';
+        const max = mode === 'pct' ? 25 : 100;
+        const n = Number(parsed.topN);
+        if (Number.isFinite(n) && n >= 0 && n <= max) return n;
+      }
+    } catch {}
+    return 20;
+  });
+  const [topNMode, setTopNMode] = useState<'n' | 'pct'>(() => {
+    try {
+      const stored = localStorage.getItem("qt:topHighlight");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.topNMode === 'n' || parsed.topNMode === 'pct') return parsed.topNMode;
+      }
+    } catch {}
+    return 'n';
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("qt:topHighlight", JSON.stringify({ topN, topNMode }));
+    } catch {}
+  }, [topN, topNMode]);
 
   // UI state
   const [showZScores, setShowZScores] = useState(false);
@@ -364,13 +394,7 @@ export default function MainPage() {
       case "rank":
         return (
           <TableCell key={colId} className="text-center text-muted-foreground font-mono">
-            <span className="flex items-center justify-center gap-1">
-              {stock.rank}
-              {/* PATCH 4: small star for top-20 alpha, no row BG highlight */}
-              {stock.rank && stock.rank <= 20 && (
-                <Star className="w-2.5 h-2.5 text-amber-400 fill-amber-400 shrink-0" />
-              )}
-            </span>
+            {stock.rank}
           </TableCell>
         );
       case "name":
@@ -584,6 +608,31 @@ export default function MainPage() {
                 <Label htmlFor="zscores" className="text-xs flex-1 cursor-pointer">Show Raw Z-Scores</Label>
                 <Switch id="zscores" checked={showZScores} onCheckedChange={setShowZScores} />
               </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">Alpha highlight</Label>
+                  <div className="flex rounded-md overflow-hidden border border-border">
+                    <button
+                      className={cn("px-2 py-0.5 text-xs", topNMode === 'n' ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}
+                      onClick={() => { setTopNMode('n'); setTopN(prev => Math.min(prev, 100)); }}
+                    >N</button>
+                    <button
+                      className={cn("px-2 py-0.5 text-xs border-l border-border", topNMode === 'pct' ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}
+                      onClick={() => { setTopNMode('pct'); setTopN(prev => Math.min(prev, 25)); }}
+                    >%</button>
+                  </div>
+                </div>
+                <Slider
+                  value={[topN]}
+                  min={0}
+                  max={topNMode === 'n' ? 100 : 25}
+                  step={1}
+                  onValueChange={(v) => setTopN(v[0])}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {topN === 0 ? "Off" : topNMode === 'n' ? `Top ${topN} names` : `Top ${topN}%`}
+                </p>
+              </div>
             </div>
           </div>
         )}
@@ -686,6 +735,11 @@ export default function MainPage() {
                     stock.cluster !== null && stock.cluster !== undefined && stock.cluster < CLUSTER_COLORS.length
                       ? CLUSTER_COLORS[stock.cluster]
                       : "bg-muted text-muted-foreground";
+                  const isHighlighted = topN > 0 && (
+                    topNMode === 'n'
+                      ? stock.rank !== null && stock.rank !== undefined && stock.rank <= topN
+                      : stock.percentile !== null && stock.percentile !== undefined && stock.percentile >= (100 - topN)
+                  );
 
                   return (
                     <React.Fragment key={stock.ticker}>
@@ -713,7 +767,7 @@ export default function MainPage() {
                       >
                         <span className="flex items-center gap-1.5">
                           <span className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", dotColor)} title={`Cluster ${stock.cluster ?? "?"}`} />
-                          {stock.ticker}
+                          <span className={cn(isHighlighted && "text-emerald-400")}>{stock.ticker}</span>
                           {expandedTicker === stock.ticker
                             ? <ChevronDown className="w-2.5 h-2.5 text-muted-foreground ml-0.5" />
                             : <ChevronRight className="w-2.5 h-2.5 text-muted-foreground ml-0.5 opacity-0 group-hover:opacity-100" />}

@@ -848,14 +848,46 @@ def compute_rankings(df: pd.DataFrame,
                 lr   = sub.pct_change().dropna()
                 if lr.shape[0] > 30:
                     corr  = lr.corr().fillna(0).clip(-1, 1)
-                    dist  = np.clip((1 - corr).values, 0, 2)
+                    lr_z  = (lr - lr.mean()) / lr.std().clip(lower=1e-8)
+                    feat  = lr_z.T.fillna(0).values
+                    k     = min(cluster_k, len(valid_tickers))
                     clust = AgglomerativeClustering(
-                        n_clusters=min(cluster_k, len(valid_tickers)),
-                        metric="precomputed", linkage="average"
+                        n_clusters=k,
+                        metric="euclidean", linkage="ward"
                     )
-                    labels    = clust.fit_predict(dist)
+                    labels    = clust.fit_predict(feat)
                     label_map = dict(zip(valid_tickers, labels.tolist()))
                     d["cluster"] = d["ticker"].map(label_map)
+
+                    # Clustering audit log
+                    sizes = {}
+                    within_corrs = {}
+                    for ci in range(k):
+                        members = [t for t, lbl in label_map.items() if lbl == ci]
+                        sizes[ci] = len(members)
+                        if len(members) >= 2:
+                            sub_corr = corr.loc[members, members]
+                            mask = np.ones(sub_corr.shape, dtype=bool)
+                            np.fill_diagonal(mask, False)
+                            within_corrs[ci] = round(float(sub_corr.values[mask].mean()), 2)
+                        else:
+                            within_corrs[ci] = float("nan")
+                    all_members_list = list(label_map.keys())
+                    all_labels_arr   = np.array([label_map[t] for t in all_members_list])
+                    cross_vals = []
+                    n_m = len(all_members_list)
+                    for i in range(n_m):
+                        for j in range(i + 1, n_m):
+                            if all_labels_arr[i] != all_labels_arr[j]:
+                                cross_vals.append(corr.loc[all_members_list[i], all_members_list[j]])
+                    avg_cross = round(float(np.mean(cross_vals)), 2) if cross_vals else float("nan")
+                    logger.info(
+                        "Clustering audit (k=%d, n=%d stocks):\n"
+                        "  Cluster sizes: %s\n"
+                        "  Avg within-cluster corr: %s\n"
+                        "  Avg cross-cluster corr: %s",
+                        k, len(valid_tickers), sizes, within_corrs, avg_cross
+                    )
             except Exception as e:
                 logger.error(f"Clustering error: {e}")
 
