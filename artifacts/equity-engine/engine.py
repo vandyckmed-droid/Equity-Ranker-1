@@ -4,6 +4,20 @@ Equity Ranking Engine
 Fetches real market data from Yahoo Finance, computes momentum and quality
 factors using a 3-sleeve alpha model, and provides portfolio risk metrics.
 
+Universe construction
+---------------------
+At cold start, the live universe is built dynamically from the NASDAQ screener API:
+  1. NASDAQ API  : fetches NYSE- and NASDAQ-listed stocks (exchange=NYSE, exchange=NASDAQ)
+                   with a $500M market-cap pre-filter to bound download volume.
+  2. Format filter: non-empty symbol, <= 5 chars, alphabetic only.
+  3. ADR/foreign merge: curated ADR/foreign names from _FALLBACK_TICKERS are always
+                   included (TSM, ASML, ARM, RIO, BHP, VALE, etc.).
+  4. classify_ticker(): excludes ETFs, funds, OTC, partnerships, SPACs at meta-fetch time.
+  5. Price/ADV/cap filters: price >= $5, 63-day median ADV >= $10M, market cap >= $1B.
+Typical result: ~2,000 tickers fetched → 900–1,300 survivors after all filters.
+On any NASDAQ API failure the engine falls back to _FALLBACK_TICKERS (offline list).
+The universe list is cached for 24 h under UNIVERSE_CACHE_KEY (separate from price cache).
+
 Universe policy
 ---------------
 US-retail-tradable, US-listed operating company equities.
@@ -35,6 +49,8 @@ import concurrent.futures
 from datetime import datetime
 from typing import Optional
 
+import requests
+
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -45,11 +61,13 @@ import diskcache
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CACHE_DIR       = "/tmp/equity_cache"
-PRICE_CACHE_TTL = 8  * 3600   # 8 hours  — price + dollar-volume history
-META_CACHE_TTL  = 24 * 3600   # 24 hours — metadata (more stable than prices)
-PRICE_CACHE_KEY = "price_data_v4"
-META_CACHE_KEY  = "meta_data_v2"
+CACHE_DIR          = "/tmp/equity_cache"
+PRICE_CACHE_TTL    = 8  * 3600   # 8 hours  — price + dollar-volume history
+META_CACHE_TTL     = 24 * 3600   # 24 hours — metadata (more stable than prices)
+UNIVERSE_CACHE_TTL = 24 * 3600   # 24 hours — dynamic universe ticker list
+PRICE_CACHE_KEY    = "price_data_v5"
+META_CACHE_KEY     = "meta_data_v2"
+UNIVERSE_CACHE_KEY = "universe_v1"
 
 cache = diskcache.Cache(CACHE_DIR)
 
@@ -63,17 +81,13 @@ _status = {
 }
 _status_lock = threading.Lock()
 
-# ─── Bootstrap candidate universe ────────────────────────────────────────────
-# This is a seed list, NOT the final universe definition.
-# Actual inclusion is determined at runtime by:
-#   1. Sufficient price history (>= 252 trading days)
-#   2. Structure classification (quoteType, exchange, name heuristics)
-#   3. Price >= $5, 63-day median ADV >= $10M, market cap >= $1B
-#
-# ADRs and US-listed foreign companies (TSM, ASML, ARM, etc.) are eligible
-# provided they pass the above filters. Exclusion is based on security
-# structure and tradability, NOT on issuer domicile.
-CORE_TICKERS = [
+# ─── Offline fallback universe ────────────────────────────────────────────────
+# _FALLBACK_TICKERS is used ONLY when the NASDAQ screener API is unreachable.
+# It is NOT the live universe — at runtime the live universe is built by
+# _fetch_universe() from the NASDAQ API and cached for 24 h.
+# Curated ADR/foreign names in this list are always merged into the live
+# universe regardless (TSM, ASML, ARM, RIO, BHP, VALE, etc.).
+_FALLBACK_TICKERS = [
     "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "GOOG", "META", "TSLA", "AVGO", "JPM",
     "LLY", "V", "UNH", "XOM", "MA", "COST", "JNJ", "PG", "HD", "WMT",
     "MRK", "ABBV", "CVX", "BAC", "KO", "NFLX", "PEP", "CRM", "TMO", "ACN",
@@ -193,10 +207,101 @@ CORE_TICKERS = [
 ]
 
 # Deduplicate
-CORE_TICKERS = sorted(list(set(
-    t for t in CORE_TICKERS
+_FALLBACK_TICKERS = sorted(list(set(
+    t for t in _FALLBACK_TICKERS
     if t and len(t) <= 5 and t.replace(".", "").isalpha()
 )))
+
+# ─── Dynamic universe fetch ───────────────────────────────────────────────────
+
+_NASDAQ_API = "https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=10000&exchange={exchange}"
+_NASDAQ_HEADERS = {"User-Agent": "Mozilla/5.0"}
+_NASDAQ_TIMEOUT = 15
+
+# ADR / foreign names that must always be in the universe regardless of API coverage.
+_ADR_ANCHORS = {
+    "TSM", "ASML", "ARM", "RIO", "BHP", "VALE", "NVO", "SAP", "TM",
+    "HMC", "SONY", "SNY", "AZN", "GSK", "BTI", "SHOP", "SAN",
+}
+
+
+def _fetch_universe() -> list:
+    """
+    Build a dynamic ticker universe from the NASDAQ screener API.
+
+    Steps
+    -----
+    1. Query NYSE and NASDAQ exchanges via the NASDAQ screener API.
+    2. Pre-filter to market cap >= $500M (string-formatted in API response).
+    3. Validate ticker format: non-empty, <= 5 chars, alphabetic only.
+    4. Merge with _ADR_ANCHORS to ensure key ADR / foreign names are always present.
+    5. Cache the combined sorted list in diskcache under UNIVERSE_CACHE_KEY (24h TTL).
+    6. On any exception, log a warning and return _FALLBACK_TICKERS.
+
+    Returns
+    -------
+    list of str — deduplicated, sorted ticker symbols
+    """
+    cached = cache.get(UNIVERSE_CACHE_KEY)
+    if cached and isinstance(cached, list) and len(cached) > 0:
+        logger.info(f"Universe from cache: {len(cached)} tickers")
+        return cached
+
+    try:
+        tickers: set = set()
+        for exchange in ("NYSE", "NASDAQ"):
+            url = _NASDAQ_API.format(exchange=exchange)
+            resp = requests.get(url, headers=_NASDAQ_HEADERS, timeout=_NASDAQ_TIMEOUT)
+            resp.raise_for_status()
+            data = resp.json()
+
+            # Strict shape validation — raise on malformed response to force fallback
+            table = data.get("data", {}).get("table", {})
+            if not isinstance(table, dict):
+                raise ValueError(f"NASDAQ API ({exchange}): unexpected 'table' shape: {type(table)}")
+            rows = table.get("rows")
+            if not rows or not isinstance(rows, list):
+                raise ValueError(f"NASDAQ API ({exchange}): empty or missing 'rows' in response")
+
+            exchange_count = 0
+            for row in rows:
+                symbol = (row.get("symbol") or "").strip().upper()
+                if not symbol or len(symbol) > 5 or not symbol.isalpha():
+                    continue
+                # Pre-filter by market cap >= $500M
+                raw_cap = row.get("marketCap") or row.get("market_cap") or ""
+                try:
+                    cap = float(str(raw_cap).replace(",", ""))
+                except (ValueError, TypeError):
+                    cap = 0.0
+                if cap < 500_000_000:
+                    continue
+                tickers.add(symbol)
+                exchange_count += 1
+            logger.info(f"NASDAQ API ({exchange}): {exchange_count} tickers after $500M filter")
+
+        # Merge ADR anchors from fallback list (always include)
+        for t in _FALLBACK_TICKERS:
+            if t in _ADR_ANCHORS:
+                tickers.add(t)
+
+        universe = sorted(tickers)
+
+        if len(universe) < 500:
+            logger.warning(
+                f"Universe size abnormally low ({len(universe)} tickers) — "
+                "possible partial API failure; falling back to _FALLBACK_TICKERS"
+            )
+            return _FALLBACK_TICKERS
+
+        logger.info(f"Universe fetched from NASDAQ API: {len(universe)} tickers")
+        cache.set(UNIVERSE_CACHE_KEY, universe, expire=UNIVERSE_CACHE_TTL)
+        return universe
+
+    except Exception as e:
+        logger.warning(f"NASDAQ universe fetch failed ({e}); falling back to _FALLBACK_TICKERS")
+        return _FALLBACK_TICKERS
+
 
 # ─── Globals ──────────────────────────────────────────────────────────────────
 _price_data:    Optional[pd.DataFrame] = None   # Close prices: index=dates, cols=tickers
@@ -320,6 +425,10 @@ def load_data_batch(tickers: list, batch_size: int = 50) -> tuple:
     """
     Download 2-year adjusted Close + Volume for all tickers in batches.
 
+    Batches are downloaded concurrently using 4 ThreadPoolExecutor workers to
+    keep cold-start time under 10 minutes for a ~2,000-ticker universe.
+    A threading.Lock protects the shared all_close / all_dollar_vol / failed dicts.
+
     Returns
     -------
     all_close       : dict  ticker → pd.Series of Close prices
@@ -329,22 +438,26 @@ def load_data_batch(tickers: list, batch_size: int = 50) -> tuple:
     all_close: dict      = {}
     all_dollar_vol: dict = {}
     failed: list         = []
+    _dict_lock           = threading.Lock()
 
-    batches      = [tickers[i:i+batch_size] for i in range(0, len(tickers), batch_size)]
+    batches       = [tickers[i:i+batch_size] for i in range(0, len(tickers), batch_size)]
     total_batches = len(batches)
+    completed_batches = [0]  # mutable counter accessed inside worker
 
     update_status("loading", f"Downloading price data (0/{len(tickers)} stocks)...",
                   progress=0, total=len(tickers), loaded=0)
 
-    for bi, batch in enumerate(batches):
+    def _download_batch(bi_batch):
+        bi, batch = bi_batch
         try:
             raw = yf.download(
                 batch, period="2y", auto_adjust=True,
                 progress=False, timeout=60,
             )
             if raw.empty:
-                failed.extend(batch)
-                continue
+                with _dict_lock:
+                    failed.extend(batch)
+                return
 
             if isinstance(raw.columns, pd.MultiIndex):
                 lvl0 = raw.columns.get_level_values(0)
@@ -354,33 +467,44 @@ def load_data_batch(tickers: list, batch_size: int = 50) -> tuple:
                 close  = raw[["Close"]]  if "Close"  in raw.columns else pd.DataFrame()
                 volume = raw[["Volume"]] if "Volume" in raw.columns else pd.DataFrame()
 
+            batch_close      = {}
+            batch_dollar_vol = {}
+            batch_failed     = []
             for ticker in batch:
                 try:
                     if ticker not in close.columns:
-                        failed.append(ticker)
+                        batch_failed.append(ticker)
                         continue
                     col = close[ticker].dropna()
                     if len(col) < 252:
-                        failed.append(ticker)
+                        batch_failed.append(ticker)
                         continue
-                    all_close[ticker] = col
-                    # Dollar volume: Close × Volume (daily)
+                    batch_close[ticker] = col
                     if ticker in volume.columns:
                         vol_col = volume[ticker].reindex(col.index).fillna(0)
-                        all_dollar_vol[ticker] = col * vol_col
-                    # If Volume column missing, dollar volume unavailable for this ticker
+                        batch_dollar_vol[ticker] = col * vol_col
                 except Exception:
-                    failed.append(ticker)
+                    batch_failed.append(ticker)
+
+            with _dict_lock:
+                all_close.update(batch_close)
+                all_dollar_vol.update(batch_dollar_vol)
+                failed.extend(batch_failed)
+                completed_batches[0] += 1
+                loaded   = len(all_close)
+                progress = completed_batches[0] / total_batches
+            update_status("loading",
+                          f"Downloading price data ({loaded}/{len(tickers)} stocks)...",
+                          progress=progress, total=len(tickers), loaded=loaded)
 
         except Exception as e:
             logger.error(f"Batch {bi} download error: {e}")
-            failed.extend(batch)
+            with _dict_lock:
+                failed.extend(batch)
+                completed_batches[0] += 1
 
-        loaded   = len(all_close)
-        progress = (bi + 1) / total_batches
-        update_status("loading",
-                      f"Downloading price data ({loaded}/{len(tickers)} stocks)...",
-                      progress=progress, total=len(tickers), loaded=loaded)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        executor.map(_download_batch, enumerate(batches))
 
     return all_close, all_dollar_vol, failed
 
@@ -903,7 +1027,7 @@ def initial_data_load():
 
     Cold start (no cache)
     ----------------------
-    1. Download 2y of Close + Volume for CORE_TICKERS in batches of 50
+    1. Download 2y of Close + Volume for _fetch_universe() tickers in batches of 50
     2. Build price DataFrame and dollar-volume DataFrame
     3. Fetch metadata concurrently (10 workers)
     4. Write price+dollar-volume to PRICE_CACHE_KEY (8h)
@@ -945,8 +1069,8 @@ def initial_data_load():
             logger.error(f"Cache restore failed: {e}; falling back to full download")
 
     # ── Cold start: full download ─────────────────────────────────────────────
-    tickers = CORE_TICKERS
-    logger.info(f"Cold start: downloading data for {len(tickers)} tickers")
+    tickers = _fetch_universe()
+    logger.info(f"Cold start: downloading data for ~{len(tickers)} tickers")
     update_status("loading", f"Starting download for {len(tickers)} stocks...",
                   progress=0, total=len(tickers), loaded=0)
 
