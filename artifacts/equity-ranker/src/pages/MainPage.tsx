@@ -58,18 +58,38 @@ const CLUSTER_COLORS = [
   "bg-sky-500/10 text-sky-500 border-sky-500/20",
 ];
 
-const ROW_CLUSTER_COLORS = [
-  "bg-rose-950/20 hover:bg-rose-950/35",
-  "bg-blue-950/20 hover:bg-blue-950/35",
-  "bg-emerald-950/20 hover:bg-emerald-950/35",
-  "bg-amber-950/20 hover:bg-amber-950/35",
-  "bg-violet-950/20 hover:bg-violet-950/35",
-  "bg-cyan-950/20 hover:bg-cyan-950/35",
-  "bg-orange-950/20 hover:bg-orange-950/35",
-  "bg-fuchsia-950/20 hover:bg-fuchsia-950/35",
-  "bg-lime-950/20 hover:bg-lime-950/35",
-  "bg-sky-950/20 hover:bg-sky-950/35",
+const CLUSTER_DOT_COLORS = [
+  "bg-rose-500",
+  "bg-blue-500",
+  "bg-emerald-500",
+  "bg-amber-500",
+  "bg-violet-500",
+  "bg-cyan-500",
+  "bg-orange-500",
+  "bg-fuchsia-500",
+  "bg-lime-500",
+  "bg-sky-500",
 ];
+
+const SECTOR_ABBR: Record<string, string> = {
+  "Information Technology": "Tech",
+  "Technology": "Tech",
+  "Health Care": "HC",
+  "Healthcare": "HC",
+  "Financials": "Fin",
+  "Financial Services": "Fin",
+  "Consumer Discretionary": "Cons Disc",
+  "Consumer Cyclical": "Cyc",
+  "Consumer Staples": "Cons Stap",
+  "Consumer Defensive": "Def",
+  "Communication Services": "Comm",
+  "Industrials": "Ind",
+  "Energy": "En",
+  "Utilities": "Util",
+  "Materials": "Mat",
+  "Basic Materials": "Mat",
+  "Real Estate": "RE",
+};
 
 export default function MainPage() {
   const { holdings, addHolding, removeHolding, setAllStocks } = usePortfolio();
@@ -136,11 +156,13 @@ export default function MainPage() {
 
     if (sortField && sortDir) {
       result.sort((a, b) => {
-        // PATCH 3: cluster sorts numerically by suffix (already a number, but explicit)
+        // Cluster: primary = cluster number, secondary = alpha descending within each cluster
         if (sortField === "cluster") {
-          const ca = a.cluster ?? Infinity;
-          const cb = b.cluster ?? Infinity;
-          return sortDir === "asc" ? ca - cb : cb - ca;
+          const ca = a.cluster ?? (sortDir === "asc" ? Infinity : -Infinity);
+          const cb = b.cluster ?? (sortDir === "asc" ? Infinity : -Infinity);
+          if (ca !== cb) return sortDir === "asc" ? ca - cb : cb - ca;
+          // Secondary: alpha descending (best names first inside each cluster)
+          return (b.alpha ?? 0) - (a.alpha ?? 0);
         }
 
         const valA = a[sortField];
@@ -324,7 +346,7 @@ export default function MainPage() {
       case "sector":
         return (
           <TableCell key={colId} className="text-muted-foreground text-[10px]">
-            {stock.sector || "—"}
+            {stock.sector ? (SECTOR_ABBR[stock.sector] ?? stock.sector) : "—"}
           </TableCell>
         );
       case "price":
@@ -595,11 +617,10 @@ export default function MainPage() {
               <TableBody>
                 {processedStocks.map((stock) => {
                   const inPortfolio = holdings.some(h => h.ticker === stock.ticker);
-                  // PATCH 4: cluster color is primary row color, no alpha-rank BG override
-                  const rowColor =
-                    stock.cluster !== null && stock.cluster !== undefined && stock.cluster < ROW_CLUSTER_COLORS.length
-                      ? ROW_CLUSTER_COLORS[stock.cluster]
-                      : "hover:bg-muted/30";
+                  const dotColor =
+                    stock.cluster !== null && stock.cluster !== undefined && stock.cluster < CLUSTER_DOT_COLORS.length
+                      ? CLUSTER_DOT_COLORS[stock.cluster]
+                      : "bg-muted-foreground/40";
                   const badgeColor =
                     stock.cluster !== null && stock.cluster !== undefined && stock.cluster < CLUSTER_COLORS.length
                       ? CLUSTER_COLORS[stock.cluster]
@@ -608,10 +629,10 @@ export default function MainPage() {
                   return (
                     <TableRow
                       key={stock.ticker}
-                      className={cn("group transition-colors border-b-border/30", rowColor)}
+                      className="group transition-colors border-b-border/30 hover:bg-muted/30"
                     >
                       {/* Fixed: Add button */}
-                      <TableCell className="p-0 text-center sticky left-0 z-10 bg-inherit shadow-[1px_0_0_0_rgba(0,0,0,0.1)]">
+                      <TableCell className="p-0 text-center sticky left-0 z-10 bg-background shadow-[1px_0_0_0_rgba(0,0,0,0.1)]">
                         <Button
                           variant="ghost"
                           size="icon"
@@ -623,9 +644,12 @@ export default function MainPage() {
                             : <Plus className="w-3 h-3" />}
                         </Button>
                       </TableCell>
-                      {/* Fixed sticky: Ticker */}
-                      <TableCell className="font-bold text-foreground sticky left-10 z-10 bg-inherit shadow-[1px_0_0_0_rgba(0,0,0,0.1)]">
-                        {stock.ticker}
+                      {/* Fixed sticky: Ticker with cluster dot */}
+                      <TableCell className="font-bold text-foreground sticky left-10 z-10 bg-background shadow-[1px_0_0_0_rgba(0,0,0,0.1)]">
+                        <span className="flex items-center gap-1.5">
+                          <span className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", dotColor)} title={`Cluster ${stock.cluster ?? "?"}`} />
+                          {stock.ticker}
+                        </span>
                       </TableCell>
                       {/* Dynamic configurable cells */}
                       {activeColumns.map((id) => renderCell(id, stock, badgeColor))}

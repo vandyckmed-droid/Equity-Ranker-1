@@ -1,0 +1,53 @@
+PATCH — UI COMPACTION + CORRELATION SORT BEHAVIOR
+
+Keep this patch low-cost, minimal, and targeted. Do not refactor unrelated parts. Preserve current data model and current successful behavior unless explicitly changed below.
+
+1) ABBREVIATE SECTOR NAMES
+- In table views, replace full sector names with short abbreviations to reduce column width.
+- Use clear standardized abbreviations, for example:
+  - Information Technology → Tech
+  - Health Care → HC
+  - Financials → Fin
+  - Consumer Discretionary → Cons Disc
+  - Consumer Staples → Cons Stap
+  - Communication Services → Comm
+  - Industrials → Ind
+  - Energy → En
+  - Utilities → Util
+  - Materials → Mat
+  - Real Estate → RE
+- Keep full sector name available in a lightweight way only if already easy/cheap (for example small text in details panel or existing tooltip behavior), but do not add heavy new UI.
+
+2) REPLACE ROW-LEVEL COLORING
+- Remove broad row background coloring for correlation grouping.
+- Instead, show correlation grouping with a lighter visual treatment using one of these cheap options:
+  - preferred: small colored dot next to ticker
+  - acceptable: colored ticker text
+  - acceptable: compact flag/badge
+- Keep the visual subtle, readable on mobile, and consistent across dark mode.
+- Do not use alpha-based row coloring.
+
+3) FIX CORRELATION CLUSTER SORTING
+- For the column that displays correlation group labels like c0, c1, c2, etc.:
+  - primary sort key = parsed cluster number ascending
+  - secondary sort key within each cluster = alpha descending
+- Current behavior correctly groups by c0/c1/etc but does not sort by alpha within each group. Fix that.
+- Sorting should treat c10 correctly as 10, not as a string between c1 and c2.
+- This secondary alpha sort should apply whenever sorting by the correlation-group column, both ascending and descending:
+  - ascending cluster sort: c0 → c1 → c2 ..., with alpha high → low inside each cluster
+  - descending cluster sort: highest cluster → lowest cluster, with alpha high → low inside each cluster
+- Keep alpha sorting numeric and deterministic.
+
+4) MOBILE / TABLE USABILITY
+- Maintain narrow columns and clean scanning on phone screens.
+- Do not widen the table unnecessarily.
+- Do not add complex controls for this patch.
+
+5) ACCEPTANCE CRITERIA
+- Sector column is visibly narrower because abbreviations are used.
+- Correlation grouping is visible without row background fills.
+- Clicking the correlation-group header sorts by cluster number first and alpha descending second.
+- Within c0, the highest-alpha names appear first; same for c1, c2, etc.
+- Implementation remains simple, fast, and low agent-cost.
+
+Update any small labels or helper text needed so the UI still feels clear and auditable.
