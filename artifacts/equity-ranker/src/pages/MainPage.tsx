@@ -1,11 +1,19 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import {
   useGetDataStatus,
   useGetRankings,
   Stock,
   GetRankingsParams,
 } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { usePortfolio } from "@/hooks/use-portfolio";
+import {
+  loadRankingsCache,
+  saveRankingsCache,
+  clearRankingsCache,
+  formatCacheAge,
+  CachedRankings,
+} from "@/hooks/use-rankings-cache";
 import {
   useColumnConfig,
   ColumnId,
@@ -94,6 +102,11 @@ const SECTOR_ABBR: Record<string, string> = {
 export default function MainPage() {
   const { holdings, addHolding, removeHolding, setAllStocks } = usePortfolio();
   const { config, orderedVisible, toggleColumn, moveColumn, resetColumns } = useColumnConfig();
+  const queryClient = useQueryClient();
+
+  // ── localStorage snapshot (warm-start) ──────────────────────────────────
+  // Read once at mount; never mutated — fresh API data replaces it atomically.
+  const [localCache] = useState<CachedRankings | null>(() => loadRankingsCache());
 
   // Polling data status — stops when ready
   const { data: statusData } = useGetDataStatus({
@@ -128,7 +141,7 @@ export default function MainPage() {
   const [sortDir, setSortDirection] = useState<SortDirection>("desc");
   const [expandedTicker, setExpandedTicker] = useState<string | null>(null);
 
-  // Fetch rankings once ready — staleTime matches engine 8-hour cache
+  // Fetch rankings once engine is ready — staleTime matches engine 8-hour cache
   const { data: rankingsData, isFetching: isRankingsLoading } = useGetRankings(params, {
     query: {
       enabled: isReady,
@@ -138,7 +151,29 @@ export default function MainPage() {
   });
 
   const rankingsResult = rankingsData && "stocks" in rankingsData ? rankingsData : null;
-  const stocks = rankingsResult?.stocks || [];
+  const freshStocks = rankingsResult?.stocks || [];
+
+  // Persist fresh API data to localStorage so next startup is instant
+  useEffect(() => {
+    if (freshStocks.length > 0 && rankingsResult) {
+      saveRankingsCache(
+        { stocks: freshStocks, total: rankingsResult.total ?? freshStocks.length, cachedAt: rankingsResult.cachedAt },
+        JSON.stringify(params),
+      );
+    }
+  }, [freshStocks, rankingsResult, params]);
+
+  // Stale-while-revalidate: show fresh data if available, fall back to localStorage snapshot
+  const stocks = freshStocks.length > 0 ? freshStocks : (localCache?.stocks || []);
+  const isShowingCachedData = freshStocks.length === 0 && (localCache?.stocks?.length ?? 0) > 0;
+  // True cold start: no localStorage and engine not ready yet
+  const isColdStart = stocks.length === 0 && !isReady;
+
+  // Manual refresh: clear localStorage + invalidate React Query so rankings re-fetch immediately
+  const handleRefresh = useCallback(() => {
+    clearRankingsCache();
+    queryClient.invalidateQueries({ queryKey: ["/api/equity/rankings"] });
+  }, [queryClient]);
 
   useEffect(() => {
     if (stocks.length > 0) setAllStocks(stocks);
@@ -411,8 +446,9 @@ export default function MainPage() {
           <div className="min-w-0">
             <h1 className="text-lg md:text-2xl font-bold tracking-tight leading-tight">Universe Rankings</h1>
             <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-1.5 mt-0.5">
-              <span>{rankingsResult?.total || 0} equities</span>
-              {rankingsResult?.cachedAt && (
+              <span>{stocks.length > 0 ? stocks.length : (rankingsResult?.total || 0)} equities</span>
+              {/* Fresh data timestamp */}
+              {rankingsResult?.cachedAt && !isShowingCachedData && (
                 <>
                   <span>&bull;</span>
                   <span className="hidden sm:inline">
@@ -420,12 +456,44 @@ export default function MainPage() {
                   </span>
                 </>
               )}
-              {isRankingsLoading && <Loader2 className="w-3 h-3 animate-spin" />}
+              {/* Warm-start: showing localStorage snapshot */}
+              {isShowingCachedData && localCache && (
+                <>
+                  <span>&bull;</span>
+                  <span className="text-amber-500/80">
+                    Cached · {formatCacheAge(localCache.savedAt)}
+                  </span>
+                </>
+              )}
+              {/* Background refresh spinner */}
+              {(isRankingsLoading || (!isReady && isShowingCachedData)) && (
+                <span className="flex items-center gap-1 text-muted-foreground/60">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span className="hidden sm:inline">Refreshing…</span>
+                </span>
+              )}
+              {/* Cold-start: nothing in cache, engine loading */}
+              {isColdStart && (
+                <span className="flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Loading engine…
+                </span>
+              )}
             </p>
           </div>
 
           {/* Control buttons */}
           <div className="flex items-center gap-1.5 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={handleRefresh}
+              title="Force refresh rankings"
+              disabled={isRankingsLoading || (!isReady && !isShowingCachedData)}
+            >
+              <RefreshCw className={cn("w-3.5 h-3.5", isRankingsLoading && "animate-spin")} />
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -709,7 +777,17 @@ export default function MainPage() {
                 {processedStocks.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={activeColumns.length + 2} className="h-32 text-center text-muted-foreground">
-                      No equities found matching filters.
+                      {isColdStart ? (
+                        <span className="flex flex-col items-center gap-2">
+                          <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                          <span>Loading quant engine…</span>
+                          <span className="text-xs opacity-60">Data will appear automatically</span>
+                        </span>
+                      ) : search ? (
+                        "No equities found matching search."
+                      ) : (
+                        "No equities found matching filters."
+                      )}
                     </TableCell>
                   </TableRow>
                 )}

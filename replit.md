@@ -75,14 +75,36 @@ A mobile-first equity ranking and risk application that pulls real market data f
 
 Excludes: ETFs, CEFs, BDCs, LPs, SPACs, OTC/pink sheets, warrants/rights, preferreds
 
-## Data Flow
+## Startup Cache Strategy
+
+### Warm start (has localStorage snapshot — common case)
+1. Page loads → `loadRankingsCache()` reads `qt:rankings-v3` from localStorage instantly
+2. Table renders immediately with cached rows; header shows "Cached · Xm ago" + spinning Refreshing indicator
+3. Status polling continues in background (engine typically responds "ready" within 1–2s from disk cache)
+4. When engine is ready, fresh rankings fetched; table atomically swapped; localStorage updated
+5. Header shows "Updated: [timestamp]", spinner gone
+
+### Cold start (no localStorage — first run or cache expired)
+1. Page loads → `loadRankingsCache()` returns null
+2. Table shows "Loading quant engine…" spinner inside empty table body
+3. Status polling finds engine "ready" (disk cache) in ~1–2s or "loading" during full download
+4. When engine ready, rankings fetched and displayed; saved to localStorage for next warm start
+
+### Cache details
+- Cache key: `qt:rankings-v3` (version bump auto-invalidates old entries on schema changes)
+- Max age: 24h from `savedAt` — after that, treated as cold start
+- Manual refresh: header ↺ button clears localStorage + invalidates React Query, forcing fresh fetch
+- No fake data: localStorage only ever holds a real API response from a previous successful fetch
+
+## Data Flow (full download)
 
 1. Equity Engine starts → spawns background thread to download prices for ~700 tickers
 2. Downloads in batches of 50 tickers via yfinance
 3. Loads sector/quality metadata (ROE, ROA, margins, DE ratio) per ticker
-4. Results cached to disk for 8 hours
+4. Results cached to disk for 8 hours (diskcache at /tmp/equity_cache)
 5. Frontend polls `/api/equity/status` every 5s until ready
 6. When ready, fetches full rankings via `/api/equity/rankings`
+7. On success, response saved to localStorage `qt:rankings-v3` for next warm start
 
 ## Factor Details
 
