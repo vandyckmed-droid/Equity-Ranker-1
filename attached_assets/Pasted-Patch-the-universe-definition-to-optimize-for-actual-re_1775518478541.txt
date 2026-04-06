@@ -1,0 +1,72 @@
+Patch the universe definition to optimize for actual retail usability, not domicile.
+
+Goal:
+Build the stock universe around what a normal US retail investor can easily buy and sell on a mainstream brokerage app with normal stock treatment, normal tax reporting, and no unusual fee/custody/structure complexity.
+
+Important:
+Do NOT use “US stocks only” as a rule.
+That is too restrictive and wrongly excludes names I want, such as liquid US-traded foreign companies like TSM.
+
+New universe standard:
+Include any stock that is:
+1. easily tradable on major US retail broker platforms,
+2. sufficiently liquid for practical entry/exit,
+3. subject to normal retail tax complexity only,
+4. a true operating company equity rather than a fund or special vehicle.
+
+Implementation rules
+
+INCLUDE:
+- US-listed common stocks
+- US-listed ADRs / ADSs
+- US-listed foreign operating companies that trade like normal stocks on mainstream retail platforms
+- Mid-cap and large-cap names by default
+- Companies outside the US are fine if they are US-traded, liquid, and operationally simple for a normal retail investor
+
+EXCLUDE:
+- OTC / Pink Sheet securities
+- ordinary shares that require foreign-market access rather than normal US retail trading
+- ETFs, CEFs, mutual funds
+- SPACs, shell companies, acquisition vehicles
+- preferred shares, warrants, rights, units
+- LPs / MLPs / partnerships / structures likely to create K-1 or comparable non-standard tax handling
+- BDCs
+- leveraged / inverse products
+- illiquid microcaps / small caps that are not realistically retail-friendly
+- anything with obvious special trading, custody, fee, or tax complexity beyond normal stock ownership
+
+Do NOT exclude solely because:
+- headquarters are outside the US
+- the company is foreign
+- the security is an ADR / ADS
+- there may be ordinary foreign dividend withholding that is still within normal retail investing complexity
+
+Selection logic:
+Prioritize practical retail usability over geography.
+The universe should answer this question:
+“Can a normal US retail investor buy and sell this easily, cheaply, and normally in a standard brokerage account?”
+
+Suggested baseline filter:
+- listing on NYSE or Nasdaq
+- common stock or ADR/ADS only
+- market cap focused on mid and large cap
+- sufficient liquidity for routine trading
+
+Refactor the universe layer so that it uses tradability-based inclusion, not nationality-based inclusion.
+
+What to change:
+- Replace any “US only” logic with “US-retail-tradable and structurally simple” logic
+- Keep the implementation simple and transparent
+- Document the exact inclusion/exclusion rules in the methodology/help text
+- Add clear comments in code explaining why ADRs like TSM are included
+- Preserve the existing ranking engine and UI unless required for the universe patch
+
+Output requirements:
+1. Updated universe construction logic
+2. Short plain-English explanation of the new universe policy
+3. Exact include / exclude rule list shown in the methodology or notes
+4. A few example names that should now clearly qualify (for example: TSM, ASML, ARM if they otherwise pass liquidity/size rules)
+
+Guiding principle:
+Cheap, simple, robust, transparent.
+Avoid overengineering. Use the minimum rule set needed to capture “mid-to-large cap, retail-platform-friendly stocks I can buy and sell normally.”
