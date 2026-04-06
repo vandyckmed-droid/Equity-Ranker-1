@@ -653,12 +653,9 @@ def compute_factors(prices: pd.DataFrame, meta: dict,
         s6 = m6 / sigma6_adj if not np.isnan(m6) else np.nan
         s12 = m12 / sigma12_adj if not np.isnan(m12) else np.nan
 
-        # OLS t-stats
-        tstat6 = np.nan
-        tstat12 = np.nan
-        if use_tstats:
-            tstat6 = ols_tstat(lp.iloc[-126:]) if n >= 126 else np.nan
-            tstat12 = ols_tstat(lp) if n >= 252 else np.nan
+        # OLS t-stats — always computed; required for T sleeve in alpha composite
+        tstat6  = ols_tstat(lp.iloc[-126:]) if n >= 126 else np.nan
+        tstat12 = ols_tstat(lp) if n >= 252 else np.nan
 
         # Quality from meta
         m = meta.get(ticker, {})
@@ -749,31 +746,41 @@ def compute_rankings(df: pd.DataFrame,
         out[out.notna()] = zscore(winsorize(v, winsor_p))
         return out
 
-    # Choose momentum factor
-    if vol_adjust:
-        d["_f6"] = std_factor(d["s6"])
-        d["_f12"] = std_factor(d["s12"])
-    else:
-        d["_f6"] = std_factor(d["m6"])
-        d["_f12"] = std_factor(d["m12"])
+    # ── Sleeve-based alpha ────────────────────────────────────────────────
+    # S = return-strength sleeve  (Sharpe-adjusted momentum)
+    # T = trend-quality sleeve    (OLS t-stat momentum)
+    # Q = quality composite sleeve
+    #
+    # Each atomic input is z-scored individually (cross-sectionally) before
+    # sleeve construction.  Missing values are treated as neutral (0) in the
+    # final composite so ranks are stable even for partial data.
+    #
+    # Atomic Z-scores
+    d["zS6"]  = std_factor(d["s6"])
+    d["zS12"] = std_factor(d["s12"])
+    d["zT6"]  = std_factor(d["tstat6"])
+    d["zT12"] = std_factor(d["tstat12"])
+    d["zQ"]   = std_factor(d["quality"]) if use_quality else pd.Series(0.0, index=d.index)
 
-    d["zM6"] = d["_f6"]
-    d["zM12"] = d["_f12"]
+    # Sleeve construction: 50/50 within each horizon pair
+    d["sSleeve"] = 0.5 * d["zS6"].fillna(0) + 0.5 * d["zS12"].fillna(0)
+    d["tSleeve"] = 0.5 * d["zT6"].fillna(0) + 0.5 * d["zT12"].fillna(0)
+    d["qSleeve"] = d["zQ"].fillna(0)
 
-    if use_quality:
-        d["zQuality"] = std_factor(d["quality"])
-    else:
-        d["zQuality"] = 0.0
-
-    # Normalize weights
-    total_w = w6 + w12 + (w_quality if use_quality else 0)
+    # Final alpha:  wS * S  +  wT * T  +  wQ * Q
+    # (w6 → wS, w12 → wT, w_quality → wQ — param names preserved for API compat)
+    wS = w6
+    wT = w12
+    wQ = w_quality if use_quality else 0.0
+    total_w = wS + wT + wQ
     if total_w <= 0:
         total_w = 1.0
+    d["alpha"] = (wS * d["sSleeve"] + wT * d["tSleeve"] + wQ * d["qSleeve"]) / total_w
 
-    alpha_parts = (w6 * d["zM6"].fillna(0) + w12 * d["zM12"].fillna(0))
-    if use_quality:
-        alpha_parts += w_quality * d["zQuality"].fillna(0)
-    d["alpha"] = alpha_parts / total_w
+    # Backward-compat aliases for existing API consumers
+    d["zM6"]      = d["zS6"]
+    d["zM12"]     = d["zS12"]
+    d["zQuality"] = d["zQ"]
 
     # Rank
     d = d.sort_values("alpha", ascending=False)

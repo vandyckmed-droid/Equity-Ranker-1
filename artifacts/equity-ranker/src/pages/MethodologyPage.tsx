@@ -65,17 +65,66 @@ export default function MethodologyPage() {
 
       <Card className="border-border bg-card">
         <CardHeader>
-          <CardTitle>Alpha &amp; Ranking</CardTitle>
-          <CardDescription>The final composite score used to rank the universe.</CardDescription>
+          <CardTitle>Alpha &amp; Ranking — Sleeve Construction</CardTitle>
+          <CardDescription>
+            Three independent sleeves combined into a single composite score. Each atomic input is
+            z-scored cross-sectionally before sleeve construction.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="bg-muted p-4 rounded-md font-mono text-sm text-muted-foreground">
-            <p><span className="text-foreground">Alpha</span> = w6 × Z(m6) + w12 × Z(m12) + wQuality × Z(quality)</p>
+        <CardContent className="space-y-5">
+
+          <div>
+            <h3 className="font-semibold text-sm mb-2">Step 1 — Atomic Z-scores</h3>
+            <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
+              <p><span className="text-foreground">z_s6</span>  = Z(s6)      <span className="opacity-60">— cross-sectional winsorize → z-score of 6M Sharpe</span></p>
+              <p><span className="text-foreground">z_s12</span> = Z(s12)     <span className="opacity-60">— 12M Sharpe</span></p>
+              <p><span className="text-foreground">z_t6</span>  = Z(tstat6)  <span className="opacity-60">— OLS t-stat on 6M log-price trend</span></p>
+              <p><span className="text-foreground">z_t12</span> = Z(tstat12) <span className="opacity-60">— OLS t-stat on 12M log-price trend</span></p>
+              <p><span className="text-foreground">z_q</span>   = Z(quality) <span className="opacity-60">— quality composite (ROE, margins, leverage)</span></p>
+            </div>
           </div>
-          <p className="text-sm text-muted-foreground">
-            Defaults: w6 = 0.4, w12 = 0.4, wQuality = 0.2. Stocks ranked descending by Alpha.
-            Top-20 names are marked with a star (★) in the Rank column.
-          </p>
+
+          <div>
+            <h3 className="font-semibold text-sm mb-2">Step 2 — Sleeve construction (50/50 within each pair)</h3>
+            <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
+              <p><span className="text-foreground">S</span> = 0.5 × z_s6  + 0.5 × z_s12  <span className="opacity-60">— return-strength sleeve</span></p>
+              <p><span className="text-foreground">T</span> = 0.5 × z_t6  + 0.5 × z_t12  <span className="opacity-60">— trend-quality sleeve</span></p>
+              <p><span className="text-foreground">Q</span> = z_q                          <span className="opacity-60">— quality sleeve</span></p>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="font-semibold text-sm mb-2">Step 3 — Final alpha</h3>
+            <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
+              <p><span className="text-foreground">Alpha</span> = wS × S + wT × T + wQ × Q</p>
+              <p className="mt-2 opacity-70">Expanded: Alpha = 0.2×z_s6 + 0.2×z_s12 + 0.2×z_t6 + 0.2×z_t12 + 0.2×z_q</p>
+              <p className="opacity-60 mt-1">Default weights: wS = 0.4, wT = 0.4, wQ = 0.2</p>
+            </div>
+          </div>
+
+          <div className="text-sm text-muted-foreground space-y-1">
+            <p>
+              <span className="font-medium text-foreground">S (return-strength)</span> — captures how
+              strongly prices have risen relative to their own risk. Uses Sharpe-adjusted returns so
+              high-vol names don't dominate.
+            </p>
+            <p>
+              <span className="font-medium text-foreground">T (trend-quality)</span> — captures how
+              consistent the trend is via OLS slope t-statistics. A high t-stat means price has risen
+              steadily, not just in one burst.
+            </p>
+            <p>
+              <span className="font-medium text-foreground">Q (quality)</span> — minority stabilizing
+              sleeve. Tilts toward profitable, low-leverage businesses. Prevents pure momentum from
+              concentrating in deteriorating names.
+            </p>
+            <p className="mt-2">
+              All atomic inputs are standardized before combination, so no single factor can dominate
+              through scale differences. Missing data is treated as neutral (0). Stocks ranked
+              descending by Alpha. Top-20 marked with ★.
+            </p>
+          </div>
+
         </CardContent>
       </Card>
 

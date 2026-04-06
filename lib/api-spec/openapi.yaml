@@ -231,6 +231,22 @@ components:
           type: ["number", "null"]
         zQuality:
           type: ["number", "null"]
+        zS6:
+          type: ["number", "null"]
+        zS12:
+          type: ["number", "null"]
+        zT6:
+          type: ["number", "null"]
+        zT12:
+          type: ["number", "null"]
+        zQ:
+          type: ["number", "null"]
+        sSleeve:
+          type: ["number", "null"]
+        tSleeve:
+          type: ["number", "null"]
+        qSleeve:
+          type: ["number", "null"]
         alpha:
           type: ["number", "null"]
         rank:

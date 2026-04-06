@@ -26,9 +26,11 @@ A mobile-first equity ranking and risk application that pulls real market data f
   - Downloads adjusted daily prices (2y history) from Yahoo Finance via yfinance
   - Computes momentum factors: r1, r6, r12, m6 (6-1), m12 (12-1)
   - Computes vol-adjusted Sharpe factors: s6, s12
-  - OLS t-stats (optional): tstat6, tstat12
+  - OLS t-stats (always computed): tstat6, tstat12 — required for T sleeve
   - Quality composite: profitability (ROE/ROA), margins, leverage (winsorized, z-scored, averaged)
-  - Alpha = 0.4×Z(m6) + 0.4×Z(m12) + 0.2×Z(quality) [configurable weights]
+  - Sleeve-based alpha: S=0.5×Z(s6)+0.5×Z(s12), T=0.5×Z(t6)+0.5×Z(t12), Q=Z(quality)
+  - Alpha = wS×S + wT×T + wQ×Q (defaults: 0.4, 0.4, 0.2)
+  - All atomic inputs individually z-scored before sleeve construction
   - Clustering: AgglomerativeClustering on correlation distance for top-N stocks
   - Portfolio risk: covariance matrix, portfolio vol = sqrt(w'Σw), avg pairwise correlation
   - Cache: 8-hour disk cache using diskcache
@@ -91,7 +93,10 @@ Excludes: ETFs, CEFs, BDCs, LPs, SPACs, OTC/pink sheets, warrants/rights, prefer
 - **m12** = r12 - r1 — skip-month 12-month momentum
 - **sigma6** = std(126d daily log returns) × √252 — 6m annualized vol
 - **s6** = m6 / max(sigma6, vol_floor) — Sharpe-style adjusted m6
-- **Alpha** = 0.4×Z(m6) + 0.4×Z(m12) + 0.2×Z(quality)
+- **S sleeve** = 0.5×Z(s6) + 0.5×Z(s12) — return-strength (Sharpe-adjusted momentum)
+- **T sleeve** = 0.5×Z(tstat6) + 0.5×Z(tstat12) — trend-quality (OLS t-stat)
+- **Q sleeve** = Z(quality) — quality composite
+- **Alpha** = wS×S + wT×T + wQ×Q (defaults 0.4/0.4/0.2); fully auditable per-stock
 
 ## Weighting Methods
 

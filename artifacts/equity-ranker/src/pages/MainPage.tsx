@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   useGetDataStatus,
   useGetRankings,
@@ -126,6 +126,7 @@ export default function MainPage() {
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField>("alpha");
   const [sortDir, setSortDirection] = useState<SortDirection>("desc");
+  const [expandedTicker, setExpandedTicker] = useState<string | null>(null);
 
   // Fetch rankings once ready — staleTime matches engine 8-hour cache
   const { data: rankingsData, isFetching: isRankingsLoading } = useGetRankings(params, {
@@ -270,27 +271,27 @@ export default function MainPage() {
           </TableHead>
         );
       case "momentum6": {
-        const sf = showZScores ? "zM6" : params.volAdjust ? "s6" : "m6";
+        const sf = showZScores ? "zS6" : "s6";
         return (
           <TableHead key={colId} className="text-right bg-blue-950/20 cursor-pointer hover:text-foreground" onClick={() => handleSort(sf)}>
-            <div className="flex items-center justify-end" title="6-Month Momentum">
-              {showZScores ? "z(M6)" : params.volAdjust ? "S6" : "M6"} {getSortIcon(sf)}
+            <div className="flex items-center justify-end" title="S Sleeve — 6M Sharpe (S6)">
+              {showZScores ? "z(S6)" : "S6"} {getSortIcon(sf)}
             </div>
           </TableHead>
         );
       }
       case "momentum12": {
-        const sf = showZScores ? "zM12" : params.volAdjust ? "s12" : "m12";
+        const sf = showZScores ? "zS12" : "s12";
         return (
           <TableHead key={colId} className="text-right bg-blue-950/20 cursor-pointer hover:text-foreground" onClick={() => handleSort(sf)}>
-            <div className="flex items-center justify-end" title="12-Month Momentum">
-              {showZScores ? "z(M12)" : params.volAdjust ? "S12" : "M12"} {getSortIcon(sf)}
+            <div className="flex items-center justify-end" title="S Sleeve — 12M Sharpe (S12)">
+              {showZScores ? "z(S12)" : "S12"} {getSortIcon(sf)}
             </div>
           </TableHead>
         );
       }
       case "quality": {
-        const sf = showZScores ? "zQuality" : "quality";
+        const sf = showZScores ? "zQ" : "quality";
         return (
           <TableHead key={colId} className="text-right bg-purple-950/20 cursor-pointer hover:text-foreground" onClick={() => handleSort(sf)}>
             <div className="flex items-center justify-end" title="Quality Composite">
@@ -356,7 +357,7 @@ export default function MainPage() {
       case "adv":
         return <TableCell key={colId} className="text-right text-muted-foreground">{formatCompactCurrency(stock.adv)}</TableCell>;
       case "momentum6": {
-        const val = showZScores ? stock.zM6 : params.volAdjust ? stock.s6 : stock.m6;
+        const val = showZScores ? stock.zS6 : stock.s6;
         return (
           <TableCell key={colId} className={cn("text-right bg-blue-950/10", val! > 0 ? "text-positive" : "text-negative")}>
             {formatNumber(val)}
@@ -364,7 +365,7 @@ export default function MainPage() {
         );
       }
       case "momentum12": {
-        const val = showZScores ? stock.zM12 : params.volAdjust ? stock.s12 : stock.m12;
+        const val = showZScores ? stock.zS12 : stock.s12;
         return (
           <TableCell key={colId} className={cn("text-right bg-blue-950/10", val! > 0 ? "text-positive" : "text-negative")}>
             {formatNumber(val)}
@@ -372,7 +373,7 @@ export default function MainPage() {
         );
       }
       case "quality": {
-        const val = showZScores ? stock.zQuality : stock.quality;
+        const val = showZScores ? stock.zQ : stock.quality;
         return (
           <TableCell key={colId} className={cn("text-right bg-purple-950/10", val! > 0 ? "text-positive" : "text-negative")}>
             {formatNumber(val)}
@@ -465,17 +466,17 @@ export default function MainPage() {
               <h3 className="text-sm font-semibold text-primary">Factor Weights</h3>
               <div className="space-y-3">
                 <div className="space-y-1.5">
-                  <Label className="text-xs">6M Momentum ({formatNumber((params.w6 || 0) * 100, 0)}%)</Label>
+                  <Label className="text-xs">S Sleeve — wS ({formatNumber((params.w6 || 0) * 100, 0)}%)</Label>
                   <Slider value={[(params.w6 || 0) * 100]} min={0} max={100} step={5}
                     onValueChange={(v) => handleParamChange("w6", v[0] / 100)} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">12M Momentum ({formatNumber((params.w12 || 0) * 100, 0)}%)</Label>
+                  <Label className="text-xs">T Sleeve — wT ({formatNumber((params.w12 || 0) * 100, 0)}%)</Label>
                   <Slider value={[(params.w12 || 0) * 100]} min={0} max={100} step={5}
                     onValueChange={(v) => handleParamChange("w12", v[0] / 100)} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Quality ({formatNumber((params.wQuality || 0) * 100, 0)}%)</Label>
+                  <Label className="text-xs">Q Sleeve — wQ ({formatNumber((params.wQuality || 0) * 100, 0)}%)</Label>
                   <Slider value={[(params.wQuality || 0) * 100]} min={0} max={100} step={5}
                     disabled={!params.useQuality}
                     onValueChange={(v) => handleParamChange("wQuality", v[0] / 100)} />
@@ -489,14 +490,6 @@ export default function MainPage() {
                 <div className="flex items-center justify-between">
                   <Label htmlFor="useQuality" className="text-xs">Quality Factor</Label>
                   <Switch id="useQuality" checked={params.useQuality} onCheckedChange={(c) => handleParamChange("useQuality", c)} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="volAdjust" className="text-xs">Sharpe Vol-Adjust</Label>
-                  <Switch id="volAdjust" checked={params.volAdjust} onCheckedChange={(c) => handleParamChange("volAdjust", c)} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="useTstats" className="text-xs">OLS T-Stats</Label>
-                  <Switch id="useTstats" checked={params.useTstats} onCheckedChange={(c) => handleParamChange("useTstats", c)} />
                 </div>
               </div>
             </div>
@@ -627,8 +620,8 @@ export default function MainPage() {
                       : "bg-muted text-muted-foreground";
 
                   return (
+                    <React.Fragment key={stock.ticker}>
                     <TableRow
-                      key={stock.ticker}
                       className="group transition-colors border-b-border/30 hover:bg-muted/30"
                     >
                       {/* Fixed: Add button */}
@@ -644,16 +637,72 @@ export default function MainPage() {
                             : <Plus className="w-3 h-3" />}
                         </Button>
                       </TableCell>
-                      {/* Fixed sticky: Ticker with cluster dot */}
-                      <TableCell className="font-bold text-foreground sticky left-10 z-10 bg-background shadow-[1px_0_0_0_rgba(0,0,0,0.1)]">
+                      {/* Fixed sticky: Ticker with cluster dot — click to expand audit */}
+                      <TableCell
+                        className="font-bold text-foreground sticky left-10 z-10 bg-background shadow-[1px_0_0_0_rgba(0,0,0,0.1)] cursor-pointer select-none"
+                        onClick={() => setExpandedTicker(prev => prev === stock.ticker ? null : stock.ticker)}
+                        title="Click to audit alpha components"
+                      >
                         <span className="flex items-center gap-1.5">
                           <span className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", dotColor)} title={`Cluster ${stock.cluster ?? "?"}`} />
                           {stock.ticker}
+                          {expandedTicker === stock.ticker
+                            ? <ChevronDown className="w-2.5 h-2.5 text-muted-foreground ml-0.5" />
+                            : <ChevronRight className="w-2.5 h-2.5 text-muted-foreground ml-0.5 opacity-0 group-hover:opacity-100" />}
                         </span>
                       </TableCell>
                       {/* Dynamic configurable cells */}
                       {activeColumns.map((id) => renderCell(id, stock, badgeColor))}
                     </TableRow>
+
+                    {/* Audit row — shown when ticker is expanded */}
+                    {expandedTicker === stock.ticker && (() => {
+                      const fmtZ = (v: number | null | undefined) =>
+                        v == null ? "—" : (v > 0 ? "+" : "") + v.toFixed(3);
+                      const fmtR = (v: number | null | undefined) =>
+                        v == null ? "—" : v.toFixed(3);
+                      return (
+                        <TableRow key={`${stock.ticker}-audit`} className="bg-muted/20 border-b-border/20">
+                          <TableCell colSpan={activeColumns.length + 2} className="px-3 py-2.5">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-6 gap-y-2 text-[10px] font-mono">
+                              {/* Raw inputs */}
+                              <div className="space-y-1">
+                                <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Raw Inputs</p>
+                                <p><span className="text-muted-foreground">s6:</span>  <span className="text-foreground">{fmtR(stock.s6)}</span></p>
+                                <p><span className="text-muted-foreground">s12:</span> <span className="text-foreground">{fmtR(stock.s12)}</span></p>
+                                <p><span className="text-muted-foreground">t6:</span>  <span className="text-foreground">{fmtR(stock.tstat6)}</span></p>
+                                <p><span className="text-muted-foreground">t12:</span> <span className="text-foreground">{fmtR(stock.tstat12)}</span></p>
+                                <p><span className="text-muted-foreground">q:</span>   <span className="text-foreground">{fmtR(stock.quality)}</span></p>
+                              </div>
+                              {/* Atomic Z-scores */}
+                              <div className="space-y-1">
+                                <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Z-Scores</p>
+                                <p><span className="text-muted-foreground">z_s6:</span>  <span className={cn(stock.zS6! > 0 ? "text-positive" : "text-negative")}>{fmtZ(stock.zS6)}</span></p>
+                                <p><span className="text-muted-foreground">z_s12:</span> <span className={cn(stock.zS12! > 0 ? "text-positive" : "text-negative")}>{fmtZ(stock.zS12)}</span></p>
+                                <p><span className="text-muted-foreground">z_t6:</span>  <span className={cn(stock.zT6! > 0 ? "text-positive" : "text-negative")}>{fmtZ(stock.zT6)}</span></p>
+                                <p><span className="text-muted-foreground">z_t12:</span> <span className={cn(stock.zT12! > 0 ? "text-positive" : "text-negative")}>{fmtZ(stock.zT12)}</span></p>
+                                <p><span className="text-muted-foreground">z_q:</span>   <span className={cn(stock.zQ! > 0 ? "text-positive" : "text-negative")}>{fmtZ(stock.zQ)}</span></p>
+                              </div>
+                              {/* Sleeves */}
+                              <div className="space-y-1">
+                                <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Sleeves</p>
+                                <p><span className="text-muted-foreground">S (return):</span> <span className={cn(stock.sSleeve! > 0 ? "text-positive" : "text-negative")}>{fmtZ(stock.sSleeve)}</span></p>
+                                <p><span className="text-muted-foreground">T (trend):</span>  <span className={cn(stock.tSleeve! > 0 ? "text-positive" : "text-negative")}>{fmtZ(stock.tSleeve)}</span></p>
+                                <p><span className="text-muted-foreground">Q (quality):</span><span className={cn(stock.qSleeve! > 0 ? "text-positive" : "text-negative")}>{fmtZ(stock.qSleeve)}</span></p>
+                              </div>
+                              {/* Final alpha */}
+                              <div className="space-y-1">
+                                <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Composite</p>
+                                <p><span className="text-muted-foreground">Alpha:</span> <span className="text-primary font-bold">{fmtZ(stock.alpha)}</span></p>
+                                <p><span className="text-muted-foreground">Rank:</span>  <span className="text-foreground">#{stock.rank}</span></p>
+                                <p><span className="text-muted-foreground">Pct:</span>   <span className="text-foreground">{stock.percentile != null ? stock.percentile.toFixed(1) + "%" : "—"}</span></p>
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })()}
+                    </React.Fragment>
                   );
                 })}
 

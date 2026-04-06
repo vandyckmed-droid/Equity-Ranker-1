@@ -1,0 +1,90 @@
+PATCH — REDEFINE ALPHA COMPOSITE USING S / T / Q SLEEVES
+
+Make a targeted patch to the current framework. Keep this low-cost, transparent, and deterministic. Do not refactor unrelated systems. Preserve the existing pipeline, UI, and data model unless needed for this patch.
+
+GOAL
+Replace the current alpha composite construction with a sleeve-based alpha built from:
+- s6
+- s12
+- t6
+- t12
+- q  (existing quality composite)
+
+CONSTRUCTION PRINCIPLES
+1. Each atomic input must be standardized individually first.
+2. The short/intermediate and long horizon components for S and T must be combined 50/50 for simplicity.
+3. Quality should remain a minority sleeve so alpha stays momentum-led.
+4. Final alpha must remain fully auditable in the UI and methodology.
+
+FORMULAS
+
+Atomic standardization:
+- z_s6  = Z(s6)
+- z_s12 = Z(s12)
+- z_t6  = Z(t6)
+- z_t12 = Z(t12)
+- z_q   = Z(q)
+
+Sleeves:
+- S = 0.5 * z_s6  + 0.5 * z_s12
+- T = 0.5 * z_t6  + 0.5 * z_t12
+- Q = z_q
+
+Final alpha:
+- alpha = 0.4 * S + 0.4 * T + 0.2 * Q
+
+Equivalent expanded form:
+- alpha = 0.2*z_s6 + 0.2*z_s12 + 0.2*z_t6 + 0.2*z_t12 + 0.2*z_q
+
+IMPLEMENTATION RULES
+1. Do not average raw s6/s12 or raw t6/t12 directly before standardization.
+   Standardize each atomic input first, then combine.
+2. q may remain internally computed however it currently is, but the alpha framework should use z_q at the final cross section.
+3. Preserve existing winsorization and cross-sectional standardization conventions already used by the framework unless they directly conflict with this patch.
+4. Keep alpha computed on the intended broad comparison universe, not re-based by temporary display filters.
+5. Keep the result deterministic and numerically stable.
+6. If any component is missing:
+   - Prefer existing null-handling conventions.
+   - If fallback logic is required, use the minimum change approach and document it clearly in methodology/human notes.
+
+AUDIT / TRANSPARENCY REQUIREMENTS
+Add or update audit visibility so the user can inspect:
+- s6
+- s12
+- t6
+- t12
+- q
+- z_s6
+- z_s12
+- z_t6
+- z_t12
+- z_q
+- S sleeve
+- T sleeve
+- Q sleeve
+- final alpha
+
+These do not all need to be exposed as permanent table columns if that would clutter the UI, but they must be visible somewhere lightweight and auditable (existing explain modal, audit drawer, details panel, etc.).
+
+METHODOLOGY / LABELING
+Update methodology and human-readable notes so they clearly state:
+- S is the return-strength sleeve from z-scored s6 and s12
+- T is the trend-quality sleeve from z-scored t6 and t12
+- Q is the z-scored quality composite
+- Alpha is a weighted composite: 40% S, 40% T, 20% Q
+- Atomic parts are z-scored first, then combined
+
+UI / PRESENTATION
+- Keep the displayed label as “Alpha”
+- Preserve current rank / percentile / z / raw display modes if they already exist
+- Do not add heavy new controls for this patch
+- Keep mobile usability intact
+
+ACCEPTANCE CRITERIA
+1. Alpha now follows:
+   alpha = 0.4*(0.5*z_s6 + 0.5*z_s12) + 0.4*(0.5*z_t6 + 0.5*z_t12) + 0.2*z_q
+2. s and t sleeves are built from individually z-scored horizon components, not raw averages.
+3. Alpha remains momentum-led, with quality as a smaller stabilizing sleeve.
+4. The user can audit atomic inputs, sleeve values, and final alpha.
+5. Existing unrelated functionality remains unchanged.
+6. The patch stays simple, low-cost, and easy to maintain.

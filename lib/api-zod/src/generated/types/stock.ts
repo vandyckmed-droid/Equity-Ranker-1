@@ -46,6 +46,22 @@ export interface Stock {
   /** @nullable */
   zQuality?: number | null;
   /** @nullable */
+  zS6?: number | null;
+  /** @nullable */
+  zS12?: number | null;
+  /** @nullable */
+  zT6?: number | null;
+  /** @nullable */
+  zT12?: number | null;
+  /** @nullable */
+  zQ?: number | null;
+  /** @nullable */
+  sSleeve?: number | null;
+  /** @nullable */
+  tSleeve?: number | null;
+  /** @nullable */
+  qSleeve?: number | null;
+  /** @nullable */
   alpha?: number | null;
   /** @nullable */
   rank?: number | null;

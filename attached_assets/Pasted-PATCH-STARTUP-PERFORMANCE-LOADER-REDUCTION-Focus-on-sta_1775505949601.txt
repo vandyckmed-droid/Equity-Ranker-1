@@ -1,0 +1,100 @@
+PATCH — STARTUP PERFORMANCE / LOADER REDUCTION
+
+Focus on startup behavior only. Do not change factor methodology, ranking math, portfolio logic, or visual design except where needed to improve loading UX.
+
+Goal:
+Make app startup feel much faster and show the main interface sooner, while preserving full data integrity and transparency.
+
+Required changes:
+
+1) LAST-SUCCESSFUL-SNAPSHOT STARTUP
+- Persist the last successful full dataset locally on device/browser storage:
+  - security master / metadata
+  - latest computed rows
+  - timestamps
+  - current settings
+  - current universe/filter state
+- On startup, if a valid cached snapshot exists, render the main table immediately from cache instead of blocking on a fresh full rebuild.
+- Show a small visible freshness indicator such as:
+  - “Using cached data”
+  - “Last updated: <time>”
+  - “Refreshing in background…”
+- Do not force the large blocking loader if usable cached data exists.
+
+2) BACKGROUND REFRESH INSTEAD OF BLOCKING REFRESH
+- After cached render, refresh metadata/data in the background.
+- Replace the current full-screen startup blocker with a non-blocking status indicator whenever possible.
+- Only use the full blocking loader on true cold start:
+  - no cache
+  - corrupted cache
+  - first run
+  - incompatible schema version
+
+3) CACHE SECURITY MASTER / METADATA AGGRESSIVELY
+- Security metadata and static reference data should not be re-fetched on every startup unless stale or invalid.
+- Add TTL/versioning:
+  - metadata cache survives app reopen
+  - only refresh when expired, missing, or schema/version changed
+- If metadata is already present and valid, skip that startup phase entirely.
+
+4) SEPARATE APP SHELL FROM ENGINE READINESS
+- Load app shell immediately:
+  - header
+  - controls
+  - current settings
+  - last-ranked table snapshot
+- Do not make the user wait at a splash screen for the quant engine unless there is truly no usable cached state.
+
+5) AVOID REDUNDANT RECOMPUTE / REFETCH
+- Do not recompute full rankings on startup if underlying data snapshot has not changed.
+- Memoize derived calculations where appropriate.
+- Prevent duplicate fetches triggered by:
+  - mount + focus
+  - mount + route change
+  - repeated query invalidation
+  - StrictMode double effects
+- Audit startup network calls and remove redundant calls.
+
+6) ADD STALE-WHILE-REVALIDATE BEHAVIOR
+- Preferred startup order:
+  a) render cached snapshot instantly
+  b) show current UI as usable
+  c) refresh in background
+  d) atomically replace rows when new data is ready
+- Avoid flashing empty state, half-built rows, or repeated loader transitions.
+
+7) MANUAL REFRESH CONTROL
+- Add or preserve a manual refresh action.
+- User should be able to choose to refresh explicitly.
+- Startup should not always force a complete heavy refresh if cached data is already present.
+
+8) PROGRESS UX CLEANUP
+- If a blocking loader is still required on cold start, simplify it:
+  - show which phase is running
+  - show real progress only
+  - avoid misleading counters
+- If possible, reduce how often the “Initializing Quant Engine” screen appears.
+- Prefer a compact banner/spinner over a full-screen blocking card once cached data is available.
+
+9) DO NOT DEGRADE CORRECTNESS
+- No fake data.
+- No placeholder rankings.
+- Cached data must be clearly marked with timestamp.
+- New data should replace old data only after a successful full refresh.
+
+10) OUTPUT / DOCUMENTATION
+- Update human notes and AI notes to describe:
+  - startup cache strategy
+  - cold start vs warm start behavior
+  - when blocking loader appears
+  - refresh rules
+  - data freshness labeling
+
+Implementation priority:
+1. Instant render from last successful cached snapshot
+2. Background refresh
+3. Cache metadata/security master with TTL/versioning
+4. Remove duplicate startup fetches/recomputes
+5. Improve loader UX
+
+Do not broaden scope beyond startup performance and startup UX.
