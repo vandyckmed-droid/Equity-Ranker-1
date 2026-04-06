@@ -1,0 +1,113 @@
+PATCH SET — COLUMN CONTROL + PERFORMANCE + CORRELATION UX + METHODOLOGY
+
+This is a cheap-build patch set. Keep solutions simple, robust, mobile-friendly, and low-maintenance. Do not add heavy libraries or over-engineered abstractions. Preserve current functionality unless explicitly changed below.
+
+CORE BUILD PRINCIPLES
+- transparency first
+- deterministic and auditable math
+- simple institutional-style methodology
+- live Yahoo data from the start, no fake/mock primary experience
+- spreadsheet-style ranking workflow in an app form
+- mobile-friendly and fast to scan
+- user customization where it adds clear value
+- ranking first, portfolio second
+- diversification should be visible, not hidden
+- cheap to build, cheap to maintain
+
+PATCH 1 — COLUMN VISIBILITY + COLUMN ORDER
+Implement a low-cost column management system for the main ranking table only.
+
+Requirements:
+1. Add a “Columns” control that opens a simple modal/drawer.
+2. User must be able to:
+   - turn columns on/off
+   - change column order
+3. Keep it cheap:
+   - do NOT use drag-and-drop
+   - use simple up/down controls or equivalent lightweight ordering controls
+   - persist settings in localStorage
+4. Apply only to the main ranking table.
+5. Keep sticky ticker behavior intact.
+6. Do not break sorting, filtering, flags, ranking, or portfolio logic.
+
+PATCH 2 — LOAD TIME / OPENING PERFORMANCE
+The app appears to fetch or load more often than necessary on initial open. Reduce unnecessary loading and refetching.
+
+Requirements:
+- audit initial page load and identify unnecessary refetches/recomputations
+- avoid re-fetching data on open unless data is stale or the user explicitly refreshes
+- cache what is reasonable for a cheap build
+- preserve correctness, but bias toward faster opening and fewer redundant fetches
+- reduce repeated loading/spinner behavior if the data already exists locally and is still valid
+- do not introduce a complex caching framework; keep this simple and maintainable
+- update notes/docs so refresh behavior is clear and auditable
+
+Preferred cheap-build approach:
+- use simple local cache + timestamp / staleness logic
+- avoid duplicate fetches triggered by multiple components
+- avoid unnecessary recomputation on every open/render
+
+PATCH 3 — CORRELATION GROUP COLUMN SORTING
+The sort behavior for the correlation number assignment column is not working correctly.
+
+Expected behavior:
+- tapping the header should sort properly by the correlation group assignment
+- values like c0, c1, c2, c10, etc. must sort numerically by the suffix, not lexicographically
+- ascending and descending should both work
+- null/blank/unassigned values should sort consistently and predictably
+
+Implement this cleanly and minimally.
+
+PATCH 4 — ROW COLOR CODING PRIORITY
+The row color coding for correlation group assignment is useful, but it is being overridden by another row color code that appears to be tied to top-ranked alpha names.
+
+Change this behavior:
+- remove row color coding based on alpha rank / top 20 alpha / similar alpha-based row highlighting
+- preserve color coding for correlation group assignment
+- correlation group color should be the row-level color priority
+- do not make the table visually noisy
+- keep the result clear, readable, and mobile-friendly
+
+If there are still alpha-related indicators the app needs, use a lighter-weight alternative such as a small badge/chip/icon/text marker instead of full row background coloring. But do not use row color for alpha.
+
+PATCH 5 — METHODOLOGY / DOCUMENTATION UPDATE
+Update the human-facing methodology and AI notes to clearly define and distinguish the following terms in simple mathematical language:
+
+- variance
+- covariance
+- correlation
+- covariance matrix
+- correlation matrix
+- portfolio variance
+
+Requirements:
+- explain that variance is for a single asset’s dispersion
+- explain that covariance describes how two assets move together in raw units
+- explain that correlation is normalized covariance and ranges from -1 to +1
+- explain that variance is a special case of covariance: Var(X) = Cov(X, X)
+- explain that portfolio variance is computed from the covariance matrix:
+  portfolio variance = w'Σw
+- explain that correlation matrix is useful for similarity, clustering, and “names that move together”
+- explain that correlation matrix alone is not sufficient for true portfolio variance unless combined with asset volatilities
+- keep this explanation concise, plain, auditable, and math-focused rather than code-focused
+
+IMPORTANT IMPLEMENTATION CONSTRAINTS
+- cheap build only
+- no drag-and-drop libraries
+- no major UI framework changes
+- no heavy state-management rewrite unless truly necessary
+- no fake data
+- no unnecessary abstraction
+- prefer minimal targeted patches over redesign
+
+QA / ACCEPTANCE CHECKS
+1. User can show/hide columns and change order from a simple Columns control.
+2. Column settings persist across reloads.
+3. Initial open is faster and does not refetch/load more often than needed.
+4. Correlation group column sorts correctly by c0, c1, c2 … c10 numerically.
+5. Correlation group row color is visible and no longer overridden by alpha-based row coloring.
+6. Alpha-based row highlighting is removed.
+7. Methodology and AI notes clearly explain variance/covariance/correlation and portfolio variance math.
+8. Existing ranking, filtering, portfolio, and audit functionality still works.
+
+Deliver the implementation directly and also update the relevant human notes and AI notes to reflect all of the above changes.

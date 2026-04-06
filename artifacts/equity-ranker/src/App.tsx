@@ -9,7 +9,15 @@ import PortfolioPage from "@/pages/PortfolioPage";
 import MethodologyPage from "@/pages/MethodologyPage";
 import NotFound from "@/pages/not-found";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      retry: 1,
+    },
+  },
+});
 
 function Router() {
   return (
