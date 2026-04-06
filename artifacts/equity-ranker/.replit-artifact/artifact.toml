@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Equity Ranker"
+version = "1.0.0"
+id = "artifacts/equity-ranker"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24321
+
+[services.development]
+run = "pnpm --filter @workspace/equity-ranker run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/equity-ranker", "run", "build" ]
+publicDir = "artifacts/equity-ranker/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24321"
+BASE_PATH = "/"

@@ -3,13 +3,17 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Equity Ranking and Risk API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: equity
+    description: Equity ranking and screening
+  - name: portfolio
+    description: Portfolio construction and risk
 paths:
   /healthz:
     get:
@@ -24,6 +28,136 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /equity/status:
+    get:
+      operationId: getDataStatus
+      tags: [equity]
+      summary: Get data loading status
+      description: Returns current status of data loading (loading, ready, error)
+      responses:
+        "200":
+          description: Status response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataStatus"
+
+  /equity/rankings:
+    get:
+      operationId: getRankings
+      tags: [equity]
+      summary: Get ranked equity universe
+      description: Returns ranked stocks with all factor scores, alpha, cluster labels
+      parameters:
+        - name: volAdjust
+          in: query
+          schema:
+            type: boolean
+          description: Apply Sharpe-style vol adjustment to momentum
+        - name: useQuality
+          in: query
+          schema:
+            type: boolean
+          description: Include quality factor in alpha
+        - name: useTstats
+          in: query
+          schema:
+            type: boolean
+          description: Include OLS t-stats
+        - name: w6
+          in: query
+          schema:
+            type: number
+          description: Weight on 6-month momentum (default 0.4)
+        - name: w12
+          in: query
+          schema:
+            type: number
+          description: Weight on 12-month momentum (default 0.4)
+        - name: wQuality
+          in: query
+          schema:
+            type: number
+          description: Weight on quality factor (default 0.2)
+        - name: volFloor
+          in: query
+          schema:
+            type: number
+          description: Volatility floor (default 0.05)
+        - name: winsorP
+          in: query
+          schema:
+            type: number
+          description: Winsorization percentile (default 2)
+        - name: clusterN
+          in: query
+          schema:
+            type: integer
+          description: Top N stocks to cluster (default 100)
+        - name: clusterK
+          in: query
+          schema:
+            type: integer
+          description: Number of clusters (default 10)
+        - name: clusterLookback
+          in: query
+          schema:
+            type: integer
+          description: Lookback days for correlation clustering (default 252)
+      responses:
+        "200":
+          description: Ranked stock list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RankingsResponse"
+        "202":
+          description: Data is still loading
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataStatus"
+
+  /equity/universe-filters:
+    post:
+      operationId: applyUniverseFilters
+      tags: [equity]
+      summary: Apply custom universe filters
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UniverseFilters"
+      responses:
+        "200":
+          description: Filtered universe rankings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RankingsResponse"
+
+  /portfolio/risk:
+    post:
+      operationId: computePortfolioRisk
+      tags: [portfolio]
+      summary: Compute portfolio risk metrics
+      description: Computes covariance matrix, portfolio vol, avg correlation, cluster distribution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PortfolioRiskRequest"
+      responses:
+        "200":
+          description: Portfolio risk metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortfolioRiskResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +168,213 @@ components:
       required:
         - status
 
+    DataStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [loading, ready, error]
+        message:
+          type: string
+        progress:
+          type: ["number", "null"]
+        total:
+          type: ["integer", "null"]
+        loaded:
+          type: ["integer", "null"]
+        cachedAt:
+          type: ["string", "null"]
+      required:
+        - status
+        - message
+
+    Stock:
+      type: object
+      properties:
+        ticker:
+          type: string
+        name:
+          type: string
+        sector:
+          type: ["string", "null"]
+        industry:
+          type: ["string", "null"]
+        price:
+          type: ["number", "null"]
+        marketCap:
+          type: ["number", "null"]
+        adv:
+          type: ["number", "null"]
+        m6:
+          type: ["number", "null"]
+        m12:
+          type: ["number", "null"]
+        r1:
+          type: ["number", "null"]
+        sigma6:
+          type: ["number", "null"]
+        sigma12:
+          type: ["number", "null"]
+        s6:
+          type: ["number", "null"]
+        s12:
+          type: ["number", "null"]
+        tstat6:
+          type: ["number", "null"]
+        tstat12:
+          type: ["number", "null"]
+        quality:
+          type: ["number", "null"]
+        zM6:
+          type: ["number", "null"]
+        zM12:
+          type: ["number", "null"]
+        zQuality:
+          type: ["number", "null"]
+        alpha:
+          type: ["number", "null"]
+        rank:
+          type: ["integer", "null"]
+        percentile:
+          type: ["number", "null"]
+        cluster:
+          type: ["integer", "null"]
+      required:
+        - ticker
+        - name
+
+    RankingsResponse:
+      type: object
+      properties:
+        stocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Stock"
+        total:
+          type: integer
+        cachedAt:
+          type: ["string", "null"]
+        clusterCount:
+          type: integer
+      required:
+        - stocks
+        - total
+        - clusterCount
+
+    UniverseFilters:
+      type: object
+      properties:
+        minPrice:
+          type: number
+        minAdv:
+          type: number
+        minMarketCap:
+          type: number
+        volAdjust:
+          type: boolean
+        useQuality:
+          type: boolean
+        useTstats:
+          type: boolean
+        w6:
+          type: number
+        w12:
+          type: number
+        wQuality:
+          type: number
+        volFloor:
+          type: number
+        winsorP:
+          type: number
+        clusterN:
+          type: integer
+        clusterK:
+          type: integer
+        clusterLookback:
+          type: integer
+
+    PortfolioHolding:
+      type: object
+      properties:
+        ticker:
+          type: string
+        weight:
+          type: number
+      required:
+        - ticker
+        - weight
+
+    PortfolioRiskRequest:
+      type: object
+      properties:
+        holdings:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortfolioHolding"
+        lookback:
+          type: integer
+          description: Days of history for covariance (60, 126, or 252)
+        weightingMethod:
+          type: string
+          enum: [equal, inverse_vol, manual]
+      required:
+        - holdings
+        - lookback
+        - weightingMethod
+
+    PortfolioHoldingRisk:
+      type: object
+      properties:
+        ticker:
+          type: string
+        weight:
+          type: number
+        vol:
+          type: number
+        cluster:
+          type: ["integer", "null"]
+      required:
+        - ticker
+        - weight
+        - vol
+
+    ClusterCount:
+      type: object
+      properties:
+        cluster:
+          type: integer
+        count:
+          type: integer
+        weight:
+          type: number
+      required:
+        - cluster
+        - count
+        - weight
+
+    PortfolioRiskResponse:
+      type: object
+      properties:
+        portfolioVol:
+          type: number
+        avgCorrelation:
+          type: number
+        holdings:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortfolioHoldingRisk"
+        clusterDistribution:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClusterCount"
+        largestWeight:
+          type: number
+        numHoldings:
+          type: integer
+      required:
+        - portfolioVol
+        - avgCorrelation
+        - holdings
+        - clusterDistribution
+        - largestWeight
+        - numHoldings

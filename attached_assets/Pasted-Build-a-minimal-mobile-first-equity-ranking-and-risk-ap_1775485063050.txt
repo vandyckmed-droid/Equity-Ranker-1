@@ -1,0 +1,213 @@
+Build a minimal, mobile-first equity ranking and risk app. Optimize for LOW AGENT FEES: minimal scope, minimal code, minimal screens, and no unnecessary features. The app must work immediately using real market data (no mock or placeholder data).
+
+DATA SOURCE (REQUIRED)
+- Use Yahoo Finance as the default data source
+- Pull real adjusted daily price data on first run
+- Do not use fake, simulated, or placeholder data
+- Cache results for 6–12 hours to reduce repeated fetching
+
+GOAL
+Deliver a simple system that:
+1. ranks ~1000 large, liquid, retail-trader-friendly stocks using a transparent cross-sectional alpha
+2. displays results in a sortable mobile table (tap column headers to sort)
+3. allows manual add/remove of names into a portfolio basket
+4. computes portfolio risk (especially expected portfolio volatility)
+5. provides simple weighting (equal weight, inverse volatility, manual)
+6. groups top names into clusters of “stocks that move together” for diversification
+
+UNIVERSE
+Construct a universe of ~1000 large, liquid, retail-trader-friendly stocks.
+
+Filters:
+- common stocks only
+- price ≥ 5
+- average daily dollar volume ≥ $10M
+- market cap ≥ $1B
+- ≥252 trading days history
+
+Exclude:
+- ETFs, CEFs, BDCs
+- LPs/MLPs
+- SPACs
+- preferreds
+- warrants/rights/units
+- OTC/pink sheet securities
+- illiquid or structurally complex securities
+
+DATA FIELDS
+- adjusted close (daily, ≥252 days)
+- market cap
+- average daily dollar volume
+- sector
+- industry (if available)
+- quality inputs (ROE/ROA, margins, leverage)
+
+CORE FACTORS
+
+Momentum (log):
+- r1  = ln(P_t / P_{t-21})
+- r6  = ln(P_t / P_{t-126})
+- r12 = ln(P_t / P_{t-252})
+
+Skip-month:
+- m6  = r6 - r1
+- m12 = r12 - r1
+
+Volatility adjustment (optional, Sharpe-like):
+- sigma6  = std(daily log returns, 126d) * sqrt(252)
+- sigma12 = std(daily log returns, 252d) * sqrt(252)
+
+Volatility floor:
+- user adjustable (default 5%, allow higher)
+
+If enabled:
+- s6  = m6 / sigma6
+- s12 = m12 / sigma12
+
+OLS t-stats (optional):
+- tstat6 (126d regression on ln price vs time)
+- tstat12 (252d regression)
+
+Quality composite:
+- profitability (ROE → ROA fallback)
+- margin (gross → operating fallback)
+- leverage (lower is better)
+
+Process:
+- orient → winsorize → z-score → average
+
+STANDARDIZATION
+Across full universe:
+- winsorize (default P2/P98)
+- z-score all factors
+- combine only standardized values
+
+ALPHA
+Weighted sum of z-scored factors.
+
+Default:
+- 0.4 × Z(6–1)
+- 0.4 × Z(12–1)
+- 0.2 × Z(Quality)
+
+Use s6/s12 if vol-adjustment is on, otherwise m6/m12.
+
+Allow:
+- user-defined weights
+- display toggle: z-score or integer rank
+
+MAIN TABLE
+Mobile-friendly sortable table showing:
+- ticker, name
+- sector / industry
+- price, market cap, ADV
+- m6, m12
+- sigma6, sigma12
+- s6, s12 (if enabled)
+- tstat6, tstat12 (if enabled)
+- quality
+- z-scores
+- alpha, rank, percentile
+- cluster label
+
+Requirements:
+- tap column header to sort
+- horizontal scroll
+- selectable columns
+- compact default view
+
+VISUAL
+- plain, mobile-first
+- minimal styling
+- targeted color only:
+  - highlight top-ranked names
+  - subtle color per cluster
+
+PORTFOLIO BASKET
+Simple editable list:
+- add/remove names
+- manual weights
+- clear
+- optional seed from top N
+
+WEIGHTING
+- equal weight
+- inverse volatility (user-selected lookback)
+- manual
+
+Inverse vol:
+- w_i ∝ 1 / vol_i
+- normalize to 100%
+
+PORTFOLIO RISK
+Using covariance of daily log returns (lookback: 60/126/252):
+
+Compute:
+- covariance matrix
+- correlation matrix
+- individual volatilities
+- portfolio volatility = sqrt(w'Σw)
+- average pairwise correlation
+- number of holdings
+- largest weight
+
+CLUSTER GROUPING (DIVERSIFICATION)
+Apply clustering to top N stocks by alpha (default N = 100):
+
+- Use correlation of daily log returns
+- distance = 1 - correlation
+- group into K clusters (default 8–12, user adjustable)
+
+Output:
+- cluster label per stock
+- show in table
+- color-coded lightly
+
+Portfolio integration:
+- show cluster distribution of portfolio
+- highlight concentration
+
+CONTROLS
+- factor toggles (vol-adjust, t-stats, quality)
+- factor weights
+- volatility floor (adjustable upward)
+- winsorization level
+- universe filters
+- clustering: N, K, lookback
+- portfolio settings (weighting, lookback)
+- display toggle (z-score vs rank)
+
+TRANSPARENCY
+Include simple methodology panel with formulas:
+- returns
+- volatility adjustment
+- t-stats
+- quality
+- z-scoring
+- alpha
+- inverse-vol weights
+- portfolio volatility
+
+ARCHITECTURE
+Keep minimal:
+- Yahoo data loader
+- factor engine
+- standardization
+- alpha calculation
+- table UI
+- portfolio manager
+- covariance/risk module
+- clustering module
+
+FINAL
+A simple, ready-to-run app that:
+- pulls real data from Yahoo on first load
+- ranks ~1000 stocks
+- displays a sortable mobile table
+- allows manual portfolio construction
+- computes portfolio volatility using covariance
+- provides inverse-vol weighting
+- groups top names into clusters for diversification
+- caches data to reduce cost
+
+Keep implementation small, direct, and low-compute to minimize agent fees. No mock data. No unnecessary features.
