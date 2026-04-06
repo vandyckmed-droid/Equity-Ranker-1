@@ -165,21 +165,21 @@ export default function MainPage() {
   if (!isReady) {
     const progress = statusData?.progress ? statusData.progress * 100 : 0;
     return (
-      <div className="flex flex-col items-center justify-center h-full p-8 text-center space-y-6">
-        <div className="max-w-md w-full space-y-4 bg-card p-8 rounded-xl border border-border shadow-lg">
-          <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
-            <RefreshCw className="w-6 h-6 text-primary animate-spin" />
+      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-3rem)] lg:min-h-screen p-4 text-center">
+        <div className="w-full max-w-sm space-y-4 bg-card p-6 rounded-xl border border-border shadow-lg">
+          <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center mx-auto">
+            <RefreshCw className="w-5 h-5 text-primary animate-spin" />
           </div>
-          <h2 className="text-2xl font-bold tracking-tight text-foreground">Initializing Quant Engine</h2>
-          <p className="text-muted-foreground text-sm">
+          <h2 className="text-xl font-bold tracking-tight text-foreground">Initializing Quant Engine</h2>
+          <p className="text-muted-foreground text-sm leading-relaxed">
             {statusData?.message || "Fetching price data from Yahoo Finance..."}
           </p>
           
-          <div className="space-y-2 pt-4">
+          <div className="space-y-2 pt-2">
             <Progress value={progress} className="h-2" />
             <div className="flex justify-between text-xs text-muted-foreground font-mono">
               <span>{formatNumber(progress, 0)}%</span>
-              <span>{statusData?.loaded || 0} / {statusData?.total || '~1000'} equities</span>
+              <span>{statusData?.loaded || 0} / {statusData?.total || '~700'} equities</span>
             </div>
           </div>
         </div>
@@ -190,42 +190,48 @@ export default function MainPage() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header & Controls */}
-      <div className="flex-none p-4 md:p-6 border-b border-border bg-card/50 backdrop-blur sticky top-0 z-20">
-        <div className="flex flex-col md:flex-row justify-between gap-4 mb-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Universe Rankings</h1>
-            <p className="text-sm text-muted-foreground flex items-center gap-2 mt-1">
-              <span>{rankingsResult?.total || 0} Equities</span>
-              <span>&bull;</span>
-              <span>Updated: {rankingsResult?.cachedAt ? new Date(rankingsResult.cachedAt).toLocaleString() : 'Just now'}</span>
-              {isRankingsLoading && <Loader2 className="w-3 h-3 animate-spin ml-2" />}
+      <div className="flex-none px-3 py-3 md:px-6 md:py-4 border-b border-border bg-card/50 backdrop-blur sticky top-0 z-20">
+        <div className="flex items-start justify-between gap-2 mb-3">
+          <div className="min-w-0">
+            <h1 className="text-lg md:text-2xl font-bold tracking-tight leading-tight">Universe Rankings</h1>
+            <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-1.5 mt-0.5">
+              <span>{rankingsResult?.total || 0} equities</span>
+              {rankingsResult?.cachedAt && (
+                <>
+                  <span>&bull;</span>
+                  <span className="truncate hidden sm:inline">
+                    Updated: {new Date(rankingsResult.cachedAt).toLocaleString()}
+                  </span>
+                </>
+              )}
+              {isRankingsLoading && <Loader2 className="w-3 h-3 animate-spin" />}
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input 
-                placeholder="Search ticker or name..." 
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 w-[250px] bg-background/50 border-border/50"
-              />
-            </div>
-            <Collapsible open={controlsOpen} onOpenChange={setControlsOpen}>
-              <CollapsibleTrigger asChild>
-                <Button variant={controlsOpen ? "secondary" : "outline"} size="sm" className="gap-2">
-                  <Settings2 className="w-4 h-4" />
-                  Methodology Controls
-                  {controlsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                </Button>
-              </CollapsibleTrigger>
-            </Collapsible>
-          </div>
+          <Collapsible open={controlsOpen} onOpenChange={setControlsOpen}>
+            <CollapsibleTrigger asChild>
+              <Button variant={controlsOpen ? "secondary" : "outline"} size="sm" className="gap-1.5 shrink-0 h-8 px-2.5">
+                <Settings2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Controls</span>
+                {controlsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              </Button>
+            </CollapsibleTrigger>
+          </Collapsible>
+        </div>
+
+        {/* Search bar — full width on mobile */}
+        <div className="relative">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+          <Input 
+            placeholder="Search ticker or name…" 
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9 w-full bg-background/50 border-border/50 h-9"
+          />
         </div>
 
         {/* Collapsible Controls Panel */}
         {controlsOpen && (
-          <div className="bg-background rounded-lg border border-border p-4 mb-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="bg-background rounded-lg border border-border p-4 mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
             <div className="space-y-4">
               <h3 className="text-sm font-semibold text-primary">Factor Weights</h3>
               <div className="space-y-3">

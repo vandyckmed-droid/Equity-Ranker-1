@@ -59,20 +59,20 @@ export default function PortfolioPage() {
 
   if (holdings.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full p-8 text-center space-y-6 bg-background">
-        <div className="max-w-md w-full space-y-4 bg-card/50 p-10 rounded-xl border border-border border-dashed">
-          <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mx-auto mb-2 text-muted-foreground">
-            <Calculator className="w-8 h-8" />
+      <div className="flex flex-col items-center justify-center min-h-full p-4 text-center">
+        <div className="w-full max-w-sm space-y-4 bg-card/50 p-6 rounded-xl border border-border border-dashed">
+          <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto text-muted-foreground">
+            <Calculator className="w-6 h-6" />
           </div>
           <h2 className="text-xl font-bold text-foreground">Empty Portfolio</h2>
           <p className="text-muted-foreground text-sm">
             Add equities from the universe rankings to construct a basket and analyze risk metrics.
           </p>
-          <div className="pt-4 flex flex-col gap-3">
+          <div className="pt-2 flex flex-col gap-3">
             <Link href="/">
               <Button className="w-full">Go to Rankings</Button>
             </Link>
-            <div className="flex items-center gap-2 mt-4 text-sm text-muted-foreground px-2">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground px-2">
               <span className="h-px bg-border flex-1"></span>
               <span>OR</span>
               <span className="h-px bg-border flex-1"></span>
@@ -90,7 +90,7 @@ export default function PortfolioPage() {
               </Button>
             </div>
             {allStocks.length === 0 && (
-              <p className="text-xs text-amber-500/80 flex items-center justify-center gap-1 mt-2">
+              <p className="text-xs text-amber-500/80 flex items-center justify-center gap-1">
                 <Info className="w-3 h-3" /> Rankings not loaded yet
               </p>
             )}
@@ -104,18 +104,18 @@ export default function PortfolioPage() {
   const isComputing = computeRisk.isPending;
 
   return (
-    <div className="p-6 max-w-7xl mx-auto flex gap-6 h-full overflow-hidden flex-col lg:flex-row">
+    <div className="p-3 md:p-6 max-w-7xl mx-auto flex gap-4 md:gap-6 h-full overflow-hidden flex-col lg:flex-row">
       
       {/* LEFT PANEL: Holdings & Config */}
-      <div className="w-full lg:w-[400px] flex flex-col gap-4 flex-shrink-0 h-full overflow-hidden">
+      <div className="w-full lg:w-[380px] flex flex-col gap-3 flex-shrink-0 lg:h-full lg:overflow-hidden">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Portfolio Basket</h1>
+          <h1 className="text-lg md:text-2xl font-bold tracking-tight text-foreground">Portfolio Basket</h1>
           <Button variant="ghost" size="sm" onClick={clearHoldings} className="text-muted-foreground hover:text-destructive">
             Clear All
           </Button>
         </div>
 
-        <Card className="flex-1 flex flex-col overflow-hidden bg-card border-border">
+        <Card className="lg:flex-1 flex flex-col lg:overflow-hidden bg-card border-border min-h-0">
           <CardHeader className="p-4 pb-2 border-b border-border/50 bg-muted/20">
             <Tabs value={weightingMethod} onValueChange={(v) => setWeightingMethod(v as PortfolioRiskRequestWeightingMethod)} className="w-full">
               <TabsList className="grid w-full grid-cols-3">
@@ -214,53 +214,53 @@ export default function PortfolioPage() {
       </div>
 
       {/* RIGHT PANEL: Risk Metrics */}
-      <div className="flex-1 overflow-hidden h-full flex flex-col gap-4">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground invisible">Results</h2>
+      <div className="flex-1 lg:overflow-hidden lg:h-full flex flex-col gap-3">
+        <h2 className="text-base font-semibold text-muted-foreground hidden lg:block">Risk Analysis</h2>
         
         {!riskData ? (
-          <div className="flex-1 flex items-center justify-center border border-border border-dashed rounded-xl bg-card/20 text-muted-foreground">
+          <div className="flex-1 flex items-center justify-center border border-border border-dashed rounded-xl bg-card/20 text-muted-foreground min-h-[120px] lg:min-h-0">
             {isComputing ? (
-              <div className="flex flex-col items-center gap-4">
-                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                <p>Generating covariance matrix and computing risk...</p>
+              <div className="flex flex-col items-center gap-3 p-6 text-center">
+                <Loader2 className="w-7 h-7 animate-spin text-primary" />
+                <p className="text-sm">Generating covariance matrix and computing risk…</p>
               </div>
             ) : (
-              <p>Configure portfolio and click Compute to view risk metrics.</p>
+              <p className="text-sm p-6 text-center">Configure portfolio and click Compute to view risk metrics.</p>
             )}
           </div>
         ) : (
-          <div className="flex-1 overflow-auto space-y-6 pr-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="flex-1 overflow-auto space-y-4 lg:pr-2">
+            <div className="grid grid-cols-2 gap-3">
               <Card className="bg-card">
-                <CardHeader className="pb-2 p-4">
-                  <CardTitle className="text-xs text-muted-foreground uppercase tracking-wider font-normal">Portfolio Volatility</CardTitle>
+                <CardHeader className="pb-1 p-3">
+                  <CardTitle className="text-[10px] text-muted-foreground uppercase tracking-wider font-normal">Portfolio Vol</CardTitle>
                 </CardHeader>
-                <CardContent className="p-4 pt-0">
-                  <div className="text-3xl font-bold text-foreground font-mono">{formatPercent(riskData.portfolioVol, 2)}</div>
+                <CardContent className="p-3 pt-0">
+                  <div className="text-2xl font-bold text-foreground font-mono">{formatPercent(riskData.portfolioVol, 2)}</div>
                 </CardContent>
               </Card>
               <Card className="bg-card">
-                <CardHeader className="pb-2 p-4">
-                  <CardTitle className="text-xs text-muted-foreground uppercase tracking-wider font-normal">Avg Correlation</CardTitle>
+                <CardHeader className="pb-1 p-3">
+                  <CardTitle className="text-[10px] text-muted-foreground uppercase tracking-wider font-normal">Avg Correlation</CardTitle>
                 </CardHeader>
-                <CardContent className="p-4 pt-0">
-                  <div className="text-3xl font-bold text-foreground font-mono">{formatNumber(riskData.avgCorrelation, 2)}</div>
+                <CardContent className="p-3 pt-0">
+                  <div className="text-2xl font-bold text-foreground font-mono">{formatNumber(riskData.avgCorrelation, 2)}</div>
                 </CardContent>
               </Card>
               <Card className="bg-card">
-                <CardHeader className="pb-2 p-4">
-                  <CardTitle className="text-xs text-muted-foreground uppercase tracking-wider font-normal">Holdings</CardTitle>
+                <CardHeader className="pb-1 p-3">
+                  <CardTitle className="text-[10px] text-muted-foreground uppercase tracking-wider font-normal">Holdings</CardTitle>
                 </CardHeader>
-                <CardContent className="p-4 pt-0">
-                  <div className="text-3xl font-bold text-foreground font-mono">{riskData.numHoldings}</div>
+                <CardContent className="p-3 pt-0">
+                  <div className="text-2xl font-bold text-foreground font-mono">{riskData.numHoldings}</div>
                 </CardContent>
               </Card>
               <Card className="bg-card">
-                <CardHeader className="pb-2 p-4">
-                  <CardTitle className="text-xs text-muted-foreground uppercase tracking-wider font-normal">Max Weight</CardTitle>
+                <CardHeader className="pb-1 p-3">
+                  <CardTitle className="text-[10px] text-muted-foreground uppercase tracking-wider font-normal">Max Weight</CardTitle>
                 </CardHeader>
-                <CardContent className="p-4 pt-0">
-                  <div className="text-3xl font-bold text-foreground font-mono">{formatPercent(riskData.largestWeight, 2)}</div>
+                <CardContent className="p-3 pt-0">
+                  <div className="text-2xl font-bold text-foreground font-mono">{formatPercent(riskData.largestWeight, 2)}</div>
                 </CardContent>
               </Card>
             </div>

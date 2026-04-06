@@ -956,7 +956,7 @@ def initial_data_load():
     prices = prices.dropna(how="all")
 
     # Forward fill gaps (up to 5 days)
-    prices = prices.fillna(method="ffill", limit=5)
+    prices = prices.ffill(limit=5)
 
     # Filter: keep tickers with >= 252 days
     valid_cols = [c for c in prices.columns if prices[c].count() >= 252]

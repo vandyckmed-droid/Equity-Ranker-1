@@ -1,0 +1,71 @@
+PATCH 1 — MOBILE-FIRST RESPONSIVE LAYOUT
+
+Objective:
+Make the app fully mobile-screen friendly, especially on iPhone Safari and small-width portrait screens. The current desktop/sidebar layout is causing wasted space, overflow, and poor readability on mobile. This patch should improve layout only. Do not change core data logic, formulas, rankings, or methodology.
+
+Requirements:
+
+1. Global mobile-first responsiveness
+- Treat mobile portrait as a first-class target, not a reduced desktop view.
+- Optimize for widths ~375–430px first, then scale upward.
+- Eliminate horizontal overflow at the app shell level unless a specific data table intentionally scrolls horizontally.
+- Prevent panels, cards, buttons, tables, and text blocks from rendering off-screen.
+
+2. Navigation / layout
+- Replace the permanent left sidebar on small screens with a mobile navigation pattern:
+  - top bar, drawer, sheet, tabs, or collapsible menu
+  - default closed on mobile
+- Main content should use the full screen width on mobile.
+- Reduce excessive left/right padding on phones.
+- Ensure the user sees primary content immediately without the sidebar permanently consuming screen width.
+
+3. Cards and containers
+- All cards, loaders, tables, controls, and methodology blocks must fit within the visible mobile viewport.
+- No fixed desktop widths that break on narrow screens.
+- Convert multi-column layouts into single-column stacked layouts on mobile.
+- Tighten spacing so content density feels intentional, not cramped.
+
+4. Loading / initialization screen
+- The “Initializing Quant Engine” state must be centered and properly sized on mobile.
+- Progress UI must fit cleanly without clipping, awkward wrapping, or excessive empty space.
+- Progress text should remain readable on small screens.
+
+5. Tables and rankings
+- Universe rankings must be usable on mobile:
+  - sticky ticker column
+  - horizontal scroll only inside the table area, not across the whole page
+  - headers remain readable
+  - cells use tighter spacing on mobile
+- Allow lower-priority columns to collapse, hide, or move behind a settings toggle on small screens.
+- Prioritize the most important columns for default mobile display.
+
+6. Typography and spacing
+- Improve readability on phones:
+  - slightly smaller but still legible text where needed
+  - tighter row height and card padding
+  - avoid giant headers that waste vertical space
+- Prevent ugly line breaks in titles and labels where feasible.
+
+7. Controls / UX
+- Buttons, toggles, dropdowns, and tabs must be thumb-friendly.
+- Ensure tap targets are large enough.
+- Controls should wrap or stack cleanly on small screens rather than overflow.
+
+8. Technical implementation guidance
+- Use responsive breakpoints and flexible sizing throughout.
+- Prefer fluid widths, max-width constraints, wrapping, and stacked layouts over hardcoded pixel positioning.
+- Audit key screens:
+  - Universe Rankings
+  - Portfolio & Risk
+  - Methodology
+  - Loading/initialization states
+- Fix the app shell first, then page-level responsiveness.
+
+9. Do not change
+- no factor formulas
+- no ranking methodology
+- no portfolio logic
+- no backend/data-fetch logic unless required purely to support responsive rendering
+
+Deliverable:
+Implement a clean mobile-first responsive pass that makes the app feel intentionally designed for phone use, while preserving the current dark quant-terminal aesthetic.

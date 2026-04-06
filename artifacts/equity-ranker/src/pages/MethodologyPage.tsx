@@ -2,9 +2,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 
 export default function MethodologyPage() {
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-4 md:space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight mb-2 text-foreground">Methodology</h1>
+        <h1 className="text-2xl md:text-3xl font-bold tracking-tight mb-1 text-foreground">Methodology</h1>
         <p className="text-muted-foreground">
           Formulas and calculations driving the ranking and risk models.
         </p>
