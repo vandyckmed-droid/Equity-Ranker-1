@@ -82,6 +82,20 @@ def get_rankings(
             return v.item()
         return v
 
+    def safe_str(v, default=None):
+        if v is None:
+            return default
+        if isinstance(v, float) and (np.isnan(v) or np.isinf(v)):
+            return default
+        return str(v)
+
+    def safe_bool(v, default=False):
+        if v is None:
+            return default
+        if isinstance(v, float) and (np.isnan(v) or np.isinf(v)):
+            return default
+        return bool(v)
+
     stocks = []
     for _, row in df.iterrows():
         stocks.append({
@@ -117,6 +131,14 @@ def get_rankings(
             "rank": safe(row.get("rank")),
             "percentile": safe(row.get("percentile")),
             "cluster": safe(row.get("cluster")),
+            # Quality audit fields
+            "qualityMissing":          safe_bool(row.get("quality_missing")),
+            "alphaFormula":            safe_str(row.get("alpha_formula"), "S+T+Q"),
+            "hasProfitabilityBucket":  safe_bool(row.get("has_profitability_bucket")),
+            "hasMarginBucket":         safe_bool(row.get("has_margin_bucket")),
+            "hasLeverageBucket":       safe_bool(row.get("has_leverage_bucket")),
+            "qualityBucketCount":      safe(row.get("quality_bucket_count")),
+            "qualityMissingReason":    safe_str(row.get("quality_missing_reason")),
         })
 
     cluster_vals = [s["cluster"] for s in stocks if s["cluster"] is not None]
@@ -170,6 +192,20 @@ def universe_filters(body: UniverseFiltersBody):
             return v.item()
         return v
 
+    def safe_str(v, default=None):
+        if v is None:
+            return default
+        if isinstance(v, float) and (np.isnan(v) or np.isinf(v)):
+            return default
+        return str(v)
+
+    def safe_bool(v, default=False):
+        if v is None:
+            return default
+        if isinstance(v, float) and (np.isnan(v) or np.isinf(v)):
+            return default
+        return bool(v)
+
     stocks = []
     for _, row in filtered.iterrows():
         stocks.append({
@@ -205,6 +241,14 @@ def universe_filters(body: UniverseFiltersBody):
             "rank": safe(row.get("rank")),
             "percentile": safe(row.get("percentile")),
             "cluster": safe(row.get("cluster")),
+            # Quality audit fields
+            "qualityMissing":          safe_bool(row.get("quality_missing")),
+            "alphaFormula":            safe_str(row.get("alpha_formula"), "S+T+Q"),
+            "hasProfitabilityBucket":  safe_bool(row.get("has_profitability_bucket")),
+            "hasMarginBucket":         safe_bool(row.get("has_margin_bucket")),
+            "hasLeverageBucket":       safe_bool(row.get("has_leverage_bucket")),
+            "qualityBucketCount":      safe(row.get("quality_bucket_count")),
+            "qualityMissingReason":    safe_str(row.get("quality_missing_reason")),
         })
 
     cluster_count = len(set(s["cluster"] for s in stocks if s["cluster"] is not None))

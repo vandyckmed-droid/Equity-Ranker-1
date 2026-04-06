@@ -1,0 +1,240 @@
+Patch the engine so the universe and quality components are cleaned up together, with the minimum complexity needed.
+
+Goal:
+Keep the system cheap, simple, robust, and transparent while making two upgrades at once:
+1. make the universe reflect what a normal US retail investor can easily buy and sell in a standard brokerage account, without wrongly excluding liquid US-traded foreign names;
+2. make the quality sleeve more disciplined and auditable without adding heavy new data dependencies.
+
+Scope:
+Primary file: artifacts/equity-engine/engine.py
+Update methodology/help text only if needed to reflect the new rules.
+Do not redesign the UI unless a tiny text change is required.
+
+==================================================
+1) UNIVERSE POLICY — CHANGE THE LOGIC
+==================================================
+
+Current problem:
+The effective universe is a hardcoded candidate list plus basic post-hoc filters. That is fine as a bootstrap, but the policy should be explicitly “retail-tradable US-listed operating company equities”, not “US companies only”.
+
+New universe standard:
+Include stocks that a normal US retail investor can buy and sell easily on a mainstream brokerage app, with normal stock treatment and no unusual structure/tax/custody complexity.
+
+INCLUDE:
+- US-listed common stocks
+- US-listed ADRs / ADSs
+- US-listed foreign operating company equities that trade like normal stocks
+- mid-cap and large-cap names by default
+
+DO NOT EXCLUDE solely because:
+- company headquarters are outside the US
+- the issuer is foreign
+- the security is an ADR / ADS
+
+EXCLUDE:
+- OTC / Pink Sheet securities
+- ETFs, CEFs, mutual funds
+- BDCs
+- SPACs, shells, acquisition vehicles
+- preferreds, warrants, rights, units
+- LPs / MLPs / partnership structures likely to create K-1 or similar non-standard tax handling
+- leveraged / inverse products
+- anything clearly not a normal operating company equity
+
+Implementation guidance:
+- Keep the hardcoded list architecture if that is still the cheapest path for now, but change its documented purpose:
+  it is a bootstrap candidate list, not the actual policy.
+- The effective policy must be based on tradability + structure, not nationality.
+- Clean the seed list over time so obvious qualifying US-traded foreign names are present.
+- Explicitly ensure names like TSM / ASML / ARM are allowed if they pass the normal size/liquidity rules.
+
+Classification / metadata:
+Use Yahoo metadata already available from the engine fetch path to classify:
+- quote type / instrument type
+- exchange
+- market cap
+- company/security naming fields if needed for exclusion logic
+
+Preferred exchange rule:
+- accept NYSE / Nasdaq listed names
+- do not rely on domicile
+- avoid foreign-market-only listings
+
+Add auditability:
+For every excluded name, preserve an exclusion reason such as:
+- excluded_non_common_security
+- excluded_fund_or_vehicle
+- excluded_otc
+- excluded_partnership_structure
+- excluded_size
+- excluded_liquidity
+- excluded_price
+
+==================================================
+2) LIQUIDITY FILTER — IMPROVE ADV
+==================================================
+
+Current problem:
+ADV is currently based on Yahoo’s averageDailyVolume10Day-style metadata proxy.
+That is acceptable as a rough proxy but too short-term and less transparent than computing it directly from downloaded history.
+
+Change this:
+- stop relying on 10-day metadata volume for the main liquidity rule
+- compute dollar volume internally from downloaded history
+- retain enough raw history fields to do this cleanly
+
+Implementation:
+- during price download, retain Close and Volume in addition to adjusted price series if needed
+- compute daily dollar volume = Close * Volume
+- define ADV using a more stable internal window:
+  default = 63-trading-day median daily dollar volume
+- keep the minimum liquidity threshold at $10M unless existing code strongly depends on another exact implementation detail
+
+If a name lacks the data needed to compute liquidity:
+- fail the liquidity filter
+- log the reason clearly
+
+Keep:
+- min price >= $5
+- min market cap >= $1B
+unless there is a very strong implementation reason to move those
+
+==================================================
+3) QUALITY SLEEVE — POLISH, DO NOT OVERBUILD
+==================================================
+
+Current problem:
+The current quality composite is reasonable but slightly ad hoc:
+- profitability = roe else roa
+- margin = gross margin else operating margin
+- leverage = -de_ratio
+Then each pillar is winsorized, z-scored, and averaged if available.
+
+This should be made more disciplined while staying cheap and simple.
+
+New quality design:
+Build quality from three buckets:
+
+A) profitability bucket
+- use ROE and ROA as separate raw descriptors
+- if both exist, bucket = mean(z(ROE), z(ROA))
+- if one exists, bucket = that one
+- if neither exists, profitability bucket is missing
+
+B) margin bucket
+- use gross margin and operating margin as separate raw descriptors
+- if both exist, bucket = mean(z(gross_margin), z(op_margin))
+- if one exists, bucket = that one
+- if neither exists, margin bucket is missing
+
+C) leverage bucket
+- leverage bucket = z(-de_ratio)
+- lower debt is better, so the negation is correct
+
+Standardization order:
+- keep winsorize first, then z-score
+- keep the current cross-sectional approach
+- preserve existing winsorization parameter unless there is a strong reason not to
+
+Final quality score:
+- quality = mean of available buckets
+- but require a minimum information standard:
+  profitability bucket must be present
+  AND at least one of [margin bucket, leverage bucket] must be present
+- otherwise quality = NaN
+
+Why:
+This keeps profitability as the anchor of quality, avoids giving a stock a “quality” score from leverage alone, and still handles partial Yahoo metadata gracefully.
+
+Important:
+- do NOT median-impute missing quality fields
+- do NOT silently fill missing descriptors with zero
+- do NOT create fake quality values
+
+Add transparency fields:
+- quality_bucket_count
+- quality_missing_reason
+- booleans for has_profitability_bucket / has_margin_bucket / has_leverage_bucket
+
+==================================================
+4) QUALITY + ALPHA INTERACTION
+==================================================
+
+Make missing-quality handling explicit.
+
+If a stock has Q missing:
+- do not manufacture a Q value
+- do not let missing fundamentals create an accidental hidden advantage or hidden penalty
+
+Preferred implementation:
+- if the final alpha combines sleeves and Q is missing, renormalize only across the sleeves that are actually available
+- expose this in the audit output with a clear flag such as quality_missing = true
+
+Also add a simple audit note explaining whether alpha was computed from:
+- S + T + Q
+or
+- S + T only because Q was unavailable
+
+==================================================
+5) METADATA FETCH / CACHING
+==================================================
+
+Current problem:
+Quality metadata is fetched serially with yf.Ticker(ticker).info per ticker.
+That is fragile and slow.
+
+Improve this without adding unnecessary complexity:
+- separate price cache and metadata cache
+- metadata cache should be longer-lived than price cache
+- add modest concurrency for metadata fetches if safe
+- add graceful failure handling per ticker
+- never let one bad metadata response break the full engine load
+
+Suggested simple approach:
+- keep price history cache as-is or similar
+- add a separate meta cache version key
+- cache metadata for 24 hours
+- fetch metadata with a small thread pool / bounded concurrency
+- if metadata fetch fails, set fields to null and continue
+- log metadata failures count
+
+If there is a cheap lighter-weight path for exchange / market cap / quote type, use it where possible.
+Use full info fetch only where actually needed for the quality fields.
+
+==================================================
+6) METHODOLOGY / COMMENTS
+==================================================
+
+Update documentation/comments so the app clearly states:
+
+Universe:
+- “US-retail-tradable, US-listed operating company equities”
+- includes US-listed ADRs / ADSs
+- excludes funds, vehicles, partnerships, OTC, and structurally awkward securities
+- not limited by issuer domicile
+
+Liquidity:
+- based on internally computed trailing dollar volume, not a short Yahoo metadata proxy
+
+Quality:
+- built from profitability, margins, and leverage buckets
+- winsorized then z-scored cross-sectionally
+- requires minimum descriptor coverage
+- no imputation of missing quality fields
+
+==================================================
+7) OUTPUT REQUIRED
+==================================================
+
+Return:
+1. the patched engine code
+2. a short plain-English summary of what changed
+3. the exact universe include/exclude rules
+4. the exact quality bucket formula
+5. a few example names that should clearly qualify now, such as TSM, ASML, ARM if they pass the size/liquidity filters
+6. any exclusions that were intentionally preserved for simplicity
+
+Guiding principle:
+Do the smallest clean patch that materially improves both universe quality and quality-factor quality.
+Avoid overengineering.
+Prefer auditable rule-based logic over cleverness.
