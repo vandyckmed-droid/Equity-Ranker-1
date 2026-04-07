@@ -156,9 +156,8 @@ export default function MethodologyPage() {
 
           <div>
             <h3 className="font-semibold text-sm mb-2">Q sleeve</h3>
-            <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
-              <p><span className="text-foreground">z_q</span> = Z(quality)</p>
-              <p><span className="text-foreground">Q</span>   = z_q</p>
+            <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground">
+              <p><span className="text-foreground">Q</span> = Z(quality)</p>
             </div>
           </div>
 
