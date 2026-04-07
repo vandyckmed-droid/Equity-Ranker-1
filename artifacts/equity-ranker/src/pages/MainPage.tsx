@@ -874,8 +874,8 @@ export default function MainPage() {
                                 </div>
                                 <div className="space-y-1">
                                   <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Sleeves</p>
-                                  <p><span className="text-muted-foreground">S (return):</span> <span className={cn(stock.sSleeve! > 0 ? "text-positive" : "text-negative")}>{fmtZ(stock.sSleeve)}</span></p>
-                                  <p><span className="text-muted-foreground">T (trend):</span>  <span className={cn(stock.tSleeve! > 0 ? "text-positive" : "text-negative")}>{fmtZ(stock.tSleeve)}</span></p>
+                                  <p><span className="text-muted-foreground">S (dual-horizon sharpe):</span> <span className={cn(stock.sSleeve! > 0 ? "text-positive" : "text-negative")}>{fmtZ(stock.sSleeve)}</span></p>
+                                  <p><span className="text-muted-foreground">T (dual-horizon trend sharpe):</span>  <span className={cn(stock.tSleeve! > 0 ? "text-positive" : "text-negative")}>{fmtZ(stock.tSleeve)}</span></p>
                                   <p><span className="text-muted-foreground">Q (quality):</span><span className={cn(stock.qSleeve! > 0 ? "text-positive" : "text-negative")}>{fmtZ(stock.qSleeve)}</span></p>
                                 </div>
                                 <div className="space-y-1">
