@@ -310,8 +310,8 @@ export default function PortfolioPage() {
             {/* KPI Row 2: Concentration summary */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <KpiCard label="Max Position" value={formatPercent(maxPosition, 1)} sub="largest base wt" />
-              <KpiCard label="Names at Cap" value={String(riskData.namesCapped.length)}
-                sub={riskData.namesCapped.length > 0 ? "at 15% limit" : "none at cap"} />
+              <KpiCard label="Names at Cap" value={String((riskData.namesCapped ?? []).length)}
+                sub={(riskData.namesCapped ?? []).length > 0 ? "at 15% limit" : "none at cap"} />
               <KpiCard label="Sectors" value={String(sectorStats.numSectors)}
                 sub={sectorStats.topSector ? `top: ${sectorStats.topSector.slice(0, 12)}` : "—"} />
               <KpiCard label="Clusters" value={String(clusterStats.numClusters)}

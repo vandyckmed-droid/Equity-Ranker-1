@@ -599,7 +599,12 @@ export default function MainPage() {
           <div className="min-w-0">
             <h1 className="text-lg md:text-2xl font-bold tracking-tight leading-tight">Universe Rankings</h1>
             <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-1.5 mt-0.5">
-              <span>{stocks.length > 0 ? stocks.length : (rankingsResult?.total || 0)} equities</span>
+              <span>
+                {processedStocks.length.toLocaleString()} equities
+                {stocks.length > 0 && processedStocks.length < stocks.length && (
+                  <span className="text-muted-foreground/60"> of {stocks.length.toLocaleString()}</span>
+                )}
+              </span>
               {audit && (
                 <>
                   <span>&bull;</span>
