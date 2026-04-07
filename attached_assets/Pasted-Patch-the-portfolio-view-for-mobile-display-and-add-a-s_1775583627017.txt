@@ -1,0 +1,133 @@
+Patch the portfolio view for mobile display and add a small set of high-value concentration / diversification stats.
+
+GOAL
+
+The portfolio view is looking good overall, but the bottom of the page appears cut off on mobile. Fix the display so the full portfolio panel and all stat cards are visible and scroll cleanly on iPhone/mobile webviews.
+
+Then add neat, compact portfolio stats for:
+1. sector representation
+2. cluster/group representation
+
+Keep this simple, clean, and mobile-first. No clutter.
+
+PART 1 — FIX THE DISPLAY
+
+Problem:
+- On mobile, the bottom portion of the portfolio screen appears cut off or too close to the browser / device controls
+- The final stat cards and lower content need enough bottom spacing to be fully visible and comfortably scrollable
+
+Required fix:
+- Ensure the portfolio page scroll container has enough bottom padding / safe-area spacing
+- Respect iOS safe area insets and mobile browser chrome
+- Add a small bottom spacer if needed so the last cards can scroll fully into view
+- Make sure nothing important is hidden behind the bottom toolbar / share controls / browser overlay
+- Keep the layout visually tight but not cramped
+
+Implementation guidance:
+- Use `env(safe-area-inset-bottom)` where appropriate
+- Ensure the last row can scroll above the bottom browser controls with breathing room
+- Do not create excessive blank space on desktop
+
+PART 2 — ADD SECTOR REPRESENTATION STATS
+
+Add compact, useful sector stats to the portfolio view.
+
+Must include:
+- number of distinct sectors in the portfolio
+- top sector by portfolio weight
+- top sector weight %
+- optional: a compact sector breakdown list or mini-bars for the top 3 sectors
+
+Preferred format:
+- small stat card(s) or compact section below the main portfolio stats
+- simple and readable on mobile
+- if showing sector breakdown, keep it concise:
+  - Sector name
+  - weight %
+  - count of holdings in that sector
+
+Suggested examples:
+- Sectors: 8
+- Top Sector: Financials
+- Top Sector Wt: 21.4%
+
+PART 3 — ADD CLUSTER / GROUP REPRESENTATION STATS
+
+Add the same kind of concentration stats for clusters/groups.
+
+Must include:
+- number of distinct clusters represented
+- top cluster by portfolio weight
+- top cluster weight %
+- optional: top 3 cluster weights and counts
+
+Preferred format:
+- parallel to sector stats
+- clean and symmetrical with sector presentation
+
+Suggested examples:
+- Clusters: 6
+- Top Cluster: C4
+- Top Cluster Wt: 18.7%
+
+PART 4 — ADD A FEW HIGH-VALUE PORTFOLIO STATS ONLY
+
+Suggest and implement only the most useful additional stats that improve auditability without clutter.
+
+Good candidates:
+- Effective N
+  - based on weight concentration
+  - useful to see how diversified the portfolio really is
+- Max Position
+  - largest single holding weight %
+- Names at Cap
+  - how many names are sitting at the weight cap
+- Diversification Ratio
+  - if already available in the backend, surface it neatly
+- Distinct Sectors
+- Distinct Clusters
+
+Avoid adding too many stats.
+Prioritize neatness and usefulness over quantity.
+
+Preferred final stat set:
+- Portfolio Vol
+- Gross Exposure
+- Holdings
+- Avg Correlation
+- Effective N
+- Max Position
+- Distinct Sectors
+- Distinct Clusters
+- Top Sector Wt
+- Top Cluster Wt
+
+PART 5 — PRESENTATION RULES
+
+- Keep everything mobile-friendly
+- Use compact cards / pills / mini rows
+- Do not create a giant analytics dashboard
+- Keep terminology simple and consistent
+- Make sector and cluster concentration easy to scan at a glance
+- If a breakdown list is added, keep it to top 3 plus “Other”
+
+PART 6 — DATA / CALCULATION RULES
+
+Use the actual displayed portfolio weights after the current weighting method is applied.
+If the portfolio uses the vol-target overlay, the representation stats should reflect the actual final displayed risky-sleeve weights consistently.
+
+Be explicit and consistent in code:
+- sector weight = sum of portfolio weights of holdings in that sector
+- cluster weight = sum of portfolio weights of holdings in that cluster
+- effective N = 1 / sum(w_i^2)
+- max position = largest portfolio weight
+- names at cap = count of holdings whose pre-overlay or final sleeve weight is at the configured cap threshold (choose one and document it clearly)
+
+PART 7 — DELIVERABLE
+
+Implement directly and report back:
+1. what fixed the bottom cutoff issue
+2. which new sector stats were added
+3. which new cluster stats were added
+4. which extra stats were added
+5. any assumptions made about overlay weights vs sleeve weights
