@@ -345,10 +345,7 @@ export default function MainPage() {
     );
   }
 
-  // ─── Effective column list (respects quality toggle) ─────────────────────
-  const activeColumns = orderedVisible.filter(
-    (id) => !(id === "quality" && !localUseQuality)
-  );
+  const activeColumns = orderedVisible;
 
   // ─── Column header renderer ────────────────────────────────────────────────
   const renderHeader = (colId: ColumnId) => {
@@ -697,20 +694,16 @@ export default function MainPage() {
           <div className="flex-1 overflow-y-auto py-2">
             {ALL_COLUMN_IDS.map((id, idx) => {
               const isVisible = config.visible.includes(id);
-              const isDisabledQuality = id === "quality" && !localUseQuality;
               const pos = config.order.indexOf(id);
               return (
                 <div
                   key={id}
-                  className={cn(
-                    "flex items-center gap-3 px-4 py-2.5 border-b border-border/40",
-                    isDisabledQuality && "opacity-40"
-                  )}
+                  className="flex items-center gap-3 px-4 py-2.5 border-b border-border/40"
                 >
                   <Switch
-                    checked={isVisible && !isDisabledQuality}
-                    onCheckedChange={() => !isDisabledQuality && toggleColumn(id)}
-                    disabled={isDisabledQuality}
+                    checked={isVisible}
+                    onCheckedChange={() => toggleColumn(id)}
+                    disabled={false}
                     className="shrink-0"
                   />
                   <span className="flex-1 text-sm">{COLUMN_LABELS[id]}</span>
