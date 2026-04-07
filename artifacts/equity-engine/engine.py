@@ -553,6 +553,18 @@ def compute_factors_vectorized(prices: pd.DataFrame,
     z_op    = std_cs(df["_op_margin"],    winsor_p)
     z_de    = std_cs(df["_de_ratio"],     winsor_p)
 
+    # Store individual quality z-scores and raw values for per-stock audit
+    df["z_roe"]       = z_roe
+    df["z_roa"]       = z_roa
+    df["z_gross"]     = z_gross
+    df["z_op"]        = z_op
+    df["z_inv_lev"]   = -z_de          # InvLev = E/D → z(InvLev) = −z(D/E)
+    df["roe"]         = df["_roe"]
+    df["roa"]         = df["_roa"]
+    df["gross_margin"] = df["_gross_margin"]
+    df["op_margin"]   = df["_op_margin"]
+    df["de_ratio"]    = df["_de_ratio"]
+
     prof_frame   = pd.DataFrame({"z_roe": z_roe,   "z_roa": z_roa})
     margin_frame = pd.DataFrame({"z_gross": z_gross, "z_op": z_op})
 

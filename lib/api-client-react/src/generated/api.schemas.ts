@@ -108,6 +108,38 @@ export interface Stock {
   percentile?: number | null;
   /** @nullable */
   cluster?: number | null;
+  /** @nullable */
+  roe?: number | null;
+  /** @nullable */
+  roa?: number | null;
+  /** @nullable */
+  grossMargin?: number | null;
+  /** @nullable */
+  opMargin?: number | null;
+  /** @nullable */
+  deRatio?: number | null;
+  /** @nullable */
+  zRoe?: number | null;
+  /** @nullable */
+  zRoa?: number | null;
+  /** @nullable */
+  zGross?: number | null;
+  /** @nullable */
+  zOp?: number | null;
+  /** @nullable */
+  zInvLev?: number | null;
+  /** @nullable */
+  qualityMissing?: boolean | null;
+  /** @nullable */
+  qualityMissingReason?: string | null;
+  /** @nullable */
+  hasProfitabilityBucket?: boolean | null;
+  /** @nullable */
+  hasMarginBucket?: boolean | null;
+  /** @nullable */
+  hasLeverageBucket?: boolean | null;
+  /** @nullable */
+  qualityBucketCount?: number | null;
 }
 
 export type UniverseAuditExclusions = { [key: string]: number };

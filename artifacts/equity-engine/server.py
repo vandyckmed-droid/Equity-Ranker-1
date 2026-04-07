@@ -156,6 +156,18 @@ def get_rankings(
             "rank": safe(row.get("rank")),
             "percentile": safe(row.get("percentile")),
             "cluster": safe(row.get("cluster")),
+            # Quality component raw values
+            "roe":          safe(row.get("roe")),
+            "roa":          safe(row.get("roa")),
+            "grossMargin":  safe(row.get("gross_margin")),
+            "opMargin":     safe(row.get("op_margin")),
+            "deRatio":      safe(row.get("de_ratio")),
+            # Quality component z-scores
+            "zRoe":         safe(row.get("z_roe")),
+            "zRoa":         safe(row.get("z_roa")),
+            "zGross":       safe(row.get("z_gross")),
+            "zOp":          safe(row.get("z_op")),
+            "zInvLev":      safe(row.get("z_inv_lev")),
             # Quality audit fields
             "qualityMissing":          safe_bool(row.get("quality_missing")),
             "alphaFormula":            safe_str(row.get("alpha_formula"), "S+T+Q"),
@@ -270,6 +282,18 @@ def universe_filters(body: UniverseFiltersBody):
             "rank": safe(row.get("rank")),
             "percentile": safe(row.get("percentile")),
             "cluster": safe(row.get("cluster")),
+            # Quality component raw values
+            "roe":          safe(row.get("roe")),
+            "roa":          safe(row.get("roa")),
+            "grossMargin":  safe(row.get("gross_margin")),
+            "opMargin":     safe(row.get("op_margin")),
+            "deRatio":      safe(row.get("de_ratio")),
+            # Quality component z-scores
+            "zRoe":         safe(row.get("z_roe")),
+            "zRoa":         safe(row.get("z_roa")),
+            "zGross":       safe(row.get("z_gross")),
+            "zOp":          safe(row.get("z_op")),
+            "zInvLev":      safe(row.get("z_inv_lev")),
             # Quality audit fields
             "qualityMissing":          safe_bool(row.get("quality_missing")),
             "alphaFormula":            safe_str(row.get("alpha_formula"), "S+T+Q"),

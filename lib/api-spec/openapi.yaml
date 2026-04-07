@@ -279,6 +279,38 @@ components:
           type: ["number", "null"]
         cluster:
           type: ["integer", "null"]
+        roe:
+          type: ["number", "null"]
+        roa:
+          type: ["number", "null"]
+        grossMargin:
+          type: ["number", "null"]
+        opMargin:
+          type: ["number", "null"]
+        deRatio:
+          type: ["number", "null"]
+        zRoe:
+          type: ["number", "null"]
+        zRoa:
+          type: ["number", "null"]
+        zGross:
+          type: ["number", "null"]
+        zOp:
+          type: ["number", "null"]
+        zInvLev:
+          type: ["number", "null"]
+        qualityMissing:
+          type: ["boolean", "null"]
+        qualityMissingReason:
+          type: ["string", "null"]
+        hasProfitabilityBucket:
+          type: ["boolean", "null"]
+        hasMarginBucket:
+          type: ["boolean", "null"]
+        hasLeverageBucket:
+          type: ["boolean", "null"]
+        qualityBucketCount:
+          type: ["number", "null"]
       required:
         - ticker
         - name
