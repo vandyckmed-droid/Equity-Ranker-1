@@ -123,16 +123,11 @@ export default function MethodologyPage() {
       <Card className="border-border bg-card">
         <CardHeader>
           <CardTitle>4 — Q Sleeve: Quality</CardTitle>
-          <CardDescription>
-            A fundamentals-based sleeve built from five financial ratios sourced directly from SEC EDGAR
-            annual filings (10-K). Unlike S and T, Q is not a paired average — it is a single
-            composite score that becomes the sleeve directly.
-          </CardDescription>
+          <CardDescription>Composite quality score built from annual fundamentals. Ranks profitability, efficiency, and balance-sheet health.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
 
           <div>
-            <h3 className="font-semibold text-sm mb-2">Five input metrics</h3>
             <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
               <p><span className="text-foreground">ROE</span>          = Net Income / Stockholders' Equity <span className="opacity-60">— profitability on equity</span></p>
               <p><span className="text-foreground">ROA</span>          = Net Income / Total Assets <span className="opacity-60">— profitability on assets</span></p>
