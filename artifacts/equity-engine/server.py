@@ -475,33 +475,93 @@ def _compute_risk_parity_weights(
     max_w: float = ERC_MAX_WEIGHT,
 ) -> np.ndarray:
     """
-    Equal Risk Contribution via the Spinu convex formulation:
-        min   (1/2) x' Σ x  −  b · log(x)    s.t.  x > 0
-    Then normalise: w = x / sum(x).
+    Capped Equal Risk Contribution (ERC) via SLSQP.
 
-    The first-order condition is Σx = b/x  ⟺  x_i (Σx)_i = b_i, which is
-    exactly the ERC condition.  This is a strictly convex problem so the
-    solution is unique and L-BFGS-B converges reliably.
+    Objective (all constraints inside the solver — no post-hoc clipping):
+        min_w  Σ_i (RC_i − RC_mean)²
+        where  RC_i = w_i · (Σw)_i   (proportional risk contribution)
+    Constraints:
+        Σ w_i = 1      (fully invested)
+        0 ≤ w_i ≤ max_w   (long-only + per-name cap)
 
-    A per-name cap (max_w) is enforced once on the converged solution.
+    Analytical gradient (derived via chain rule):
+        ∂f/∂w_k = 2 · [ v_k · (Σw)_k + (Σ(v * w))_k ]
+        where  v_i = RC_i − RC_mean
+
+    Multi-start (equal weights + 3 Dirichlet seeds) for robustness.
+
+    Fallback: Spinu L-BFGS-B (positivity-only bounds) followed by a
+    *defensive* post-hoc clip.  This path is only reached if all SLSQP
+    starts fail (extremely rare for n ≤ 40 with a PD covariance).
     """
     from scipy.optimize import minimize
 
     n    = cov_ann.shape[0]
-    b    = np.ones(n) / n
     vols = np.maximum(np.sqrt(np.diag(cov_ann)), vol_floor)
-    x0   = 1.0 / vols
-    x0  /= x0.sum()
 
-    def objective(x: np.ndarray) -> float:
+    def erc_obj(w: np.ndarray) -> float:
+        Sw = cov_ann @ w
+        rc = w * Sw
+        mu = rc.mean()
+        return float(np.dot(rc - mu, rc - mu))
+
+    def erc_grad(w: np.ndarray) -> np.ndarray:
+        Sw  = cov_ann @ w
+        rc  = w * Sw
+        v   = rc - rc.mean()                  # deviations from mean RC
+        return 2.0 * (v * Sw + cov_ann @ (v * w))
+
+    bounds      = [(0.0, max_w)] * n
+    constraints = [{"type": "eq",
+                    "fun": lambda w: w.sum() - 1.0,
+                    "jac": lambda w: np.ones(n)}]
+
+    rng    = np.random.default_rng(42)
+    starts = [np.ones(n) / n]
+    for _ in range(3):
+        raw  = rng.dirichlet(np.ones(n))
+        raw  = np.minimum(raw, max_w)
+        raw /= raw.sum()
+        starts.append(raw)
+
+    best: Optional[np.ndarray] = None
+    best_val = np.inf
+
+    for x0 in starts:
+        try:
+            res = minimize(
+                erc_obj, x0=x0, jac=erc_grad, method="SLSQP",
+                bounds=bounds, constraints=constraints,
+                options={"maxiter": 2000, "ftol": 1e-12},
+            )
+            if res.success and np.all(np.isfinite(res.x)):
+                w = np.maximum(res.x, 0.0)   # defensive numerical cleanup only
+                s = w.sum()
+                if s > 1e-8:
+                    w /= s
+                    v = erc_obj(w)
+                    if v < best_val:
+                        best_val, best = v, w
+        except Exception:
+            pass
+
+    if best is not None:
+        return best
+
+    # ── Fallback: Spinu L-BFGS-B (only reached if all SLSQP starts fail) ────
+    b  = np.ones(n) / n
+    x0 = 1.0 / vols
+    x0 /= x0.sum()
+
+    def spinu_obj(x: np.ndarray) -> float:
         return 0.5 * float(x @ cov_ann @ x) - float(b @ np.log(np.maximum(x, 1e-16)))
 
-    def gradient(x: np.ndarray) -> np.ndarray:
+    def spinu_grad(x: np.ndarray) -> np.ndarray:
         return cov_ann @ x - b / np.maximum(x, 1e-16)
 
     try:
         res = minimize(
-            objective, x0=x0, jac=gradient, method="L-BFGS-B",
+            spinu_obj, x0=x0, jac=spinu_grad, method="L-BFGS-B",
             bounds=[(1e-8, None)] * n,
             options={"maxiter": 2000, "ftol": 1e-14, "gtol": 1e-9},
         )
@@ -509,15 +569,15 @@ def _compute_risk_parity_weights(
     except Exception:
         x = x0
 
-    w = x / x.sum()
-    # Iterative projection: clip-normalise until all base weights ≤ max_w
+    best = x / x.sum()
+    # Defensive post-hoc clip (fallback path only)
     for _ in range(50):
-        prev = w.copy()
-        w = np.clip(w, 0.0, max_w)
-        w /= w.sum()
-        if np.max(np.abs(w - prev)) < 1e-9:
+        prev = best.copy()
+        best = np.clip(best, 0.0, max_w)
+        best /= best.sum()
+        if np.max(np.abs(best - prev)) < 1e-9:
             break
-    return w
+    return best
 
 
 def _compute_mean_variance_weights(
@@ -633,6 +693,8 @@ def portfolio_risk(body: PortfolioRiskRequest):
     fallback      = None
     actual_method = body.weighting_method
     cov_model     = None
+    cov_overlay   = cov_ann   # covariance used for vol-target + diagnostics (may be overridden)
+    names_capped: list[str] = []
 
     # ── Step 1: Base weights (long-only, sum = 1) ────────────────────────────
     if body.weighting_method == "equal":
@@ -662,7 +724,11 @@ def portfolio_risk(body: PortfolioRiskRequest):
     elif body.weighting_method == "risk_parity":
         try:
             cov_ewma, _, cov_model = _build_ewma_cov(log_rets)
-            base_w = _compute_risk_parity_weights(cov_ewma)
+            base_w    = _compute_risk_parity_weights(cov_ewma)
+            cov_overlay = cov_ewma   # use same cov for vol-target (consistency)
+            names_capped = [tickers_v[i] for i in range(n) if base_w[i] >= ERC_MAX_WEIGHT - 1e-4]
+            if names_capped:
+                fallback = f"Cap {ERC_MAX_WEIGHT*100:.0f}% active: {', '.join(names_capped)}"
         except Exception as e:
             logger.warning(f"Risk Parity failed ({e}) — falling back to Inverse Vol")
             inv_v  = 1.0 / vols_ann
@@ -714,17 +780,36 @@ def portfolio_risk(body: PortfolioRiskRequest):
         actual_method = "equal"
         fallback = f"Unknown method '{body.weighting_method}'. Used Equal weights."
 
-    # ── Step 2: Pre-scale portfolio vol (w' Σ w) ─────────────────────────────
-    pre_var = float(base_w @ cov_ann @ base_w)
+    # ── Step 2: Pre-scale portfolio vol using the same cov as optimisation ────
+    pre_var = float(base_w @ cov_overlay @ base_w)
     pre_vol = float(np.sqrt(max(pre_var, 1e-12)))
 
-    # ── Step 3: Vol-target overlay multiplier ────────────────────────────────
-    multiplier     = VOL_TARGET / pre_vol
-    final_w        = base_w * multiplier
-    gross_exposure = float(final_w.sum())
+    # ── Step 3: Vol-target overlay — capped at 1.0 (no leverage) ─────────────
+    # multiplier ≤ 1 → equity sleeve at multiplier, residual in cash/SGOV
+    # multiplier = 1 → fully invested in equity (basket vol ≤ target)
+    multiplier    = min(VOL_TARGET / pre_vol, 1.0)
+    final_w       = base_w * multiplier
+    risky_sleeve  = float(final_w.sum())   # = multiplier (base sums to 1)
+    sgov_weight   = max(0.0, round(1.0 - risky_sleeve, 6))
+    gross_exposure = risky_sleeve          # for backward compat
 
-    # ── Portfolio-level stats ─────────────────────────────────────────────────
-    final_port_vol = pre_vol * multiplier   # = VOL_TARGET by construction
+    # ── Step 4: Portfolio vol after overlay ───────────────────────────────────
+    final_port_var = float(final_w @ cov_overlay @ final_w)
+    final_port_vol = float(np.sqrt(max(final_port_var, 1e-12)))
+
+    # ── Step 5: Diagnostics ───────────────────────────────────────────────────
+    # Diversification ratio: weighted avg vol / portfolio vol (base weights)
+    diag_vols_overlay = np.maximum(np.sqrt(np.diag(cov_overlay)), 0.05)
+    wtd_avg_vol       = float(base_w @ diag_vols_overlay)
+    div_ratio         = round(wtd_avg_vol / pre_vol, 4) if pre_vol > 1e-8 else 1.0
+
+    # Effective number of positions (Herfindahl)
+    effective_n = round(1.0 / float(np.sum(base_w ** 2)), 2)
+
+    # Per-name risk contributions (fraction of total portfolio variance; sums to 1)
+    port_var_base = float(base_w @ cov_overlay @ base_w)
+    mrc           = cov_overlay @ base_w              # marginal risk contributions
+    rc_frac       = base_w * mrc / max(port_var_base, 1e-12)   # sums ≈ 1
 
     if n > 1:
         corr     = log_rets.corr().values
@@ -736,15 +821,22 @@ def portfolio_risk(body: PortfolioRiskRequest):
     holdings_out = []
     cluster_weights: dict[int, float] = {}
     for i, t in enumerate(tickers_v):
-        fw = float(final_w[i])
+        fw  = float(final_w[i])
+        bw  = float(base_w[i])
         vol = float(vols_ann[i])
         raw_cluster = cluster_map.get(t)
-        # Safely convert cluster — pandas may return NaN floats for missing values
         try:
             cluster = int(raw_cluster) if raw_cluster is not None and not (isinstance(raw_cluster, float) and np.isnan(raw_cluster)) else None
         except (ValueError, TypeError):
             cluster = None
-        holdings_out.append({"ticker": t, "weight": fw, "vol": vol, "cluster": cluster})
+        holdings_out.append({
+            "ticker":      t,
+            "weight":      fw,
+            "baseWeight":  round(bw, 6),
+            "vol":         vol,
+            "riskContrib": round(float(rc_frac[i]), 6),
+            "cluster":     cluster,
+        })
         if cluster is not None:
             cluster_weights[cluster] = cluster_weights.get(cluster, 0.0) + fw
 
@@ -757,20 +849,25 @@ def portfolio_risk(body: PortfolioRiskRequest):
     largest_weight = float(max(final_w)) if n > 0 else 0.0
 
     return {
-        "portfolioVol": round(final_port_vol, 6),
-        "basePortVol": round(pre_vol, 6),
+        "portfolioVol":       round(final_port_vol, 6),
+        "basePortVol":        round(pre_vol, 6),
         "volTargetMultiplier": round(multiplier, 6),
-        "grossExposure": round(gross_exposure, 6),
-        "method": actual_method,
-        "covModel": cov_model,
-        "fallback": fallback,
-        "volLookback": body.lookback,
-        "covLookback": body.lookback,
-        "avgCorrelation": round(avg_corr, 6),
-        "holdings": holdings_out,
+        "grossExposure":      round(risky_sleeve, 6),
+        "riskySleeve":        round(risky_sleeve, 6),
+        "sgovWeight":         sgov_weight,
+        "diversificationRatio": div_ratio,
+        "effectiveN":         effective_n,
+        "namesCapped":        names_capped,
+        "method":             actual_method,
+        "covModel":           cov_model,
+        "fallback":           fallback,
+        "volLookback":        body.lookback,
+        "covLookback":        body.lookback,
+        "avgCorrelation":     round(avg_corr, 6),
+        "holdings":           holdings_out,
         "clusterDistribution": cluster_dist,
-        "largestWeight": round(largest_weight, 6),
-        "numHoldings": len(holdings_out),
+        "largestWeight":      round(largest_weight, 6),
+        "numHoldings":        len(holdings_out),
     }
 
 

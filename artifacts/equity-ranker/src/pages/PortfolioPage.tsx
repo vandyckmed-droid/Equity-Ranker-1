@@ -14,12 +14,10 @@ import { Input } from "@/components/ui/input";
 import { Trash2, Calculator, Loader2, Info, AlertTriangle } from "lucide-react";
 
 const METHODS: { value: string; label: string; desc: string }[] = [
-  { value: "equal",         label: "Equal Weight",   desc: "Same weight to every holding" },
-  { value: "inverse_vol",   label: "Inverse Vol",    desc: "Smaller weight to more volatile names" },
-  { value: "signal_vol",    label: "Signal / Vol",   desc: "Stronger signal + lower vol → more weight" },
-  { value: "risk_parity",   label: "Risk Parity",    desc: "Each holding contributes equal portfolio risk" },
-  { value: "min_var",       label: "Min Variance",   desc: "Minimise total portfolio volatility" },
-  { value: "mean_variance", label: "Mean-Variance",  desc: "Signal and covariance jointly optimised" },
+  { value: "equal",       label: "Equal Weight", desc: "Same weight to every holding — simple and transparent" },
+  { value: "inverse_vol", label: "Inverse Vol",  desc: "Smaller weight to more volatile names — diagonal risk control" },
+  { value: "signal_vol",  label: "Signal / Vol", desc: "Stronger alpha signal + lower vol → more weight" },
+  { value: "risk_parity", label: "Risk Parity",  desc: "Each holding contributes equal portfolio risk (capped ERC via SLSQP)" },
 ];
 
 const METHOD_LABELS: Record<string, string> = Object.fromEntries(
@@ -74,7 +72,7 @@ export default function PortfolioPage() {
 
   const weightMap = useMemo(() => {
     if (!riskData) return {} as Record<string, number>;
-    return Object.fromEntries(riskData.holdings.map((h) => [h.ticker, h.weight]));
+    return Object.fromEntries(riskData.holdings.map((h) => [h.ticker, h.baseWeight]));
   }, [riskData]);
 
   if (basket.length === 0) {
@@ -163,7 +161,7 @@ export default function PortfolioPage() {
               <TableHeader className="sticky top-0 bg-card z-10">
                 <TableRow>
                   <TableHead className="w-20">Ticker</TableHead>
-                  <TableHead className="text-right">Final Wt%</TableHead>
+                  <TableHead className="text-right">Base Wt%</TableHead>
                   <TableHead className="w-10"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -252,13 +250,18 @@ export default function PortfolioPage() {
         ) : (
           <div className="flex-1 overflow-auto space-y-4 lg:pr-2">
             {/* KPI Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               <KpiCard label="Portfolio Vol" value={formatPercent(riskData.portfolioVol, 1)}
                 sub="15% target" />
-              <KpiCard label="Gross Exposure" value={formatPercent(riskData.grossExposure, 1)}
-                sub={`×${formatNumber(riskData.volTargetMultiplier, 2)} lever`} />
-              <KpiCard label="Avg Correlation" value={formatNumber(riskData.avgCorrelation, 2)} />
-              <KpiCard label="Holdings" value={String(riskData.numHoldings)} />
+              <KpiCard label="Equity Sleeve" value={formatPercent(riskData.riskySleeve, 1)}
+                sub={`×${formatNumber(riskData.volTargetMultiplier, 2)} scale`} />
+              <KpiCard label="SGOV / Cash" value={formatPercent(riskData.sgovWeight, 1)}
+                sub={riskData.sgovWeight > 0 ? "residual in cash" : "fully invested"} />
+              <KpiCard label="Div. Ratio" value={formatNumber(riskData.diversificationRatio, 2)}
+                sub="avg vol / port vol" />
+              <KpiCard label="Effective N" value={formatNumber(riskData.effectiveN, 1)}
+                sub={`of ${riskData.numHoldings} names`} />
+              <KpiCard label="Avg Corr" value={formatNumber(riskData.avgCorrelation, 2)} />
             </div>
 
             {/* Cluster Distribution */}
@@ -292,11 +295,14 @@ export default function PortfolioPage() {
             {/* Constituent Table */}
             <Card className="bg-card border-border">
               <CardHeader className="p-4">
-                <CardTitle className="text-sm">Constituent Risk Contribution</CardTitle>
+                <CardTitle className="text-sm">Constituent Weights &amp; Risk</CardTitle>
                 <CardDescription>
-                  Final weights reflect {formatPercent(VOL_TARGET, 0)} vol-target overlay — gross exposure{" "}
-                  {riskData.grossExposure > 1 ? "above" : "below"} 100% because basket vol is{" "}
-                  {riskData.grossExposure > 1 ? "below" : "above"} target.
+                  Base wt sums to 100% · scaled by ×{formatNumber(riskData.volTargetMultiplier, 2)} to target{" "}
+                  {formatPercent(VOL_TARGET, 0)} vol ·{" "}
+                  {riskData.sgovWeight > 0.001
+                    ? `${formatPercent(riskData.sgovWeight, 1)} in SGOV / cash`
+                    : "fully invested in equity"}{" "}
+                  · no leverage
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
@@ -304,17 +310,21 @@ export default function PortfolioPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Ticker</TableHead>
-                      <TableHead className="text-right">Final Wt%</TableHead>
+                      <TableHead className="text-right">Base Wt%</TableHead>
+                      <TableHead className="text-right">Risk%</TableHead>
                       <TableHead className="text-right">Ann. Vol</TableHead>
-                      <TableHead className="text-center">Cluster</TableHead>
+                      <TableHead className="text-center">Cls</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {[...riskData.holdings].sort((a, b) => b.weight - a.weight).map((h) => (
+                    {[...riskData.holdings].sort((a, b) => b.baseWeight - a.baseWeight).map((h) => (
                       <TableRow key={h.ticker}>
                         <TableCell className="font-bold">{h.ticker}</TableCell>
                         <TableCell className="text-right font-mono text-primary">
-                          {formatPercent(h.weight, 1)}
+                          {formatPercent(h.baseWeight, 1)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-muted-foreground">
+                          {formatPercent(h.riskContrib, 1)}
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground">
                           {formatPercent(h.vol, 1)}
@@ -395,22 +405,19 @@ function AuditLine({
     <div className="space-y-1">
       <div className="font-mono text-[10px] text-muted-foreground leading-relaxed">
         <span className="text-foreground/70 font-semibold">{methodLabel}</span>
-        {covModel && (
-          <> · <span className="text-foreground/60">{covModel}</span></>
-        )}
-        {" · "}target <span className="text-foreground/80">{formatPercent(VOL_TARGET, 0)}</span>
-        {" · "}pre-scale <span className="text-foreground/80">{formatPercent(riskData.basePortVol, 1)}</span>
+        {covModel && <> · <span className="text-foreground/60">{covModel}</span></>}
+        {" · "}base vol <span className="text-foreground/80">{formatPercent(riskData.basePortVol, 1)}</span>
         {" · "}×<span className="text-foreground/80">{formatNumber(riskData.volTargetMultiplier, 2)}</span>
-        {" · "}gross <span className={cn(
-          "font-semibold",
-          riskData.grossExposure > 1.5 ? "text-amber-400" : riskData.grossExposure < 0.5 ? "text-red-400" : "text-foreground/80"
-        )}>{formatPercent(riskData.grossExposure, 0)}</span>
+        {" · "}equity <span className="text-foreground/80">{formatPercent(riskData.riskySleeve, 0)}</span>
+        {riskData.sgovWeight > 0.001 && (
+          <> · SGOV <span className="text-blue-400/80">{formatPercent(riskData.sgovWeight, 0)}</span></>
+        )}
         {" · "}cov {riskData.covLookback}d
       </div>
       {riskData.fallback && (
         <div className="flex items-center gap-1 text-[10px] text-amber-400/90">
           <AlertTriangle className="w-3 h-3 flex-shrink-0" />
-          <span>Fallback: {riskData.fallback}</span>
+          <span>{riskData.fallback}</span>
         </div>
       )}
     </div>

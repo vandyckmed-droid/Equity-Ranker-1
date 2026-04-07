@@ -1,0 +1,145 @@
+Treat Replit active code as the source of truth.
+
+PRODUCT DECISION
+
+I want the portfolio system centered on:
+- Equal Weight
+- Inverse Vol
+- Signal / Vol
+- Risk Parity
+- Volatility Targeting overlay
+
+I do NOT want Mean-Variance or Min Var to remain part of the visible product unless keeping them in the code has essentially no meaningful performance cost and is simpler than removing them.
+
+Priority order:
+1. Risk Parity + Vol Targeting must be institutionally aligned and robust
+2. Keep Equal / Inverse Vol / Signal-Vol
+3. Reduce visual clutter
+4. Remove Mean-Variance / Min Var only if doing so meaningfully improves performance or simplifies the active code path
+
+TASK 1 — DETERMINE WHETHER MIN VAR / MEAN-VARIANCE SHOULD BE REMOVED OR JUST HIDDEN
+
+Inspect the active code path and answer:
+- Are Min Var and Mean-Variance only computed when explicitly selected?
+- If they are dormant when not selected, estimate whether removing them would materially improve runtime, startup time, or normal portfolio interaction latency
+- If performance gain is negligible, do NOT spend effort deleting core backend logic; simply remove them from the visible UI and active user workflow
+- If removal would meaningfully improve performance or simplify the active runtime path, remove them cleanly
+
+Default preference:
+- Hide first
+- Remove only if there is a meaningful benefit
+
+TASK 2 — UPGRADE RISK PARITY TO BEST-PRACTICE QUALITY
+
+Audit the current Risk Parity implementation and upgrade it so it is institutionally aligned.
+
+Current concern:
+- If the max weight cap is applied after the solve, that is not a true capped risk-parity solution
+
+Required target state:
+- long-only
+- fully invested
+- max position cap enforced inside the optimizer, not post-hoc
+- deterministic
+- robust for baskets up to roughly 40 names
+- transparent and auditable
+
+Implement Risk Parity as a true capped ERC / risk-budgeting style solution with constraints seen by the solver:
+- sum(w) = 1
+- 0 <= w_i <= max_w
+- objective should target equalized risk contributions as closely as practical under those constraints
+
+Do NOT use post-solve clip-and-renormalize as the main cap mechanism except for tiny defensive numerical cleanup.
+
+TASK 3 — AUDIT AND TIGHTEN VOLATILITY TARGETING
+
+I want volatility targeting to stay in the system.
+
+Audit the current vol-target overlay and ensure it is institutionally sound.
+
+Requirements:
+- use the same covariance/risk model used for portfolio risk estimation
+- compute predicted annualized portfolio volatility from the actual chosen risky-sleeve weights
+- scale total equity exposure based on target vol
+- make the leverage/exposure policy explicit and intentional
+
+Specifically inspect:
+- whether current overlay caps gross exposure at 1.0 or allows leverage above 1.0
+- whether that behavior is intentional
+- whether the target-vol formula is applied cleanly and consistently across methods
+
+Preferred default:
+- keep it simple and conservative
+- if leverage > 1 is currently allowed, only keep that if it is explicitly intended and clearly documented
+- otherwise cap exposure at 1.0 and place residual in SGOV / cash equivalent
+
+TASK 4 — KEEP THE SIMPLE METHODS
+
+Retain and verify:
+- Equal Weight
+- Inverse Vol
+- Signal / Vol
+
+For each:
+- verify formulas are correct
+- verify weights sum to 1
+- verify long-only behavior
+- verify display logic is correct, including exact zero weights
+
+TASK 5 — REDUCE VISUAL CLUTTER
+
+If Min Var and Mean-Variance are not part of the preferred product direction:
+- remove them from visible selectors / dropdowns / labels first
+- keep the portfolio UI focused on the four intended methods:
+  - Equal Weight
+  - Inverse Vol
+  - Signal / Vol
+  - Risk Parity
+
+Only delete backend code if Task 1 shows a meaningful benefit.
+
+TASK 6 — DEFINE “A+ BEST PRACTICE” FOR THIS APP AND IMPLEMENT TO THAT STANDARD
+
+For this app, I want Risk Parity + Vol Targeting to meet this standard:
+
+1. robust covariance estimation
+2. exact date-aligned return matrix
+3. long-only constrained solve
+4. cap enforced inside the optimizer
+5. deterministic fallback behavior
+6. clear exposure / leverage rules in vol targeting
+7. no misleading labels
+8. diagnostics sufficient for audit
+
+Add or verify diagnostics such as:
+- predicted portfolio vol
+- diversification ratio
+- per-name risk contribution
+- names hitting cap
+- effective number of positions
+- risky sleeve weight total
+- overlay exposure and SGOV weight
+
+Keep diagnostics useful and compact.
+
+TASK 7 — DOCUMENTATION
+
+Update methodology / technical reference so it reflects the actual live implementation.
+
+Documentation must clearly state:
+- Risk Parity is the preferred advanced method
+- it equalizes risk contribution subject to long-only and max-weight constraints
+- volatility targeting scales the whole risky sleeve to a target annualized vol
+- Equal / Inverse Vol / Signal-Vol remain available as simpler alternatives
+- Min Var / Mean-Variance are either hidden, deprecated, or removed depending on implementation choice
+
+DELIVERABLE
+
+Return a concise implementation summary:
+1. whether Min Var / Mean-Variance were hidden or removed
+2. whether their removal had meaningful performance benefit
+3. exact Risk Parity method now used
+4. whether the cap is now inside the solver
+5. exact vol-targeting rule now used
+6. files changed
+7. any remaining caveats

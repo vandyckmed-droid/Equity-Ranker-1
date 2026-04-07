@@ -207,8 +207,14 @@ export interface PortfolioRiskRequest {
 
 export interface PortfolioHoldingRisk {
   ticker: string;
+  /** Final weight after vol-target overlay */
   weight: number;
+  /** Base weight before vol-target overlay (sums to 1) */
+  baseWeight: number;
+  /** Annualized individual volatility */
   vol: number;
+  /** Fraction of total portfolio variance contributed by this name (sums to 1) */
+  riskContrib: number;
   /** @nullable */
   cluster?: number | null;
 }
@@ -220,18 +226,28 @@ export interface ClusterCount {
 }
 
 export interface PortfolioRiskResponse {
-  /** Final portfolio vol after vol-target scaling (= VOL_TARGET when uncapped) */
+  /** Final portfolio vol after vol-target overlay */
   portfolioVol: number;
-  /** Pre-scale portfolio vol (sqrt of w_base' Σ w_base) */
+  /** Pre-overlay portfolio vol (sqrt of w_base' Σ w_base) */
   basePortVol: number;
-  /** Multiplier applied to base weights (= 15% / basePortVol) */
+  /** Equity sleeve multiplier = min(15% / basePortVol, 1.0) — capped at 1, no leverage */
   volTargetMultiplier: number;
-  /** Sum of final weights (= volTargetMultiplier since base weights sum to 1) */
+  /** Total risky-sleeve weight (= volTargetMultiplier) */
   grossExposure: number;
+  /** Risky equity sleeve total weight (explicit label, same value as grossExposure) */
+  riskySleeve: number;
+  /** Residual cash / SGOV weight = max(0, 1 - riskySleeve) */
+  sgovWeight: number;
+  /** Weighted-avg individual vol / portfolio vol — DR > 1 means diversification benefit */
+  diversificationRatio: number;
+  /** Effective number of positions = 1 / sum(w_base_i^2) — Herfindahl-based */
+  effectiveN: number;
+  /** Tickers that hit the per-name cap (Risk Parity only) */
+  namesCapped: string[];
   /** Actual method used (may differ from requested if fallback triggered) */
   method: string;
   /**
-   * Covariance model used for Min Var (e.g. "ledoit-wolf+ridge"). Null for equal/inverse-vol.
+   * Covariance model label (e.g. "ewma(λ=0.94)+ridge"). Null for heuristic methods.
    * @nullable
    */
   covModel?: string | null;

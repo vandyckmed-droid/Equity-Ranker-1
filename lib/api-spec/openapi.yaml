@@ -409,14 +409,24 @@ components:
           type: string
         weight:
           type: number
+          description: Final weight after vol-target overlay
+        baseWeight:
+          type: number
+          description: Base weight before vol-target overlay (sums to 1)
         vol:
           type: number
+          description: Annualized individual volatility
+        riskContrib:
+          type: number
+          description: Fraction of total portfolio variance contributed by this name (sums to 1)
         cluster:
           type: ["integer", "null"]
       required:
         - ticker
         - weight
+        - baseWeight
         - vol
+        - riskContrib
 
     ClusterCount:
       type: object
@@ -465,24 +475,39 @@ components:
       properties:
         portfolioVol:
           type: number
-          description: Final portfolio vol after vol-target scaling (= VOL_TARGET when uncapped)
+          description: Final portfolio vol after vol-target overlay (= risky_sleeve² × Σ computation)
         basePortVol:
           type: number
-          description: Pre-scale portfolio vol (sqrt of w_base' Σ w_base)
+          description: Pre-overlay portfolio vol (sqrt of w_base' Σ w_base)
         volTargetMultiplier:
           type: number
-          description: Multiplier applied to base weights (= 15% / basePortVol)
+          description: Equity sleeve multiplier = min(15% / basePortVol, 1.0) — capped at 1, no leverage
         grossExposure:
           type: number
-          description: Sum of final weights (= volTargetMultiplier since base weights sum to 1)
+          description: Total risky-sleeve weight (= volTargetMultiplier, since base weights sum to 1)
+        riskySleeve:
+          type: number
+          description: Risky equity sleeve total weight (same as grossExposure, explicit label)
+        sgovWeight:
+          type: number
+          description: Residual cash / SGOV weight = max(0, 1 - riskySleeve)
+        diversificationRatio:
+          type: number
+          description: Weighted-avg individual vol / portfolio vol (base weights). DR > 1 means diversification benefit.
+        effectiveN:
+          type: number
+          description: Effective number of positions = 1 / sum(w_base_i^2) — Herfindahl-based
+        namesCapped:
+          type: array
+          items:
+            type: string
+          description: Tickers that hit the per-name cap (Risk Parity only)
         method:
           type: string
           description: Actual method used (may differ from requested if fallback triggered)
         covModel:
           type: ["string", "null"]
-          description: >
-            Covariance model used for Min Var (e.g. "ledoit-wolf+ridge").
-            Null for equal/inverse-vol methods.
+          description: Covariance model label (e.g. "ewma(λ=0.94)+ridge"). Null for heuristic methods.
         fallback:
           type: ["string", "null"]
           description: Non-null when a fallback was triggered — describes what happened
@@ -511,6 +536,11 @@ components:
         - basePortVol
         - volTargetMultiplier
         - grossExposure
+        - riskySleeve
+        - sgovWeight
+        - diversificationRatio
+        - effectiveN
+        - namesCapped
         - method
         - volLookback
         - covLookback

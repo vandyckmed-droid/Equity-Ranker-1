@@ -90,18 +90,22 @@ export default function MethodologyPage() {
 
       {/* 6. VARIANCE / COV / CORR */}
       <Card className="border-border bg-card">
-        <CardHeader><CardTitle>6 — Variance, Covariance &amp; Correlation</CardTitle></CardHeader>
+        <CardHeader><CardTitle>6 — Covariance &amp; Risk Model</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
-            <p>Var(X)      = E[(X − μ)²]</p>
-            <p>Cov(X, Y)   = E[(X − μ_X)(Y − μ_Y)]</p>
-            <p>Corr(X, Y)  = Cov(X, Y) / (σ_X × σ_Y)   ∈ [−1, +1]</p>
-            <p className="mt-2">Σ[i,j]      = Cov(R_i, R_j)   <span className="opacity-60">— N×N covariance matrix</span></p>
-            <p>Σ[i,i]      = σ_i²             <span className="opacity-60">— diagonal = variance</span></p>
+            <p className="text-foreground/60">EWMA covariance (Risk Parity)</p>
+            <p>Σ_ewma = Σ_t  λ^(T−t) r_t r_t'  / Σ_t λ^(T−t)   λ = 0.94</p>
+            <p>Σ_ann  = Σ_ewma × 252  +  ridge × I</p>
+            <p className="mt-1 opacity-60">ridge = max(1e-4 × trace/n, 1e-6) — ensures positive-definiteness</p>
+          </div>
+          <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
+            <p className="text-foreground/60">Sample covariance (simpler methods, baseline)</p>
+            <p>Σ_ann  = cov(log_returns) × 252</p>
+            <p>σ_i    = max(√Σ_ann[i,i], 0.05)  <span className="opacity-60">— 5% vol floor</span></p>
           </div>
           <p className="text-xs text-muted-foreground">
-            The correlation matrix normalizes Σ to unit diagonal. It is used for clustering but is
-            insufficient for portfolio variance — individual volatilities must be restored.
+            Risk Parity uses EWMA covariance for both weight optimisation and the vol-target overlay,
+            ensuring the predicted and realized portfolio volatility are consistent.
           </p>
         </CardContent>
       </Card>
@@ -110,6 +114,11 @@ export default function MethodologyPage() {
       <Card className="border-border bg-card">
         <CardHeader><CardTitle>7 — Portfolio Construction</CardTitle></CardHeader>
         <CardContent className="space-y-4">
+
+          <p className="text-xs text-muted-foreground">
+            <span className="text-foreground font-semibold">Risk Parity</span> is the preferred advanced method.
+            The simpler alternatives (Equal, Inverse Vol, Signal/Vol) are available for comparison and transparency.
+          </p>
 
           <div className="space-y-3">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Weighting methods — base weights (sum = 1 before overlay)</p>
@@ -134,38 +143,41 @@ export default function MethodologyPage() {
               <p className="opacity-60">Signal: yes · Covariance: diagonal only · Cap: none · Fallback → Inverse Vol if all α ≤ 0</p>
             </div>
 
-            <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
-              <p className="text-foreground/60">Risk Parity (ERC)</p>
-              <p>min_x  ½ x′ Σ_ewma x − b · log(x)   s.t.  x &gt; 0</p>
-              <p>w_i = x_i / ∑ x_j,  then clip w_i ≤ 0.15 iteratively</p>
-              <p className="mt-1 opacity-60">Spinu convex formulation — each name contributes equal portfolio risk</p>
-              <p className="opacity-60">Σ_ewma = EWMA(λ=0.94) + diagonal ridge · Signal: no · Cap: 15% · Fallback → Inverse Vol</p>
-            </div>
-
-            <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
-              <p className="text-foreground/60">Min Variance</p>
-              <p>min_w  w′ Σ_lw w</p>
-              <p>s.t.   ∑ w_i = 1,  0 ≤ w_i ≤ 0.40</p>
-              <p className="mt-1 opacity-60">Σ_lw = Ledoit-Wolf shrinkage + diagonal ridge · SLSQP, multi-start</p>
-              <p className="opacity-60">Signal: no · Covariance: full · Cap: 40% · Fallback → Inverse Vol</p>
-            </div>
-
-            <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
-              <p className="text-foreground/60">Mean-Variance</p>
-              <p>max_w  α̃′ w − (γ/2) w′ Σ_ewma w</p>
-              <p>s.t.   ∑ w_i = 1,  0 ≤ w_i ≤ 0.15</p>
-              <p className="mt-1 opacity-60">α̃ = normalised Alpha scores (÷ std) · γ = 1 · SLSQP, multi-start</p>
-              <p className="opacity-60">Distinct from Min Var: uses signal. Σ_ewma = EWMA(λ=0.94) + ridge · Cap: 15% · Fallback → Inverse Vol</p>
+            <div className="border border-primary/30 bg-primary/5 p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
+              <p className="text-primary/80 font-semibold">Risk Parity — Preferred Advanced Method</p>
+              <p className="mt-1">Capped Equal Risk Contribution (ERC) via SLSQP</p>
+              <p className="mt-2">Objective (all constraints inside the solver):</p>
+              <p>  min_w  Σ_i (RC_i − RC_mean)²</p>
+              <p>  where  RC_i = w_i · (Σ_ewma w)_i</p>
+              <p className="mt-2">Constraints:</p>
+              <p>  Σ w_i = 1       (fully invested)</p>
+              <p>  0 ≤ w_i ≤ 0.15  (long-only + per-name cap inside solver)</p>
+              <p className="mt-2">Gradient (analytical):</p>
+              <p>  ∂f/∂w_k = 2 · [ v_k·(Σw)_k + (Σ(v·w))_k ]</p>
+              <p>  where  v_i = RC_i − RC_mean</p>
+              <p className="mt-2 opacity-60">Multi-start: equal weights + 3 Dirichlet seeds · deterministic (seed=42)</p>
+              <p className="opacity-60">Covariance: EWMA(λ=0.94)+ridge · Fallback → Spinu L-BFGS-B if all starts fail</p>
+              <p className="opacity-60">Fallback² → Inverse Vol if Spinu also fails</p>
+              <p className="mt-1 opacity-60">Cap is a first-class constraint — not post-hoc clipping</p>
             </div>
           </div>
 
           <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
             <p className="text-foreground/60">Vol-target overlay (15% annualised target)</p>
-            <p>pre_vol    = √(w_base′ Σ w_base)</p>
-            <p>multiplier = 0.15 / pre_vol</p>
-            <p>w_final    = w_base × multiplier</p>
-            <p className="mt-1 opacity-60">gross exposure = multiplier · 100% — may exceed 100% when basket vol &lt; 15%</p>
-            <p className="opacity-60">All methods: long-only · fully invested (base) · finite weights guaranteed</p>
+            <p>pre_vol    = √(w_base′ Σ w_base)   <span className="opacity-60">— using same Σ as optimisation</span></p>
+            <p>multiplier = min(0.15 / pre_vol, 1.0)  <span className="opacity-60">— capped at 1 · no leverage</span></p>
+            <p>w_equity   = w_base × multiplier    <span className="opacity-60">— sum = multiplier</span></p>
+            <p>w_sgov     = max(0, 1 − multiplier)  <span className="opacity-60">— residual in cash / SGOV</span></p>
+            <p className="mt-2 opacity-60">When basket vol &lt; 15%: multiplier = 1.0 · fully invested · no SGOV</p>
+            <p className="opacity-60">When basket vol &gt; 15%: multiplier &lt; 1.0 · residual explicitly in SGOV</p>
+          </div>
+
+          <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
+            <p className="text-foreground/60">Portfolio diagnostics</p>
+            <p>portfolioVol       = √(w_equity′ Σ w_equity)</p>
+            <p>diversificationRatio = (Σ w_i_base · σ_i) / pre_vol  <span className="opacity-60">— &gt;1 = diversification benefit</span></p>
+            <p>effectiveN         = 1 / Σ(w_base_i²)  <span className="opacity-60">— Herfindahl-based</span></p>
+            <p>RC_i               = w_i · (Σw)_i / (w′Σw)  <span className="opacity-60">— risk fraction, sums to 1</span></p>
           </div>
 
         </CardContent>
