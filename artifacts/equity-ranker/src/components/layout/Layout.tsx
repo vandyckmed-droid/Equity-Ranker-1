@@ -13,13 +13,13 @@ const NAV_LINKS = [
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
-  const { holdings } = usePortfolio();
+  const { basket } = usePortfolio();
 
   return (
     <nav className="flex flex-col gap-1 p-3">
       {NAV_LINKS.map(({ href, label, icon: Icon }) => {
         const active = location === href;
-        const showBadge = href === "/portfolio" && holdings.length > 0;
+        const showBadge = href === "/portfolio" && basket.length > 0;
         return (
           <Link
             key={href}
@@ -36,7 +36,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
             <span className="flex-1">{label}</span>
             {showBadge && (
               <span className="bg-primary/20 text-primary text-[10px] font-bold px-2 py-0.5 rounded-full">
-                {holdings.length}
+                {basket.length}
               </span>
             )}
           </Link>
