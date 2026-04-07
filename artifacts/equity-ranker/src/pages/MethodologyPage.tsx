@@ -155,16 +155,11 @@ export default function MethodologyPage() {
           </div>
 
           <div>
-            <h3 className="font-semibold text-sm mb-2">Q sleeve — direct composite (no pairing)</h3>
+            <h3 className="font-semibold text-sm mb-2">Q sleeve</h3>
             <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
-              <p><span className="text-foreground">z_q</span> = Z(quality)  <span className="opacity-60">— cross-sectional z-score of the composite</span></p>
-              <p className="mt-2"><span className="text-foreground">Q</span> = z_q</p>
+              <p><span className="text-foreground">z_q</span> = Z(quality)</p>
+              <p><span className="text-foreground">Q</span>   = z_q</p>
             </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              Q is a single input — there is no 50/50 pair. The quality composite is z-scored once and used
-              directly as the sleeve. Q acts as a minority stabilizing signal: it tilts toward profitable,
-              low-leverage businesses and prevents pure momentum from concentrating in deteriorating names.
-            </p>
           </div>
 
         </CardContent>
