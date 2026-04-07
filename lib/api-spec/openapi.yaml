@@ -370,24 +370,6 @@ components:
         - ticker
         - weight
 
-    PortfolioRiskRequest:
-      type: object
-      properties:
-        holdings:
-          type: array
-          items:
-            $ref: "#/components/schemas/PortfolioHolding"
-        lookback:
-          type: integer
-          description: Days of history for covariance (60, 126, or 252)
-        weightingMethod:
-          type: string
-          enum: [equal, inverse_vol, min_var]
-      required:
-        - holdings
-        - lookback
-        - weightingMethod
-
     PortfolioHoldingRisk:
       type: object
       properties:
@@ -418,6 +400,34 @@ components:
         - count
         - weight
 
+    PortfolioRiskRequest:
+      type: object
+      properties:
+        tickers:
+          type: array
+          items:
+            type: string
+          description: >
+            Basket tickers (manual selection). Weights are fully automated by
+            the server — the client must NOT supply per-name weights.
+        holdings:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortfolioHolding"
+          description: >
+            DEPRECATED — weight field is ignored. Send weight=1 for all entries.
+            Prefer the tickers field in future.
+        lookback:
+          type: integer
+          description: Days of history for covariance (60, 126, or 252)
+        weightingMethod:
+          type: string
+          enum: [equal, inverse_vol, min_var]
+      required:
+        - holdings
+        - lookback
+        - weightingMethod
+
     PortfolioRiskResponse:
       type: object
       properties:
@@ -436,6 +446,11 @@ components:
         method:
           type: string
           description: Actual method used (may differ from requested if fallback triggered)
+        covModel:
+          type: ["string", "null"]
+          description: >
+            Covariance model used for Min Var (e.g. "ledoit-wolf+ridge").
+            Null for equal/inverse-vol methods.
         fallback:
           type: ["string", "null"]
           description: Non-null when a fallback was triggered — describes what happened

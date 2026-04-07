@@ -22,7 +22,7 @@ const METHOD_LABELS: Record<string, string> = {
 const VOL_TARGET = 0.15;
 
 export default function PortfolioPage() {
-  const { holdings, removeHolding, clearHoldings, setHoldings, allStocks } = usePortfolio();
+  const { basket, removeFromBasket, clearBasket, seedBasket, allStocks } = usePortfolio();
 
   const [weightingMethod, setWeightingMethod] = useState<PortfolioRiskRequestWeightingMethod>("equal");
   const [lookback, setLookback] = useState<60 | 126 | 252>(252);
@@ -32,32 +32,32 @@ export default function PortfolioPage() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const triggerCompute = useCallback(() => {
-    if (holdings.length === 0) return;
+    if (basket.length === 0) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       computeRisk.mutate({
         data: {
-          holdings: holdings.map((h) => ({ ticker: h.ticker, weight: 1 })),
+          holdings: basket.map((ticker) => ({ ticker, weight: 1 })),
           lookback,
           weightingMethod,
         },
       });
     }, 300);
-  }, [holdings, lookback, weightingMethod, computeRisk]);
+  }, [basket, lookback, weightingMethod, computeRisk]);
 
   useEffect(() => {
     triggerCompute();
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [holdings, weightingMethod, lookback]);
+  }, [basket, weightingMethod, lookback]);
 
   const handleSeed = () => {
     const n = parseInt(seedCount);
     if (isNaN(n) || n <= 0) return;
     const sorted = [...allStocks].sort((a, b) => (b.alpha || 0) - (a.alpha || 0));
-    const topN = sorted.slice(0, n);
-    setHoldings(topN.map((s) => ({ ticker: s.ticker, weight: 1 })));
+    const topN = sorted.slice(0, n).map((s) => s.ticker);
+    seedBasket(topN);
     setWeightingMethod("equal");
   };
 
@@ -70,16 +70,16 @@ export default function PortfolioPage() {
     return Object.fromEntries(riskData.holdings.map((h) => [h.ticker, h.weight]));
   }, [riskData]);
 
-  if (holdings.length === 0) {
+  if (basket.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center min-h-full p-4 text-center">
         <div className="w-full max-w-sm space-y-4 bg-card/50 p-6 rounded-xl border border-border border-dashed">
           <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto text-muted-foreground">
             <Calculator className="w-6 h-6" />
           </div>
-          <h2 className="text-xl font-bold text-foreground">Empty Portfolio</h2>
+          <h2 className="text-xl font-bold text-foreground">Empty Basket</h2>
           <p className="text-muted-foreground text-sm">
-            Add equities from the universe rankings to construct a basket and analyze risk metrics.
+            Add equities from the universe rankings to construct a basket. Weights are automated by the selected method.
           </p>
           <div className="pt-2 flex flex-col gap-3">
             <Link href="/">
@@ -97,7 +97,7 @@ export default function PortfolioPage() {
                 onChange={(e) => setSeedCount(e.target.value)}
                 className="w-20 text-center"
                 min="1"
-                max="100"
+                max="40"
               />
               <Button variant="outline" className="flex-1" onClick={handleSeed} disabled={allStocks.length === 0}>
                 Seed Top N
@@ -117,11 +117,14 @@ export default function PortfolioPage() {
   return (
     <div className="p-3 md:p-6 max-w-7xl mx-auto flex gap-4 md:gap-6 h-full overflow-hidden flex-col lg:flex-row">
 
-      {/* LEFT PANEL: Holdings & Method */}
+      {/* LEFT PANEL: Basket & Method */}
       <div className="w-full lg:w-[380px] flex flex-col gap-3 flex-shrink-0 lg:h-full lg:overflow-hidden">
         <div className="flex items-center justify-between">
-          <h1 className="text-lg md:text-2xl font-bold tracking-tight text-foreground">Portfolio Basket</h1>
-          <Button variant="ghost" size="sm" onClick={clearHoldings} className="text-muted-foreground hover:text-destructive">
+          <div>
+            <h1 className="text-lg md:text-2xl font-bold tracking-tight text-foreground">Portfolio Basket</h1>
+            <p className="text-[11px] text-muted-foreground/70 mt-0.5">Manually selected · weights automated</p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={clearBasket} className="text-muted-foreground hover:text-destructive">
             Clear All
           </Button>
         </div>
@@ -151,11 +154,11 @@ export default function PortfolioPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {holdings.map((h) => {
-                  const fw = weightMap[h.ticker];
+                {basket.map((ticker) => {
+                  const fw = weightMap[ticker];
                   return (
-                    <TableRow key={h.ticker} className="hover:bg-muted/50 group">
-                      <TableCell className="font-bold text-foreground">{h.ticker}</TableCell>
+                    <TableRow key={ticker} className="hover:bg-muted/50 group">
+                      <TableCell className="font-bold text-foreground">{ticker}</TableCell>
                       <TableCell className="text-right font-mono text-sm">
                         {isComputing ? (
                           <span className="text-muted-foreground/40">—</span>
@@ -172,7 +175,7 @@ export default function PortfolioPage() {
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 rounded-sm text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={() => removeHolding(h.ticker)}
+                          onClick={() => removeFromBasket(ticker)}
                         >
                           <Trash2 className="w-3 h-3" />
                         </Button>
@@ -202,7 +205,6 @@ export default function PortfolioPage() {
               </div>
             </div>
 
-            {/* Audit line */}
             <AuditLine
               riskData={riskData}
               isComputing={isComputing}
@@ -373,11 +375,15 @@ function AuditLine({
   }
 
   const methodLabel = METHOD_LABELS[riskData.method] ?? riskData.method;
+  const covModel = riskData.covModel;
 
   return (
     <div className="space-y-1">
       <div className="font-mono text-[10px] text-muted-foreground leading-relaxed">
         <span className="text-foreground/70 font-semibold">{methodLabel}</span>
+        {covModel && (
+          <> · <span className="text-foreground/60">{covModel}</span></>
+        )}
         {" · "}target <span className="text-foreground/80">{formatPercent(VOL_TARGET, 0)}</span>
         {" · "}pre-scale <span className="text-foreground/80">{formatPercent(riskData.basePortVol, 1)}</span>
         {" · "}×<span className="text-foreground/80">{formatNumber(riskData.volTargetMultiplier, 2)}</span>

@@ -196,6 +196,11 @@ export interface PortfolioRiskResponse {
   /** Actual method used (may differ from requested if fallback triggered) */
   method: string;
   /**
+   * Covariance model used for Min Var (e.g. "ledoit-wolf+ridge"). Null for equal/inverse-vol.
+   * @nullable
+   */
+  covModel?: string | null;
+  /**
    * Non-null when a fallback was triggered — describes what happened
    * @nullable
    */

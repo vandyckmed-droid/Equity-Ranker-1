@@ -101,7 +101,7 @@ const SECTOR_ABBR: Record<string, string> = {
 };
 
 export default function MainPage() {
-  const { holdings, addHolding, removeHolding, setAllStocks } = usePortfolio();
+  const { basket, basketSet, addToBasket, removeFromBasket, setAllStocks } = usePortfolio();
   const { config, orderedVisible, toggleColumn, moveColumn, resetColumns } = useColumnConfig();
   const queryClient = useQueryClient();
 
@@ -363,7 +363,7 @@ export default function MainPage() {
     setServerParams((prev) => ({ ...prev, [key]: value }));
   };
 
-  const portfolioSet = useMemo(() => new Set(holdings.map(h => h.ticker)), [holdings]);
+  const portfolioSet = basketSet;
 
   // ─── Loading state ────────────────────────────────────────────────────────
   if (!isReady) {
@@ -900,7 +900,7 @@ export default function MainPage() {
                             variant="ghost"
                             size="icon"
                             className="h-6 w-6 rounded-sm opacity-50 group-hover:opacity-100"
-                            onClick={() => inPortfolio ? removeHolding(stock.ticker) : addHolding(stock.ticker)}
+                            onClick={() => inPortfolio ? removeFromBasket(stock.ticker) : addToBasket(stock.ticker)}
                           >
                             {inPortfolio
                               ? <Check className="w-3 h-3 text-primary" />

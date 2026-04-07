@@ -1,0 +1,192 @@
+Patch the portfolio basket and portfolio weighting system with the following goals:
+
+Core product intent:
+- I want manual **stock selection and removal** to remain in place.
+- I do **not** want manual portfolio weights now or later.
+- Remove manual-weight plumbing rather than extending it.
+- The basket is manually selected.
+- The weights are fully automated.
+
+This patch has 3 linked objectives:
+1. Fix portfolio basket persistence so selections do not disappear or zero out
+2. Remove misleading manual-weight logic and make the system clearly basket-based
+3. Upgrade and refine Min Var into a robust, trustworthy, institutional-grade implementation for baskets up to 40 stocks, without adding UI complexity
+
+Review and patch all relevant files end to end, including at minimum:
+- artifacts/equity-ranker/src/hooks/use-portfolio.tsx
+- artifacts/equity-ranker/src/pages/PortfolioPage.tsx
+- artifacts/equity-engine/server.py
+- any engine/risk files involved in covariance or optimization
+- any OpenAPI / generated client schema files touched by this work
+- any shared API client code touched by the portfolio-risk request/response
+
+========================================
+1) FIX PORTFOLIO BASKET PERSISTENCE
+========================================
+
+Problem:
+The portfolio selections keep zeroing out or disappearing. The selected basket must persist reliably.
+
+Requirements:
+1. Persist the portfolio basket to localStorage
+2. Restore it automatically on app load
+3. Keep persistence limited to basket selection only
+4. Do not persist manual weights because manual weights should not exist
+5. Adding/removing names should update storage immediately and reliably
+6. Clearing the basket should clear storage too
+7. Duplicates must not be allowed
+8. Corrupted or invalid localStorage data must fail safely and reset cleanly
+9. Preserve basket order if possible
+10. Keep implementation simple, robust, and transparent
+
+Store only what is needed:
+- selected tickers
+- any minimal metadata needed for safe restoration
+
+Do not:
+- create placeholder weights
+- restore fake holdings
+- introduce UI complexity
+
+========================================
+2) REMOVE MANUAL-WEIGHT PLUMBING
+========================================
+
+Important:
+I do NOT want manual weight entry.
+I only want manual stock selection/removal.
+All weights must be generated automatically from:
+- the current basket constituents
+- the selected weighting method
+- the current risk/covariance settings
+
+Implement:
+1. Remove or deprecate misleading manual-weight plumbing in frontend state and API types
+2. Make the portfolio holdings state represent a basket of tickers, not user-entered weights
+3. If backward compatibility is needed, tolerate old weight fields on the backend but ignore them and mark them deprecated in comments/types
+4. Keep weighting methods:
+   - Equal
+   - Inverse Vol
+   - Min Var
+5. Update UI text so it is obvious that weights are system-generated from the basket and method
+6. Make the code and request/response shapes clearly reflect:
+   - basket in
+   - automated weights out
+
+Do not add:
+- custom weight mode
+- weight editing UI
+- stored manual weights
+
+========================================
+3) UPGRADE AND REFINE MIN VAR
+========================================
+
+Goal:
+Refine the current Min Var method into a high-quality institutional implementation that remains simple in the UI but materially better in methodology, stability, and trustworthiness.
+
+Design intent:
+- no added visual complexity
+- no optimizer dashboard
+- no black-box behavior
+- strong backend methodology
+- trustworthy weights for baskets up to 40 stocks
+
+Non-negotiable rules:
+1. Keep Min Var long-only
+2. Keep Min Var fully invested before any vol-target overlay
+3. Keep all safeguards explicit and auditable
+4. Prefer robustness over cleverness
+5. Prefer transparent math over exotic complexity
+
+Upgrade requirements:
+1. Replace plain raw sample covariance as the default optimizer input
+2. Use a robust covariance estimator suitable for small-to-medium baskets
+3. Prefer shrinkage covariance as the default
+4. Add EWMA support only if useful, but prioritize robustness and stability
+5. Add numerical stabilization:
+   - diagonal ridge / regularization if needed
+   - condition checks
+   - safe handling of near-singular matrices
+6. Add sensible optimizer constraints:
+   - long-only
+   - weights sum to 1
+   - max single-name cap
+7. Prevent pathological concentration
+8. Keep fallback logic explicit:
+   - if Min Var fails stability or optimization checks, fall back transparently to Inverse Vol
+9. Keep outputs easy to audit
+
+Methodology goals:
+- stable covariance estimation
+- robust optimization for baskets up to 40 names
+- reasonable concentration control
+- strong numerical behavior
+- transparent fallback logic
+
+Choose the best practical constrained Min Var design for this app.
+Do not add unnecessary knobs unless clearly valuable.
+Defaults should be strong enough that the method works well without user tuning.
+
+========================================
+4) UI / PRODUCT REQUIREMENTS
+========================================
+
+Keep the portfolio page simple.
+
+Requirements:
+1. Keep manual stock add/remove behavior
+2. Keep the same simple weighting method options
+3. Do not add manual weight UI
+4. Do not add a large settings panel
+5. Add only minimal audit text if needed to clarify:
+   - basket is manually selected
+   - weights are automated
+   - Min Var is refined and stabilized
+   - fallback was used if applicable
+
+========================================
+5) API / AUDIT REQUIREMENTS
+========================================
+
+Improve request/response clarity and auditability.
+
+The portfolio-risk path should clearly communicate:
+- actual method used
+- covariance model used
+- whether shrinkage / regularization was applied
+- whether any concentration cap constrained the solution
+- whether fallback was triggered
+- pre-scale portfolio vol
+- final gross exposure after vol targeting
+
+If old weight fields remain for compatibility, make clear they are deprecated and ignored.
+
+========================================
+6) IMPLEMENTATION PRIORITIES
+========================================
+
+Priorities:
+1. correctness
+2. persistence reliability
+3. transparency
+4. optimizer robustness
+5. minimal unnecessary complexity
+
+Do not:
+- add speculative features
+- add manual weight editing
+- add black-box optimization
+- create a second disconnected portfolio system
+
+Return:
+- patched files
+- short summary of what changed
+- exact localStorage key used for basket persistence
+- exact Min Var methodology used
+- fallback rules
+- any constraints added
+- brief note on how to verify:
+  1. basket persistence works
+  2. manual weights no longer exist
+  3. Min Var is materially more robust than before

@@ -303,27 +303,113 @@ class PortfolioRiskRequest(BaseModel):
     weighting_method: str = "equal"  # "equal", "inverse_vol", "min_var"
 
 
-def _compute_min_var_weights(cov_matrix: np.ndarray) -> Optional[np.ndarray]:
-    """Long-only minimum-variance weights using SLSQP. Returns None on failure."""
+MIN_VAR_MAX_WEIGHT = 0.40   # single-name concentration cap
+MIN_VAR_RIDGE_BASE = 1e-4  # ridge coefficient (relative to trace/n)
+
+
+def _compute_min_var_weights(
+    log_rets,  # pd.DataFrame of daily log returns (rows=days, cols=tickers)
+) -> tuple[Optional[np.ndarray], str, bool]:
+    """
+    Institutional-grade long-only minimum-variance optimiser.
+
+    Design:
+    - sklearn LedoitWolf fitted directly on raw daily returns (correct oracle shrinkage)
+    - Diagonal ridge regularisation for numerical stability
+    - Condition-number check with automatic ridge escalation
+    - Long-only, fully-invested, per-name cap (40%)
+    - Multi-start SLSQP: equal weights + 3 Dirichlet random starts
+    - Returns (weights, cov_model_label, concentration_capped)
+      or (None, label, False) on total failure
+    """
+    import pandas as pd
     from scipy.optimize import minimize
-    n = cov_matrix.shape[0]
-    x0 = np.ones(n) / n
+
+    returns = log_rets.values  # shape (T, n)
+    n = returns.shape[1]
+
+    # ── Covariance estimation ────────────────────────────────────────────────
+    try:
+        from sklearn.covariance import LedoitWolf
+        lw = LedoitWolf(store_precision=False, assume_centered=False)
+        lw.fit(returns)
+        # Annualise: LedoitWolf gives daily cov, multiply by 252
+        cov_ann = lw.covariance_ * 252
+        rho = float(lw.shrinkage_)
+        cov_model = f"lw(ρ={rho:.2f})"
+    except Exception:
+        # Fallback: plain sample covariance
+        cov_ann = (log_rets.cov().values) * 252
+        cov_model = "sample"
+
+    # ── Ridge regularisation ─────────────────────────────────────────────────
+    trace = float(np.trace(cov_ann))
+    ridge_lambda = MIN_VAR_RIDGE_BASE * (trace / n)
+    cov_reg = cov_ann + ridge_lambda * np.eye(n)
+
+    # Escalate ridge if still ill-conditioned
+    try:
+        cond = np.linalg.cond(cov_reg)
+        if cond > 1e6:
+            ridge_lambda *= 10.0
+            cov_reg = cov_ann + ridge_lambda * np.eye(n)
+            cov_model += "+ridge²"
+        else:
+            cov_model += "+ridge"
+    except np.linalg.LinAlgError:
+        cov_model += "+ridge"
+
+    # ── Optimisation ─────────────────────────────────────────────────────────
+    max_w = min(MIN_VAR_MAX_WEIGHT, 1.0)
+    bounds = [(0.0, max_w)] * n
     constraints = [{"type": "eq", "fun": lambda w: w.sum() - 1.0}]
-    bounds = [(0.0, 1.0)] * n
-    result = minimize(
-        lambda w: float(w @ cov_matrix @ w),
-        x0=x0,
-        method="SLSQP",
-        constraints=constraints,
-        bounds=bounds,
-        options={"maxiter": 500, "ftol": 1e-10},
-    )
-    if result.success and np.all(np.isfinite(result.x)):
-        w = np.maximum(result.x, 0.0)
-        s = w.sum()
-        if s > 1e-8:
-            return w / s
-    return None
+
+    def portfolio_variance(w: np.ndarray) -> float:
+        return float(w @ cov_reg @ w)
+
+    def try_optimize(x0: np.ndarray) -> Optional[np.ndarray]:
+        try:
+            res = minimize(
+                portfolio_variance,
+                x0=x0,
+                method="SLSQP",
+                bounds=bounds,
+                constraints=constraints,
+                options={"maxiter": 1000, "ftol": 1e-12},
+            )
+            if res.success and np.all(np.isfinite(res.x)):
+                w = np.maximum(res.x, 0.0)
+                s = w.sum()
+                if s > 1e-8:
+                    return w / s
+        except Exception:
+            pass
+        return None
+
+    # Multi-start: equal weight + 3 Dirichlet seeds
+    rng = np.random.default_rng(42)
+    starts = [np.ones(n) / n]
+    for _ in range(3):
+        raw = rng.dirichlet(np.ones(n))
+        raw = np.minimum(raw, max_w)
+        raw /= raw.sum()
+        starts.append(raw)
+
+    best: Optional[np.ndarray] = None
+    best_var = np.inf
+    for x0 in starts:
+        candidate = try_optimize(x0)
+        if candidate is not None:
+            v = portfolio_variance(candidate)
+            if v < best_var:
+                best_var = v
+                best = candidate
+
+    if best is None:
+        return None, cov_model, False
+
+    concentration_capped = bool(np.any(best >= max_w - 1e-4))
+    return best, cov_model, concentration_capped
 
 
 @app.post("/portfolio-risk")
@@ -362,6 +448,7 @@ def portfolio_risk(body: PortfolioRiskRequest):
     n = len(tickers_v)
     fallback = None
     actual_method = body.weighting_method
+    cov_model = None  # only set for min_var
 
     # ── Step 1: Base weights (normalized, sum = 1) ───────────────────────────
     if body.weighting_method == "equal":
@@ -372,16 +459,20 @@ def portfolio_risk(body: PortfolioRiskRequest):
         base_w = inv_vols / inv_vols.sum()
 
     elif body.weighting_method == "min_var":
-        min_var_w = _compute_min_var_weights(cov_ann)
+        min_var_w, cov_model, concentration_capped = _compute_min_var_weights(log_rets)
         if min_var_w is not None:
             base_w = min_var_w
+            if concentration_capped:
+                fallback = f"Per-name 40% cap active (≥1 name at 40%). Cov: {cov_model}."
         else:
             # Explicit fallback to inverse vol
             logger.warning("Min Var optimization failed — falling back to Inverse Vol")
             inv_vols = 1.0 / vols_ann
             base_w = inv_vols / inv_vols.sum()
             actual_method = "inverse_vol"
-            fallback = "Min Var optimization failed (singular matrix). Used Inverse Vol."
+            cov_model = "n/a"
+            concentration_capped = False
+            fallback = f"Min Var failed (all starts failed). Fell back to Inverse Vol."
     else:
         # Unknown method — default to equal
         base_w = np.ones(n) / n
@@ -448,6 +539,7 @@ def portfolio_risk(body: PortfolioRiskRequest):
         "volTargetMultiplier": round(multiplier, 6),
         "grossExposure": round(gross_exposure, 6),
         "method": actual_method,
+        "covModel": cov_model,
         "fallback": fallback,
         "volLookback": body.lookback,
         "covLookback": body.lookback,

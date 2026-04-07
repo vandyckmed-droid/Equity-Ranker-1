@@ -1,18 +1,33 @@
-import React, { createContext, useContext, useState, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { Stock } from "@workspace/api-client-react";
 
-export interface PortfolioHolding {
-  ticker: string;
-  weight: number;
+const BASKET_KEY = "qt:basket-v1";
+
+function loadBasket(): string[] {
+  try {
+    const raw = localStorage.getItem(BASKET_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.every((t) => typeof t === "string")) {
+      return parsed;
+    }
+  } catch {}
+  return [];
+}
+
+function saveBasket(tickers: string[]) {
+  try {
+    localStorage.setItem(BASKET_KEY, JSON.stringify(tickers));
+  } catch {}
 }
 
 interface PortfolioContextType {
-  holdings: PortfolioHolding[];
-  addHolding: (ticker: string) => void;
-  removeHolding: (ticker: string) => void;
-  updateWeight: (ticker: string, weight: number) => void;
-  clearHoldings: () => void;
-  setHoldings: (holdings: PortfolioHolding[]) => void;
+  basket: string[];
+  basketSet: Set<string>;
+  addToBasket: (ticker: string) => void;
+  removeFromBasket: (ticker: string) => void;
+  clearBasket: () => void;
+  seedBasket: (tickers: string[]) => void;
   allStocks: Stock[];
   setAllStocks: (stocks: Stock[]) => void;
 }
@@ -20,39 +35,41 @@ interface PortfolioContextType {
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
 
 export function PortfolioProvider({ children }: { children: ReactNode }) {
-  const [holdings, setHoldingsState] = useState<PortfolioHolding[]>([]);
+  const [basket, setBasket] = useState<string[]>(loadBasket);
   const [allStocks, setAllStocks] = useState<Stock[]>([]);
 
-  const addHolding = (ticker: string) => {
-    setHoldingsState((prev) => {
-      if (prev.find((h) => h.ticker === ticker)) return prev;
-      return [...prev, { ticker, weight: 0 }];
-    });
+  useEffect(() => {
+    saveBasket(basket);
+  }, [basket]);
+
+  const addToBasket = (ticker: string) => {
+    setBasket((prev) => (prev.includes(ticker) ? prev : [...prev, ticker]));
   };
 
-  const removeHolding = (ticker: string) => {
-    setHoldingsState((prev) => prev.filter((h) => h.ticker !== ticker));
+  const removeFromBasket = (ticker: string) => {
+    setBasket((prev) => prev.filter((t) => t !== ticker));
   };
 
-  const updateWeight = (ticker: string, weight: number) => {
-    setHoldingsState((prev) =>
-      prev.map((h) => (h.ticker === ticker ? { ...h, weight } : h))
-    );
+  const clearBasket = () => {
+    setBasket([]);
   };
 
-  const clearHoldings = () => {
-    setHoldingsState([]);
+  const seedBasket = (tickers: string[]) => {
+    const deduped = [...new Set(tickers)];
+    setBasket(deduped);
   };
+
+  const basketSet = new Set(basket);
 
   return (
     <PortfolioContext.Provider
       value={{
-        holdings,
-        addHolding,
-        removeHolding,
-        updateWeight,
-        clearHoldings,
-        setHoldings: setHoldingsState,
+        basket,
+        basketSet,
+        addToBasket,
+        removeFromBasket,
+        clearBasket,
+        seedBasket,
         allStocks,
         setAllStocks,
       }}
@@ -68,4 +85,9 @@ export function usePortfolio() {
     throw new Error("usePortfolio must be used within a PortfolioProvider");
   }
   return context;
+}
+
+/** @deprecated — kept for legacy call-sites only. Use basket/basketSet directly. */
+export interface PortfolioHolding {
+  ticker: string;
 }
