@@ -129,8 +129,29 @@ Excludes: ETFs/mutual funds, LPs/MLPs, SPACs, OTC/pink sheets, non-equity instru
 - **Q sleeve** = Z(quality) — quality composite
 - **Alpha** = wS×S + wT×T + wQ×Q (defaults 0.4/0.4/0.2); fully auditable per-stock
 
-## Weighting Methods
+## Portfolio Construction — 2-Step Process
 
-- **Equal weight**: w_i = 1/N
-- **Inverse vol**: w_i ∝ 1/sigma12_i, normalized to 100%
-- **Manual**: user-specified weights
+### Step 1: Base weights (normalized, sum = 1)
+- **Equal**: w_i = 1/N
+- **Inverse Vol**: w_i ∝ 1/σ_i, σ from log-return std over cov lookback, vol floor = 5%
+- **Min Var**: long-only min-variance via SLSQP on empirical covariance matrix Σ; falls back to Inverse Vol (with audit line) if optimizer fails
+
+### Step 2: 15% Vol-target overlay
+- `pre_vol = sqrt(w_base' Σ w_base)` — pre-scale portfolio vol (annualized)
+- `multiplier = 0.15 / pre_vol`
+- `w_final = w_base × multiplier`
+- Final weights do NOT sum to 100%. Gross exposure = multiplier.
+  - If basket vol < 15% → gross > 100% (levered)
+  - If basket vol > 15% → gross < 100% (de-levered)
+
+### Response fields
+- `portfolioVol`: final vol after scaling (= 15% by construction)
+- `basePortVol`: pre-scale portfolio vol
+- `volTargetMultiplier`: scaling multiplier
+- `grossExposure`: sum of final weights
+- `method`: actual method used (may differ from requested if fallback)
+- `fallback`: non-null string when a fallback was triggered, null otherwise
+- `volLookback`/`covLookback`: lookback used (same value, both from request)
+
+### Audit line (UI)
+Displayed in portfolio page footer: method · target 15% · pre-scale vol · ×multiplier · gross exposure · cov Nd

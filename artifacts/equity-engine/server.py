@@ -260,6 +260,9 @@ def universe_filters(body: UniverseFiltersBody):
     }
 
 
+VOL_TARGET = 0.15  # 15% annualized portfolio vol target
+
+
 class PortfolioHolding(BaseModel):
     ticker: str
     weight: float
@@ -268,51 +271,115 @@ class PortfolioHolding(BaseModel):
 class PortfolioRiskRequest(BaseModel):
     holdings: List[PortfolioHolding]
     lookback: int = 252
-    weighting_method: str = "equal"
+    weighting_method: str = "equal"  # "equal", "inverse_vol", "min_var"
+
+
+def _compute_min_var_weights(cov_matrix: np.ndarray) -> Optional[np.ndarray]:
+    """Long-only minimum-variance weights using SLSQP. Returns None on failure."""
+    from scipy.optimize import minimize
+    n = cov_matrix.shape[0]
+    x0 = np.ones(n) / n
+    constraints = [{"type": "eq", "fun": lambda w: w.sum() - 1.0}]
+    bounds = [(0.0, 1.0)] * n
+    result = minimize(
+        lambda w: float(w @ cov_matrix @ w),
+        x0=x0,
+        method="SLSQP",
+        constraints=constraints,
+        bounds=bounds,
+        options={"maxiter": 500, "ftol": 1e-10},
+    )
+    if result.success and np.all(np.isfinite(result.x)):
+        w = np.maximum(result.x, 0.0)
+        s = w.sum()
+        if s > 1e-8:
+            return w / s
+    return None
 
 
 @app.post("/portfolio-risk")
 def portfolio_risk(body: PortfolioRiskRequest):
     import engine as eng
+    import logging
+    logger = logging.getLogger("server")
 
     if not body.holdings:
         raise HTTPException(status_code=400, detail="No holdings provided")
-
-    tickers = [h.ticker for h in body.holdings]
-    raw_weights = [h.weight for h in body.holdings]
 
     status = eng.get_status()
     if status["status"] != "ready":
         raise HTTPException(status_code=503, detail="Data not ready")
 
     price_data = eng.get_price_data()
-    meta = eng.get_meta_data()
+    if price_data is None:
+        raise HTTPException(status_code=503, detail="Price data not available")
 
-    # Compute weights based on method
+    all_tickers = [h.ticker for h in body.holdings]
+
+    # Filter to tickers with price data
+    valid_pairs = [(t, i) for i, t in enumerate(all_tickers) if t in price_data.columns]
+    if not valid_pairs:
+        raise HTTPException(status_code=400, detail="No valid tickers found in price data")
+
+    tickers_v = [t for t, _ in valid_pairs]
+
+    # Build returns and covariance matrix
+    prices_sub = price_data[tickers_v].tail(body.lookback)
+    log_rets = np.log(prices_sub / prices_sub.shift(1)).dropna()
+    cov_ann = log_rets.cov().values * 252  # annualized covariance matrix
+    vols_ann = np.sqrt(np.diag(cov_ann))   # per-stock annualized vol
+    vols_ann = np.maximum(vols_ann, 0.05)  # vol floor
+
+    n = len(tickers_v)
+    fallback = None
+    actual_method = body.weighting_method
+
+    # ── Step 1: Base weights (normalized, sum = 1) ───────────────────────────
     if body.weighting_method == "equal":
-        n = len(tickers)
-        weights = [1.0 / n] * n
-    elif body.weighting_method == "inverse_vol" and price_data is not None:
-        vols = []
-        for t in tickers:
-            if t in price_data.columns:
-                lr = price_data[t].pct_change().dropna()
-                vol = lr.std() * np.sqrt(252)
-                vols.append(max(vol, 0.05))
-            else:
-                vols.append(0.20)
-        inv_vols = [1.0 / v for v in vols]
-        total = sum(inv_vols)
-        weights = [v / total for v in inv_vols]
+        base_w = np.ones(n) / n
+
+    elif body.weighting_method == "inverse_vol":
+        inv_vols = 1.0 / vols_ann
+        base_w = inv_vols / inv_vols.sum()
+
+    elif body.weighting_method == "min_var":
+        min_var_w = _compute_min_var_weights(cov_ann)
+        if min_var_w is not None:
+            base_w = min_var_w
+        else:
+            # Explicit fallback to inverse vol
+            logger.warning("Min Var optimization failed — falling back to Inverse Vol")
+            inv_vols = 1.0 / vols_ann
+            base_w = inv_vols / inv_vols.sum()
+            actual_method = "inverse_vol"
+            fallback = "Min Var optimization failed (singular matrix). Used Inverse Vol."
     else:
-        total = sum(raw_weights)
-        weights = [w / total if total > 0 else 1.0 / len(raw_weights) for w in raw_weights]
+        # Unknown method — default to equal
+        base_w = np.ones(n) / n
+        actual_method = "equal"
+        fallback = f"Unknown method '{body.weighting_method}'. Used Equal weights."
 
-    risk = eng.compute_portfolio_risk(tickers, weights, body.lookback)
-    if "error" in risk:
-        raise HTTPException(status_code=400, detail=risk["error"])
+    # ── Step 2: Pre-scale portfolio vol (w_base' Σ w_base) ───────────────────
+    pre_var = float(base_w @ cov_ann @ base_w)
+    pre_vol = float(np.sqrt(max(pre_var, 1e-12)))
 
-    # Get cluster info for tickers from latest rankings
+    # ── Step 3: Vol-target overlay multiplier ────────────────────────────────
+    multiplier = VOL_TARGET / pre_vol
+    final_w = base_w * multiplier
+    gross_exposure = float(final_w.sum())
+
+    # ── Portfolio-level stats ─────────────────────────────────────────────────
+    final_port_vol = pre_vol * multiplier  # = VOL_TARGET by construction
+
+    # Average pairwise correlation
+    if n > 1:
+        corr = log_rets.corr().values
+        mask = ~np.eye(n, dtype=bool)
+        avg_corr = float(corr[mask].mean())
+    else:
+        avg_corr = 1.0
+
+    # ── Cluster info ──────────────────────────────────────────────────────────
     params = {"vol_adjust": True, "use_quality": True, "use_tstats": False,
               "w6": 0.4, "w12": 0.4, "w_quality": 0.2, "vol_floor": 0.05,
               "winsor_p": 2.0, "cluster_n": 100, "cluster_k": 10, "cluster_lookback": 252}
@@ -322,32 +389,41 @@ def portfolio_risk(body: PortfolioRiskRequest):
         cluster_map = dict(zip(ranked["ticker"], ranked["cluster"]))
 
     holdings_out = []
-    cluster_weights = {}
-    for t, w in zip(tickers, weights):
-        actual_w = risk["weights"].get(t, w)
-        vol = risk["vols"].get(t, 0.20)
-        cluster = cluster_map.get(t)
-        holdings_out.append({
-            "ticker": t,
-            "weight": actual_w,
-            "vol": vol,
-            "cluster": cluster,
-        })
+    cluster_weights: dict[int, float] = {}
+    for i, t in enumerate(tickers_v):
+        fw = float(final_w[i])
+        vol = float(vols_ann[i])
+        raw_cluster = cluster_map.get(t)
+        # Safely convert cluster — pandas may return NaN floats for missing values
+        try:
+            cluster = int(raw_cluster) if raw_cluster is not None and not (isinstance(raw_cluster, float) and np.isnan(raw_cluster)) else None
+        except (ValueError, TypeError):
+            cluster = None
+        holdings_out.append({"ticker": t, "weight": fw, "vol": vol, "cluster": cluster})
         if cluster is not None:
-            cluster_weights[cluster] = cluster_weights.get(cluster, 0) + actual_w
+            cluster_weights[cluster] = cluster_weights.get(cluster, 0.0) + fw
 
-    cluster_dist = [{"cluster": int(k), "count": sum(1 for h in holdings_out if h["cluster"] == k),
-                     "weight": float(v)} for k, v in cluster_weights.items()]
-    cluster_dist.sort(key=lambda x: x["cluster"])
+    cluster_dist = [
+        {"cluster": k, "count": sum(1 for h in holdings_out if h["cluster"] == k),
+         "weight": float(v)}
+        for k, v in sorted(cluster_weights.items())
+    ]
 
-    actual_weights = [risk["weights"].get(t, w) for t, w in zip(tickers, weights)]
+    largest_weight = float(max(final_w)) if n > 0 else 0.0
 
     return {
-        "portfolioVol": risk["port_vol"],
-        "avgCorrelation": risk["avg_corr"],
+        "portfolioVol": round(final_port_vol, 6),
+        "basePortVol": round(pre_vol, 6),
+        "volTargetMultiplier": round(multiplier, 6),
+        "grossExposure": round(gross_exposure, 6),
+        "method": actual_method,
+        "fallback": fallback,
+        "volLookback": body.lookback,
+        "covLookback": body.lookback,
+        "avgCorrelation": round(avg_corr, 6),
         "holdings": holdings_out,
         "clusterDistribution": cluster_dist,
-        "largestWeight": max(actual_weights) if actual_weights else 0.0,
+        "largestWeight": round(largest_weight, 6),
         "numHoldings": len(holdings_out),
     }
 

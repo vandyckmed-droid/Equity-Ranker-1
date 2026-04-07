@@ -332,7 +332,7 @@ components:
           description: Days of history for covariance (60, 126, or 252)
         weightingMethod:
           type: string
-          enum: [equal, inverse_vol, manual]
+          enum: [equal, inverse_vol, min_var]
       required:
         - holdings
         - lookback
@@ -373,6 +373,28 @@ components:
       properties:
         portfolioVol:
           type: number
+          description: Final portfolio vol after vol-target scaling (= VOL_TARGET when uncapped)
+        basePortVol:
+          type: number
+          description: Pre-scale portfolio vol (sqrt of w_base' Σ w_base)
+        volTargetMultiplier:
+          type: number
+          description: Multiplier applied to base weights (= 15% / basePortVol)
+        grossExposure:
+          type: number
+          description: Sum of final weights (= volTargetMultiplier since base weights sum to 1)
+        method:
+          type: string
+          description: Actual method used (may differ from requested if fallback triggered)
+        fallback:
+          type: ["string", "null"]
+          description: Non-null when a fallback was triggered — describes what happened
+        volLookback:
+          type: integer
+          description: Days of history used for individual vol estimation
+        covLookback:
+          type: integer
+          description: Days of history used for covariance matrix
         avgCorrelation:
           type: number
         holdings:
@@ -389,6 +411,12 @@ components:
           type: integer
       required:
         - portfolioVol
+        - basePortVol
+        - volTargetMultiplier
+        - grossExposure
+        - method
+        - volLookback
+        - covLookback
         - avgCorrelation
         - holdings
         - clusterDistribution

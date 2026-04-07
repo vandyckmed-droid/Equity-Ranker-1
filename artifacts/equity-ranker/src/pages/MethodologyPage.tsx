@@ -199,32 +199,82 @@ export default function MethodologyPage() {
 
       <Card className="border-border bg-card">
         <CardHeader>
-          <CardTitle>Portfolio Construction &amp; Risk</CardTitle>
-          <CardDescription>Weighting schemes and portfolio variance math.</CardDescription>
+          <CardTitle>Portfolio Construction — 2-Step Process</CardTitle>
+          <CardDescription>
+            Base weights are computed first, then a common volatility-target overlay is applied.
+            Final displayed weights are not forced to sum to 100%.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-6">
 
-          <h3 className="font-semibold text-sm">Inverse-Vol Weights</h3>
-          <div className="bg-muted p-4 rounded-md font-mono text-sm text-muted-foreground mb-4 space-y-1">
-            <p>w_i ∝ 1 / σ_i</p>
-            <p className="opacity-70">Normalize so ∑ w_i = 1</p>
+          {/* Step 1 */}
+          <div>
+            <h3 className="font-semibold text-sm mb-3">Step 1 — Base Weights (three methods)</h3>
+
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Equal</p>
+                <div className="bg-muted p-3 rounded-md font-mono text-sm text-muted-foreground">
+                  <p>w_i = 1 / N</p>
+                  <p className="opacity-60 text-xs mt-1">All N holdings receive equal base weight. ∑ w_i = 1.</p>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Inverse Vol</p>
+                <div className="bg-muted p-3 rounded-md font-mono text-sm text-muted-foreground space-y-1">
+                  <p>w_i ∝ 1 / σ_i   →   w_i = (1/σ_i) / ∑ (1/σ_j)</p>
+                  <p className="opacity-60 text-xs mt-1">σ_i = annualized realized vol (lookback window). Vol floor = 5%. ∑ w_i = 1.</p>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Min Var (long-only)</p>
+                <div className="bg-muted p-3 rounded-md font-mono text-sm text-muted-foreground space-y-1">
+                  <p>min<sub>w</sub>  w′ Σ w</p>
+                  <p>subject to:  ∑ w_i = 1,  w_i ≥ 0</p>
+                  <p className="opacity-60 text-xs mt-1">
+                    Solved numerically (SLSQP). Uses the full empirical covariance matrix Σ.
+                    If the optimizer fails (singular matrix), falls back to Inverse Vol and marks the audit line.
+                  </p>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  <span className="font-medium text-foreground">Note:</span> covariance and correlation are risk-model
+                  inputs shared by all methods. Min Var is the only method that <em>optimizes over</em> the covariance
+                  matrix — Equal and Inverse Vol only use the diagonal (individual volatilities).
+                </p>
+              </div>
+            </div>
           </div>
 
-          <h3 className="font-semibold text-sm">Portfolio Variance &amp; Volatility</h3>
-          <div className="bg-muted p-4 rounded-md font-mono text-sm text-muted-foreground space-y-2">
-            <p>Portfolio Variance  = w&#x27; Σ w</p>
-            <p>Portfolio Volatility = √(w&#x27; Σ w)</p>
-            <p className="text-xs mt-2 opacity-70">
-              w = weight vector (N×1), Σ = empirical covariance matrix (N×N) over the chosen lookback.
-              Annualized by multiplying by 252 before taking the square root.
+          {/* Step 2 */}
+          <div>
+            <h3 className="font-semibold text-sm mb-3">Step 2 — 15% Vol-Target Overlay</h3>
+            <div className="bg-muted p-4 rounded-md font-mono text-sm text-muted-foreground space-y-2">
+              <p><span className="text-foreground">pre_vol</span>  = √(w_base′ Σ w_base)  <span className="opacity-60 text-xs">— estimated basket vol before scaling</span></p>
+              <p><span className="text-foreground">multiplier</span> = 15% / pre_vol</p>
+              <p><span className="text-foreground">w_final</span>    = w_base × multiplier</p>
+              <p className="text-xs opacity-60 mt-2 leading-relaxed">
+                Σ is annualized (×252 before square root).
+                w_final does NOT sum to 100% in general:
+                gross exposure = multiplier × 1 = 15% / pre_vol.
+                If pre_vol &lt; 15%, gross exposure &gt; 100% (levered).
+                If pre_vol &gt; 15%, gross exposure &lt; 100% (de-levered).
+              </p>
+            </div>
+          </div>
+
+          {/* Audit / transparency */}
+          <div>
+            <h3 className="font-semibold text-sm mb-2">Audit Line</h3>
+            <p className="text-sm text-muted-foreground">
+              Every portfolio computation shows a compact audit line displaying the active method,
+              target vol (15%), pre-scale portfolio vol, multiplier, gross exposure, and covariance lookback.
+              If any fallback was triggered (e.g. Min Var failed), it is explicitly flagged in the audit line —
+              never silently swapped.
             </p>
           </div>
 
-          <p className="text-sm text-muted-foreground">
-            This is the exact quadratic form. Diversification benefit appears when assets have low
-            pairwise covariances — the off-diagonal terms in Σ reduce portfolio variance below a
-            weighted average of individual variances.
-          </p>
         </CardContent>
       </Card>
     </div>

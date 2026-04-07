@@ -150,6 +150,13 @@ router.post("/portfolio/risk", async (req, res): Promise<void> => {
     if (status === 200) {
       res.status(200).json({
         portfolioVol: d.portfolioVol,
+        basePortVol: d.basePortVol,
+        volTargetMultiplier: d.volTargetMultiplier,
+        grossExposure: d.grossExposure,
+        method: d.method,
+        fallback: d.fallback ?? null,
+        volLookback: d.volLookback,
+        covLookback: d.covLookback,
         avgCorrelation: d.avgCorrelation,
         holdings: d.holdings,
         clusterDistribution: d.clusterDistribution,

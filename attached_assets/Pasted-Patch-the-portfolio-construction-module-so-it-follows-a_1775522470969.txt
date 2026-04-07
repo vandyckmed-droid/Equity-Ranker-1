@@ -1,0 +1,76 @@
+Patch the portfolio construction module so it follows a simple institutional structure and the UI matches the real math.
+
+Keep this cheap, simple, robust, and transparent. Do not add unnecessary optimization features.
+
+Required design:
+Use a 2-step portfolio process:
+
+Step 1: compute base relative weights
+- Equal
+- Inverse Vol
+- Min Var
+
+Step 2: apply a common portfolio volatility target overlay
+- target portfolio volatility = 15% annualized
+
+Required changes:
+1. Remove the “Manual” tab entirely.
+2. Keep only these three portfolio methods:
+   - Equal
+   - Inverse Vol
+   - Min Var
+3. These tabs should represent base portfolio construction methods, not final exposure.
+4. Compute base weights as follows:
+   - Equal: equal relative weights across all names in the basket
+   - Inverse Vol: w_i ∝ 1 / sigma_i, normalized across the basket
+   - Min Var: long-only minimum-variance weights using the empirical covariance matrix
+5. After base weights are computed, estimate the basket’s portfolio volatility using the same covariance matrix:
+   - portfolio variance = w'Σw
+   - portfolio volatility = sqrt(w'Σw), annualized correctly
+6. Apply a 15% annualized vol-target overlay to the base weights:
+   - multiplier = 15% / estimated portfolio vol
+   - final displayed weights = base weights × multiplier
+7. Do not force final displayed weights to sum to 100%.
+   - If estimated vol is below target, gross exposure can exceed 100%
+   - If estimated vol is above target, gross exposure should be below 100%
+8. When stocks are added or removed from the basket, immediately recompute:
+   - base weights
+   - estimated portfolio vol
+   - vol-target multiplier
+   - final displayed weights
+9. Switching tabs must immediately produce real differences when the math differs.
+10. Portfolio risk statistics must always use the same final displayed weights shown in the table.
+
+Methodology update:
+11. Rewrite the methodology so it exactly matches the implementation:
+   - Equal base weights
+   - Inverse-vol base weights
+   - Min-variance base weights
+   - covariance lookback
+   - volatility definition and lookback
+   - portfolio variance and volatility formulas
+   - 15% vol-target scaling formula
+12. Make clear that covariance/correlation are risk-model inputs, while Min Var is the actual portfolio method.
+
+Audit / transparency:
+13. Add a compact audit line in the portfolio section showing:
+   - active method
+   - target vol
+   - estimated pre-scaled portfolio vol
+   - scaling multiplier
+   - gross exposure
+   - vol lookback
+   - covariance lookback
+   - explicit fallback if any
+
+Guardrails:
+- long-only
+- no fake placeholder behavior
+- no silent fallback
+- if Min Var is numerically unstable or unavailable, explicitly fall back to Inverse Vol and show that in the audit line
+- keep implementation simple and deterministic
+
+Acceptance checks:
+- Equal, Inverse Vol, and Min Var should usually produce different base weights
+- final displayed weights should reflect 15% portfolio vol targeting rather than forced 100% exposure
+- displayed weights, gross exposure, portfolio vol, and methodology must all agree
