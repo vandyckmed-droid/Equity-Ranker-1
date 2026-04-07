@@ -204,7 +204,7 @@ _FALLBACK_TICKERS = sorted(list(set(
 
 # ─── Dynamic universe fetch ───────────────────────────────────────────────────
 
-_NASDAQ_API = "https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=10000&exchange={exchange}"
+_NASDAQ_API = "https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=10000&exchange={exchange}&download=true"
 _NASDAQ_HEADERS = {"User-Agent": "Mozilla/5.0"}
 _NASDAQ_TIMEOUT = 15
 
@@ -230,10 +230,8 @@ def _fetch_universe() -> list:
             resp.raise_for_status()
             data = resp.json()
 
-            table = data.get("data", {}).get("table", {})
-            if not isinstance(table, dict):
-                raise ValueError(f"NASDAQ API ({exchange}): unexpected 'table' shape: {type(table)}")
-            rows = table.get("rows")
+            ddata = data.get("data", {})
+            rows = ddata.get("rows") or ddata.get("table", {}).get("rows")
             if not rows or not isinstance(rows, list):
                 raise ValueError(f"NASDAQ API ({exchange}): empty or missing 'rows' in response")
 
@@ -255,6 +253,7 @@ def _fetch_universe() -> list:
                 nasdaq_meta[symbol] = {
                     "market_cap": cap,
                     "sector":     row.get("sector") or None,
+                    "industry":   row.get("industry") or None,
                     "name":       row.get("name") or symbol,
                     "exchange":   exchange,
                     "is_etf":     is_etf,
@@ -1185,7 +1184,7 @@ def _build_essential_meta(tickers: list) -> dict:
         meta[t] = {
             "name":       nd.get("name", t),
             "sector":     nd.get("sector"),
-            "industry":   None,
+            "industry":   nd.get("industry"),
             "market_cap": nd.get("market_cap"),
             "price":      None,
             "avg_volume":  None,
