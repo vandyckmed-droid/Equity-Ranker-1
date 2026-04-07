@@ -140,8 +140,6 @@ export default function MainPage() {
   const [localW6, setLocalW6] = useState(0.4);
   const [localW12, setLocalW12] = useState(0.4);
   const [localWQ, setLocalWQ] = useState(0.2);
-  const [localUseQuality, setLocalUseQuality] = useState(true);
-
   // Unified params object for backward compat (e.g. localStorage, cache key)
   const params: GetRankingsParams = useMemo(() => ({
     volAdjust: true,
@@ -235,10 +233,10 @@ export default function MainPage() {
     if (!stocks.length) return stocks;
     const wS = localW6;
     const wT = localW12;
-    const wQ = localUseQuality ? localWQ : 0;
+    const wQ = localWQ;
 
     const reranked = stocks.map((s: Stock) => {
-      const hasQ = !(s as any).qualityMissing && localUseQuality;
+      const hasQ = !(s as any).qualityMissing && wQ > 0;
       const totalW = hasQ ? (wS + wT + wQ) : (wS + wT);
       if (totalW === 0) return { ...s, alpha: 0 };
       const alpha = hasQ
@@ -253,7 +251,7 @@ export default function MainPage() {
       rank: i + 1,
       percentile: 100 * (1 - i / reranked.length),
     }));
-  }, [stocks, localW6, localW12, localWQ, localUseQuality]);
+  }, [stocks, localW6, localW12, localWQ]);
 
   // Filtering and Sorting
   const processedStocks = useMemo(() => {
@@ -626,18 +624,7 @@ export default function MainPage() {
                 <div className="space-y-1.5">
                   <Label className="text-xs">Q Sleeve — wQ ({formatNumber(localWQ * 100, 0)}%)</Label>
                   <Slider value={[localWQ * 100]} min={0} max={100} step={5}
-                    disabled={!localUseQuality}
                     onValueChange={(v) => setLocalWQ(v[0] / 100)} />
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-primary">Features</h3>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="useQuality" className="text-xs">Quality Factor</Label>
-                  <Switch id="useQuality" checked={localUseQuality} onCheckedChange={(c) => setLocalUseQuality(c)} />
                 </div>
               </div>
             </div>
