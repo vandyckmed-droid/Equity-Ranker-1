@@ -61,7 +61,9 @@ PRICE_CACHE_KEY    = "price_data_v5"
 META_CACHE_KEY     = "meta_data_v2"
 UNIVERSE_CACHE_KEY = "universe_v1"
 NASDAQ_META_KEY    = "nasdaq_meta_v1"
-QUALITY_CACHE_KEY  = "quality_data_v1"
+QUALITY_CACHE_KEY  = "quality_data_v2"
+SEC_CIK_CACHE_KEY  = "sec_cik_map_v1"
+SEC_CIK_CACHE_TTL  = 7 * 24 * 3600   # 1 week — CIK mapping rarely changes
 
 cache = diskcache.Cache(CACHE_DIR)
 
@@ -1066,27 +1068,90 @@ def _yf_load_data_batch(tickers: list, batch_size: int = 100) -> tuple:
     return all_close, all_dollar_vol, failed
 
 
-# ─── Quality metadata enrichment ──────────────────────────────────────────────
+# ─── Quality metadata enrichment — SEC EDGAR XBRL ─────────────────────────────
 
-def _fetch_one_quality(ticker: str) -> tuple:
+_SEC_HEADERS = {"User-Agent": "QuantTerminal research@quantterminal.app"}
+_SEC_CIK_URL = "https://www.sec.gov/files/company_tickers.json"
+_SEC_FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
+
+
+def _load_sec_cik_map() -> dict:
+    """Load ticker→CIK mapping from SEC, with 1-week diskcache."""
+    cached = cache.get(SEC_CIK_CACHE_KEY)
+    if cached and isinstance(cached, dict) and len(cached) > 1000:
+        return cached
     try:
-        info = yf.Ticker(ticker).info
-        return ticker, {
-            "roe":          info.get("returnOnEquity"),
-            "roa":          info.get("returnOnAssets"),
-            "gross_margin": info.get("grossMargins"),
-            "op_margin":    info.get("operatingMargins"),
-            "de_ratio":     info.get("debtToEquity"),
-        }, True
-    except Exception:
+        r = requests.get(_SEC_CIK_URL, headers=_SEC_HEADERS, timeout=15)
+        r.raise_for_status()
+        cik_map = {
+            v["ticker"].upper(): str(v["cik_str"]).zfill(10)
+            for v in r.json().values()
+        }
+        cache.set(SEC_CIK_CACHE_KEY, cik_map, expire=SEC_CIK_CACHE_TTL)
+        logger.info(f"SEC CIK map loaded: {len(cik_map)} tickers")
+        return cik_map
+    except Exception as e:
+        logger.warning(f"SEC CIK map fetch failed: {e}")
+        return {}
+
+
+def _get_recent_annual(gaap: dict, *keys) -> Optional[float]:
+    """Return most-recent 10-K annual value for the first key found in gaap."""
+    for key in keys:
+        entries = gaap.get(key, {}).get("units", {}).get("USD", [])
+        annual = [e for e in entries
+                  if e.get("form") in ("10-K", "10-K/A") and e.get("val") is not None]
+        if annual:
+            annual.sort(key=lambda x: x.get("end", ""), reverse=True)
+            return float(annual[0]["val"])
+    return None
+
+
+def _fetch_one_quality_edgar(ticker: str, cik_map: dict) -> tuple:
+    """Fetch quality fundamentals from SEC EDGAR XBRL for a single ticker."""
+    cik = cik_map.get(ticker)
+    if not cik:
+        return ticker, {}, False          # foreign/ADR — no SEC filing
+    try:
+        r = requests.get(_SEC_FACTS_URL.format(cik=cik),
+                         headers=_SEC_HEADERS, timeout=20)
+        if r.status_code == 404:
+            return ticker, {}, False      # company not found in EDGAR
+        r.raise_for_status()
+        gaap = r.json().get("facts", {}).get("us-gaap", {})
+
+        ni  = _get_recent_annual(gaap, "NetIncomeLoss")
+        eq  = _get_recent_annual(gaap, "StockholdersEquity",
+                                 "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")
+        ta  = _get_recent_annual(gaap, "Assets")
+        gp  = _get_recent_annual(gaap, "GrossProfit")
+        rev = _get_recent_annual(gaap, "Revenues",
+                                 "RevenueFromContractWithCustomerExcludingAssessedTax",
+                                 "SalesRevenueNet",
+                                 "RevenueFromContractWithCustomerIncludingAssessedTax")
+        oi  = _get_recent_annual(gaap, "OperatingIncomeLoss")
+        ltd = _get_recent_annual(gaap, "LongTermDebt", "LongTermDebtNoncurrent")
+
+        result = {
+            "roe":          ni / eq  if ni is not None and eq  and eq  != 0 else None,
+            "roa":          ni / ta  if ni is not None and ta  and ta  != 0 else None,
+            "gross_margin": gp / rev if gp is not None and rev and rev != 0 else None,
+            "op_margin":    oi / rev if oi is not None and rev and rev != 0 else None,
+            "de_ratio":     ltd / eq if ltd is not None and eq and eq  != 0 else None,
+        }
+        has_data = any(v is not None for v in result.values())
+        return ticker, result, has_data
+    except Exception as e:
+        logger.debug(f"EDGAR quality fetch failed for {ticker}: {e}")
         return ticker, {}, False
 
 
 def _background_quality_enrichment(tickers: list):
     """
-    Stage 2: Load quality fundamental data in background.
-    This runs AFTER the engine is already marked 'ready' with S+T rankings.
-    When complete, it invalidates the factor cache so next ranking request
+    Stage 2: Load quality fundamental data in background via SEC EDGAR XBRL.
+    Runs AFTER engine is marked 'ready' with S+T rankings.
+    SEC EDGAR is free, official, and has a generous 10 req/s rate limit.
+    When complete, invalidates the factor cache so next ranking request
     includes quality data in the Q sleeve.
     """
     global _meta_data, _quality_epoch, _factor_cache, _factor_key, _audit_printed
@@ -1097,11 +1162,12 @@ def _background_quality_enrichment(tickers: list):
         _status["enrichment"] = "loading"
         _status["quality_coverage"] = f"0/{len(tickers)}"
 
+    # ── Fast path: warm diskcache ──────────────────────────────────────────
     quality_cached = cache.get(QUALITY_CACHE_KEY)
     if quality_cached and isinstance(quality_cached, dict):
         cached_count = sum(1 for t in tickers if t in quality_cached)
         coverage = cached_count / len(tickers) if tickers else 0
-        if coverage >= 0.7:
+        if coverage >= 0.35:
             logger.info(f"Quality data from cache: {cached_count}/{len(tickers)} ({coverage:.0%})")
             for t in tickers:
                 if t in quality_cached and t in _meta_data:
@@ -1119,28 +1185,43 @@ def _background_quality_enrichment(tickers: list):
             _timings["quality_enrichment"] = round(time.time() - t0, 3)
             return
 
+    # ── Cold path: fetch from SEC EDGAR ───────────────────────────────────
+    cik_map = _load_sec_cik_map()
+    if not cik_map:
+        logger.warning("SEC CIK map unavailable — quality enrichment skipped")
+        with _status_lock:
+            _status["enrichment"] = "error"
+        return
+
     quality_store = {}
     done = 0
-    failed = 0
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        future_map = {executor.submit(_fetch_one_quality, t): t for t in tickers}
+    # SEC EDGAR rate limit: 10 req/s. Use 8 workers + 0.1s inter-request gap.
+    _sec_ratelimit = threading.Semaphore(8)
+
+    def _fetch_with_limit(ticker):
+        with _sec_ratelimit:
+            result = _fetch_one_quality_edgar(ticker, cik_map)
+            time.sleep(0.12)   # ≈8 req/s sustained, well within 10/s limit
+            return result
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        future_map = {executor.submit(_fetch_with_limit, t): t for t in tickers}
         for future in concurrent.futures.as_completed(future_map):
             ticker, result, ok = future.result()
             done += 1
-            if ok and any(v is not None for v in result.values()):
+            if ok:
                 quality_store[ticker] = result
                 if ticker in _meta_data:
                     for k, v in result.items():
                         if v is not None:
                             _meta_data[ticker][k] = v
-            else:
-                failed += 1
 
-            if done % 100 == 0:
+            if done % 200 == 0:
                 with _status_lock:
                     _status["quality_coverage"] = f"{len(quality_store)}/{len(tickers)}"
-                logger.info(f"Quality enrichment: {done}/{len(tickers)} done, {len(quality_store)} with data")
+                logger.info(f"Quality enrichment: {done}/{len(tickers)} fetched, "
+                            f"{len(quality_store)} with data")
 
     try:
         cache.set(QUALITY_CACHE_KEY, quality_store, expire=QUALITY_CACHE_TTL)
@@ -1161,8 +1242,8 @@ def _background_quality_enrichment(tickers: list):
         _status["quality_coverage"] = f"{len(quality_store)}/{len(tickers)}"
 
     logger.info(
-        f"Quality enrichment complete: {len(quality_store)}/{len(tickers)} enriched, "
-        f"{failed} failed, {elapsed:.1f}s"
+        f"Quality enrichment complete: {len(quality_store)}/{len(tickers)} enriched "
+        f"via SEC EDGAR in {elapsed:.1f}s"
     )
 
 
