@@ -9,15 +9,22 @@ import { formatNumber, formatPercent, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Trash2, Calculator, Loader2, Info, AlertTriangle } from "lucide-react";
 
-const METHOD_LABELS: Record<string, string> = {
-  equal: "Equal",
-  inverse_vol: "Inv. Vol",
-  min_var: "Min Var",
-};
+const METHODS: { value: string; label: string; desc: string }[] = [
+  { value: "equal",         label: "Equal Weight",   desc: "Same weight to every holding" },
+  { value: "inverse_vol",   label: "Inverse Vol",    desc: "Smaller weight to more volatile names" },
+  { value: "signal_vol",    label: "Signal / Vol",   desc: "Stronger signal + lower vol → more weight" },
+  { value: "risk_parity",   label: "Risk Parity",    desc: "Each holding contributes equal portfolio risk" },
+  { value: "min_var",       label: "Min Variance",   desc: "Minimise total portfolio volatility" },
+  { value: "mean_variance", label: "Mean-Variance",  desc: "Signal and covariance jointly optimised" },
+];
+
+const METHOD_LABELS: Record<string, string> = Object.fromEntries(
+  METHODS.map((m) => [m.value, m.label])
+);
 
 const VOL_TARGET = 0.15;
 
@@ -130,18 +137,25 @@ export default function PortfolioPage() {
         </div>
 
         <Card className="lg:flex-1 flex flex-col lg:overflow-hidden bg-card border-border min-h-0">
-          <CardHeader className="p-4 pb-2 border-b border-border/50 bg-muted/20">
-            <Tabs
+          <CardHeader className="p-4 pb-3 border-b border-border/50 bg-muted/20">
+            <Select
               value={weightingMethod}
               onValueChange={(v) => setWeightingMethod(v as PortfolioRiskRequestWeightingMethod)}
-              className="w-full"
             >
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="equal" className="text-xs">Equal</TabsTrigger>
-                <TabsTrigger value="inverse_vol" className="text-xs">Inv. Vol</TabsTrigger>
-                <TabsTrigger value="min_var" className="text-xs">Min Var</TabsTrigger>
-              </TabsList>
-            </Tabs>
+              <SelectTrigger className="w-full text-sm h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {METHODS.map((m) => (
+                  <SelectItem key={m.value} value={m.value}>
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground/70 mt-1.5 leading-snug">
+              {METHODS.find((m) => m.value === weightingMethod)?.desc}
+            </p>
           </CardHeader>
 
           <div className="overflow-auto flex-1 p-0">

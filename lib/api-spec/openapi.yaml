@@ -454,7 +454,7 @@ components:
           description: Days of history for covariance (60, 126, or 252)
         weightingMethod:
           type: string
-          enum: [equal, inverse_vol, min_var]
+          enum: [equal, inverse_vol, signal_vol, risk_parity, min_var, mean_variance]
       required:
         - holdings
         - lookback

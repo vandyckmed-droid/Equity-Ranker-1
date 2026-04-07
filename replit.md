@@ -164,10 +164,14 @@ Excludes: ETFs/mutual funds, LPs/MLPs, SPACs, OTC/pink sheets, non-equity instru
 
 ## Portfolio Construction — 2-Step Process
 
-### Step 1: Base weights (normalized, sum = 1)
-- **Equal**: w_i = 1/N
-- **Inverse Vol**: w_i ∝ 1/σ_i, σ from log-return std over cov lookback, vol floor = 5%
-- **Min Var**: long-only min-variance via SLSQP on empirical covariance matrix Σ; falls back to Inverse Vol (with audit line) if optimizer fails
+### Step 1: Base weights (normalized, sum = 1) — 6 methods
+- **Equal**: w_i = 1/N — no signal, no covariance
+- **Inverse Vol**: w_i ∝ 1/σ_i — sample cov diagonal, floor 5%, no cap
+- **Signal / Vol**: w_i ∝ max(α_i, 0) / σ_i — clamps negative alpha to 0, winsorises at 99th pct; fallback → Inverse Vol if all α ≤ 0
+- **Risk Parity (ERC)**: Spinu convex formulation: min ½x′Σ_ewma x − b·log(x), normalize; 15% per-name cap via iterative projection; EWMA(λ=0.94)+ridge cov; fallback → Inverse Vol
+- **Min Variance**: long-only SLSQP on Ledoit-Wolf + ridge Σ; 40% per-name cap; multi-start; fallback → Inverse Vol
+- **Mean-Variance**: maximise α̃′w − (γ/2)w′Σ_ewma w; α normalised to unit std, γ=1; 15% per-name cap; SLSQP multi-start; fallback → Inverse Vol
+- UI: Select dropdown (replaces 3-tab layout) + one-line description per method
 
 ### Step 2: 15% Vol-target overlay
 - `pre_vol = sqrt(w_base' Σ w_base)` — pre-scale portfolio vol (annualized)

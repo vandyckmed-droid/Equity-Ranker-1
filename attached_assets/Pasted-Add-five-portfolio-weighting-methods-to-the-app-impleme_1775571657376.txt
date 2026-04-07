@@ -1,0 +1,210 @@
+Add five portfolio weighting methods to the app, implemented cleanly and consistently from simplest to most advanced.
+
+GOAL
+
+Build a small, transparent weighting framework that lets the user choose among five methods:
+
+1. Equal Weight
+2. Inverse Volatility
+3. Signal / Volatility
+4. Risk Parity / Equal Risk Contribution
+5. Constrained Mean-Variance Optimization
+
+This should be done in a way that is simple, auditable, and easy to compare. Do not overcomplicate the UI.
+
+GENERAL RULES
+
+- Keep existing portfolio workflow intact.
+- Do not change rankings methodology, Alpha formula, clustering logic, or Auto-Build selection logic.
+- Reuse the existing portfolio page and existing risk pipeline where sensible.
+- Keep naming mathematically accurate.
+- All methods must be long-only.
+- All methods must produce weights that sum to 1 before any vol-targeting overlay.
+- Apply a consistent max position cap where appropriate for advanced methods.
+- Preserve current vol-targeting overlay behavior unless a small fix is needed for consistency.
+- Keep the implementation deterministic and transparent.
+- Add concise in-app methodology text for each method.
+
+METHODS TO IMPLEMENT
+
+1) EQUAL WEIGHT
+Definition:
+- weight_i = 1 / N
+
+Rules:
+- simplest baseline
+- must always work
+- no dependence on signal or covariance
+
+2) INVERSE VOLATILITY
+Definition:
+- raw_i = 1 / sigma_i
+- weight_i = raw_i / sum(raw)
+
+Where:
+- sigma_i = annualized volatility from the portfolio risk model diagonal
+- use the same volatility engine used elsewhere in the portfolio system where possible
+
+Rules:
+- if sigma_i is missing or invalid, handle safely
+- add a volatility floor to avoid absurd weights from tiny sigma
+- if method fails, fall back safely
+
+3) SIGNAL / VOLATILITY
+Definition:
+- raw_i = max(signal_i, 0) / sigma_i
+- weight_i = raw_i / sum(raw)
+
+Where:
+- signal_i should use the portfolio signal already used in the app, aligned with current Alpha / Global Z logic
+- clamp or winsorize extreme signals if needed for stability, but do it simply and document it
+
+Rules:
+- negative signals should not create negative weights
+- add a volatility floor
+- if all signals are non-positive, fall back safely
+
+4) RISK PARITY / EQUAL RISK CONTRIBUTION
+Goal:
+- choose long-only weights so each holding contributes roughly equal portfolio risk
+
+Requirements:
+- use covariance matrix, not just standalone vol
+- long-only
+- fully invested
+- deterministic
+- robust enough for baskets up to about 40 names
+- use a practical numerical method, not a black box
+- keep code understandable
+
+Acceptable approach:
+- iterative risk budgeting / equal risk contribution approximation
+- do not over-engineer
+
+5) CONSTRAINED MEAN-VARIANCE OPTIMIZATION
+Goal:
+- build a true constrained optimizer using expected return / signal and covariance
+
+Objective:
+- maximize risk-adjusted utility or equivalently solve a standard mean-variance problem using:
+  signal vector + covariance matrix
+
+Requirements:
+- long-only
+- sum(weights) = 1
+- max position cap
+- deterministic
+- properly constrained
+- not just solve then clip
+- use a real constrained optimization approach or a clear projected optimization method
+- keep it robust and readable
+
+Important:
+- this method should be clearly distinct from pure Min Var
+- if the app currently has misleading labels, fix them
+
+COMMON PORTFOLIO ENGINE REQUIREMENTS
+
+For methods that need volatility or covariance:
+- use daily log returns
+- align return series properly by date
+- use a robust covariance estimator
+- prefer the existing EWMA covariance framework if already present
+- keep the implementation consistent across methods where possible
+
+Suggested shared engine:
+- exact date alignment
+- EWMA covariance with lambda = 0.94
+- diagonal shrinkage
+- sensible regularization
+- reusable helper functions
+
+CAPS AND SAFETY
+
+Implement a consistent cap framework:
+- Equal Weight: no special cap logic needed unless required by existing framework
+- Inverse Vol and Signal/Vol: apply optional cap if needed for stability
+- Risk Parity and Mean-Variance: hard max position cap required
+
+Use a reasonable default max weight such as 15%.
+
+All methods must:
+- return finite weights
+- return nonnegative weights
+- sum to 1 within tolerance
+
+Fallback hierarchy:
+- if selected method fails, fall back to Inverse Vol
+- if that fails, fall back to Equal Weight
+
+UI REQUIREMENTS
+
+Add a simple selector for weighting method on the portfolio page.
+
+Show the five methods by name:
+- Equal Weight
+- Inverse Vol
+- Signal / Vol
+- Risk Parity
+- Mean-Variance
+
+Keep the UI minimal.
+Do not add unnecessary settings unless needed.
+
+Optionally allow a small info tooltip or one-line description for each method:
+- Equal Weight — same weight to every holding
+- Inverse Vol — smaller weight to more volatile names
+- Signal / Vol — stronger signal, lower vol gets more weight
+- Risk Parity — balance contribution to portfolio risk
+- Mean-Variance — uses signal and covariance jointly
+
+METHODOLOGY / DOCUMENTATION
+
+Update the in-app methodology and technical reference to describe each method clearly and accurately.
+
+For each method include:
+- plain English description
+- core formula
+- whether it uses signal
+- whether it uses covariance
+- whether it uses a cap
+
+TESTS / VALIDATION
+
+Add validation checks so each method:
+- returns correct number of weights
+- sums to 1
+- is long-only
+- respects caps where applicable
+
+Also verify:
+- UI displays zero weights correctly
+- displayed totals are correct
+- method switching works cleanly
+- no stale weights persist between methods
+
+DO NOT CHANGE
+
+- Alpha / rankings methodology
+- clustering methodology
+- Auto-Build selection logic
+- general app architecture unless needed for clean implementation
+
+SUCCESS CRITERIA
+
+The patch is successful if:
+- all five methods are available
+- each method is mathematically distinct and correctly labeled
+- weights are stable and valid
+- advanced methods use proper covariance-aware logic
+- the UI stays simple
+- documentation matches the implementation
+
+DELIVERABLE
+
+Implement the feature directly in the repo and provide a short summary of:
+- files changed
+- shared risk/covariance engine used
+- formulas used for each method
+- fallback logic
+- any label changes made

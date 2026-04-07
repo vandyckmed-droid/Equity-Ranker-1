@@ -192,7 +192,10 @@ export type PortfolioRiskRequestWeightingMethod =
 export const PortfolioRiskRequestWeightingMethod = {
   equal: "equal",
   inverse_vol: "inverse_vol",
+  signal_vol: "signal_vol",
+  risk_parity: "risk_parity",
   min_var: "min_var",
+  mean_variance: "mean_variance",
 } as const;
 
 export interface PortfolioRiskRequest {

@@ -112,33 +112,60 @@ export default function MethodologyPage() {
         <CardContent className="space-y-4">
 
           <div className="space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Base weights</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Weighting methods — base weights (sum = 1 before overlay)</p>
 
             <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
-              <p className="text-foreground/60">Equal</p>
+              <p className="text-foreground/60">Equal Weight</p>
               <p>w_i = 1 / N</p>
+              <p className="mt-1 opacity-60">Signal: no · Covariance: no · Cap: none</p>
             </div>
 
             <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
               <p className="text-foreground/60">Inverse Vol</p>
-              <p>w_i = (1/σ_i) / ∑(1/σ_j)   <span className="opacity-60">— σ_i annualized, floor 5%</span></p>
+              <p>w_i = (1/σ_i) / ∑(1/σ_j)   <span className="opacity-60">— σ_i diagonal of sample Σ, floor 5%</span></p>
+              <p className="mt-1 opacity-60">Signal: no · Covariance: diagonal only · Cap: none</p>
             </div>
 
             <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
-              <p className="text-foreground/60">Min Var</p>
-              <p>min_w  w′ Σ_reg w</p>
+              <p className="text-foreground/60">Signal / Vol</p>
+              <p>raw_i = max(α_i, 0) / σ_i</p>
+              <p>w_i   = raw_i / ∑ raw_j</p>
+              <p className="mt-1 opacity-60">α_i = composite Alpha score · winsorised at 99th pct · floor 5%</p>
+              <p className="opacity-60">Signal: yes · Covariance: diagonal only · Cap: none · Fallback → Inverse Vol if all α ≤ 0</p>
+            </div>
+
+            <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
+              <p className="text-foreground/60">Risk Parity (ERC)</p>
+              <p>min_x  ½ x′ Σ_ewma x − b · log(x)   s.t.  x &gt; 0</p>
+              <p>w_i = x_i / ∑ x_j,  then clip w_i ≤ 0.15 iteratively</p>
+              <p className="mt-1 opacity-60">Spinu convex formulation — each name contributes equal portfolio risk</p>
+              <p className="opacity-60">Σ_ewma = EWMA(λ=0.94) + diagonal ridge · Signal: no · Cap: 15% · Fallback → Inverse Vol</p>
+            </div>
+
+            <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
+              <p className="text-foreground/60">Min Variance</p>
+              <p>min_w  w′ Σ_lw w</p>
               <p>s.t.   ∑ w_i = 1,  0 ≤ w_i ≤ 0.40</p>
-              <p className="mt-1 opacity-60">Σ_reg = Ledoit-Wolf shrinkage on daily returns + diagonal ridge</p>
-              <p className="opacity-60">SLSQP, multi-start. Fallback → Inverse Vol if all starts fail.</p>
+              <p className="mt-1 opacity-60">Σ_lw = Ledoit-Wolf shrinkage + diagonal ridge · SLSQP, multi-start</p>
+              <p className="opacity-60">Signal: no · Covariance: full · Cap: 40% · Fallback → Inverse Vol</p>
+            </div>
+
+            <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
+              <p className="text-foreground/60">Mean-Variance</p>
+              <p>max_w  α̃′ w − (γ/2) w′ Σ_ewma w</p>
+              <p>s.t.   ∑ w_i = 1,  0 ≤ w_i ≤ 0.15</p>
+              <p className="mt-1 opacity-60">α̃ = normalised Alpha scores (÷ std) · γ = 1 · SLSQP, multi-start</p>
+              <p className="opacity-60">Distinct from Min Var: uses signal. Σ_ewma = EWMA(λ=0.94) + ridge · Cap: 15% · Fallback → Inverse Vol</p>
             </div>
           </div>
 
           <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
-            <p className="text-foreground/60">Vol-target overlay (15%)</p>
-            <p>pre_vol    = √(w′ Σ w)</p>
+            <p className="text-foreground/60">Vol-target overlay (15% annualised target)</p>
+            <p>pre_vol    = √(w_base′ Σ w_base)</p>
             <p>multiplier = 0.15 / pre_vol</p>
             <p>w_final    = w_base × multiplier</p>
-            <p className="mt-1 opacity-60">gross exposure = multiplier · 100%  (may exceed 100%)</p>
+            <p className="mt-1 opacity-60">gross exposure = multiplier · 100% — may exceed 100% when basket vol &lt; 15%</p>
+            <p className="opacity-60">All methods: long-only · fully invested (base) · finite weights guaranteed</p>
           </div>
 
         </CardContent>
