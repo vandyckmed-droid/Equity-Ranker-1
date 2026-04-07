@@ -1,0 +1,61 @@
+I want to evaluate our current portfolio optimizer against this framework:
+
+Phase 1: solve, then clip/cap/renormalize
+- start from an unconstrained covariance-based solution
+- then force long-only
+- then cap oversized positions
+- then renormalize
+- this is a rough practical approximation, not a true constrained optimum
+
+Phase 2: projected gradient descent
+- optimize the real objective under constraints
+- long-only
+- fully invested
+- capped weights
+- after each step, project back to the feasible set
+- this is the preferred middle ground: real constraints, still transparent, not too heavy
+
+Phase 3: full quadratic programming
+- institutional-grade QP solver
+- useful later only if we need more constraints like sector caps, turnover limits, transaction costs, tracking error, etc.
+
+Please inspect the CURRENT active code path for portfolio weighting and answer these questions clearly:
+
+1. Which phase are we currently in?
+   - Phase 1
+   - somewhere between Phase 1 and 2
+   - Phase 2
+   - or something else entirely
+
+2. What exactly is the current optimization method?
+   Be precise. Do not describe the intended design. Describe the actual implemented math and control flow.
+
+3. Does the current code do any of the following?
+   - solve unconstrained then clip negatives
+   - cap weights after the solve
+   - renormalize after clipping/capping
+   - use projected gradient descent
+   - use an active-set method
+   - use a real QP solver
+
+4. Is the mode labeled “Min Var” actually true minimum variance?
+   If not, state exactly why not.
+
+5. Are current weights affected by the entire basket composition?
+   Confirm whether adding or removing one name changes the other weights through the covariance structure.
+
+6. Identify the exact files and functions where this logic lives.
+
+7. Give a short gap analysis:
+   - what we already have
+   - what is missing to reach true Phase 2 projected gradient descent
+   - what is missing to reach Phase 3 QP
+
+8. Then recommend the next step only.
+   Keep it simple. My preference is Phase 2 projected gradient descent if we are not already there.
+
+Important:
+- inspect current active code, not archived files
+- do not generalize
+- do not tell me what could be built without first stating what is already built
+- keep the answer structured and concrete
