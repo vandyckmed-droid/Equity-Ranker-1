@@ -61,7 +61,7 @@ PRICE_CACHE_KEY    = "price_data_v5"
 META_CACHE_KEY     = "meta_data_v2"
 UNIVERSE_CACHE_KEY = "universe_v1"
 NASDAQ_META_KEY    = "nasdaq_meta_v1"
-QUALITY_CACHE_KEY  = "quality_data_v1"
+QUALITY_CACHE_KEY  = "quality_data_v2"
 SEC_CIK_CACHE_KEY  = "sec_cik_map_v1"
 SEC_CIK_CACHE_TTL  = 7 * 24 * 3600
 
@@ -1183,16 +1183,97 @@ def _yf_load_data_batch(tickers: list, batch_size: int = 100) -> tuple:
 
 # ─── Quality metadata enrichment ──────────────────────────────────────────────
 
-def _fetch_one_quality(ticker: str) -> tuple:
+SEC_EDGAR_UA = "QuantTerminal/1.0 admin@example.com"
+
+def _latest_annual_value(facts: dict, concept: str, taxonomy: str = "us-gaap") -> float | None:
     try:
-        info = yf.Ticker(ticker).info
-        return ticker, {
-            "roe":          info.get("returnOnEquity"),
-            "roa":          info.get("returnOnAssets"),
-            "gross_margin": info.get("grossMargins"),
-            "op_margin":    info.get("operatingMargins"),
-            "de_ratio":     info.get("debtToEquity"),
-        }, True
+        units = facts.get(taxonomy, {}).get(concept, {}).get("units", {})
+        entries = units.get("USD") or units.get("USD/shares") or units.get("pure", [])
+        annuals = [e for e in entries if e.get("form") in ("10-K", "10-K/A")]
+        if not annuals:
+            return None
+        annuals.sort(key=lambda e: e.get("end", ""), reverse=True)
+        return annuals[0].get("val")
+    except Exception:
+        return None
+
+
+def _fetch_one_quality_edgar(ticker: str, cik: int, max_retries: int = 3) -> tuple:
+    import requests
+    try:
+        cik_padded = str(cik).zfill(10)
+        url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik_padded}.json"
+
+        for attempt in range(max_retries):
+            resp = requests.get(url, headers={"User-Agent": SEC_EDGAR_UA}, timeout=12)
+            if resp.status_code == 404:
+                return ticker, {}, False
+            if resp.status_code == 429 or resp.status_code >= 500:
+                wait = float(resp.headers.get("Retry-After", 2 + 3 ** attempt))
+                time.sleep(min(wait, 30))
+                continue
+            resp.raise_for_status()
+            break
+        else:
+            return ticker, {}, False
+
+        facts = resp.json().get("facts", {})
+
+        net_income = (
+            _latest_annual_value(facts, "NetIncomeLoss")
+            or _latest_annual_value(facts, "ProfitLoss")
+            or _latest_annual_value(facts, "ProfitLoss", "ifrs-full")
+        )
+        equity = (
+            _latest_annual_value(facts, "StockholdersEquity")
+            or _latest_annual_value(facts, "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")
+            or _latest_annual_value(facts, "Equity", "ifrs-full")
+        )
+        assets = (
+            _latest_annual_value(facts, "Assets")
+            or _latest_annual_value(facts, "Assets", "ifrs-full")
+        )
+        revenue = (
+            _latest_annual_value(facts, "RevenueFromContractWithCustomerExcludingAssessedTax")
+            or _latest_annual_value(facts, "Revenues")
+            or _latest_annual_value(facts, "SalesRevenueNet")
+            or _latest_annual_value(facts, "RevenueFromContractWithCustomerIncludingAssessedTax")
+            or _latest_annual_value(facts, "Revenue", "ifrs-full")
+        )
+        gross_profit = (
+            _latest_annual_value(facts, "GrossProfit")
+            or _latest_annual_value(facts, "GrossProfit", "ifrs-full")
+        )
+        op_income = (
+            _latest_annual_value(facts, "OperatingIncomeLoss")
+            or _latest_annual_value(facts, "ProfitLossFromOperatingActivities", "ifrs-full")
+        )
+        total_liab = (
+            _latest_annual_value(facts, "Liabilities")
+            or _latest_annual_value(facts, "Liabilities", "ifrs-full")
+        )
+        long_term_debt = (
+            _latest_annual_value(facts, "LongTermDebt")
+            or _latest_annual_value(facts, "LongTermDebtNoncurrent")
+            or _latest_annual_value(facts, "NoncurrentLiabilities", "ifrs-full")
+        )
+
+        result = {}
+        if net_income is not None and equity and equity != 0:
+            result["roe"] = net_income / equity
+        if net_income is not None and assets and assets != 0:
+            result["roa"] = net_income / assets
+        if gross_profit is not None and revenue and revenue != 0:
+            result["gross_margin"] = gross_profit / revenue
+        if op_income is not None and revenue and revenue != 0:
+            result["op_margin"] = op_income / revenue
+        if equity and equity != 0:
+            debt_val = long_term_debt if long_term_debt is not None else (total_liab if total_liab is not None else None)
+            if debt_val is not None:
+                result["de_ratio"] = (debt_val / equity) * 100
+
+        ok = any(v is not None for v in result.values())
+        return ticker, result, ok
     except Exception:
         return ticker, {}, False
 
@@ -1235,28 +1316,50 @@ def _background_quality_enrichment(tickers: list):
             _timings["quality_enrichment"] = round(time.time() - t0, 3)
             return
 
+    cik_map = _get_sec_cik_map()
+    tickers_with_cik = [(t, cik_map[t]) for t in tickers if t in cik_map]
+    logger.info(f"Quality enrichment: {len(tickers_with_cik)}/{len(tickers)} tickers have CIK mapping")
+
+    import requests as _req
+    for wait_attempt in range(6):
+        try:
+            test_resp = _req.get(
+                "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
+                headers={"User-Agent": SEC_EDGAR_UA}, timeout=10)
+            if test_resp.status_code != 429:
+                break
+        except Exception:
+            pass
+        pause = 30 * (wait_attempt + 1)
+        logger.info(f"SEC EDGAR rate-limited, waiting {pause}s before enrichment (attempt {wait_attempt+1}/6)")
+        time.sleep(pause)
+
     quality_store = {}
     done = 0
     failed = 0
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        future_map = {executor.submit(_fetch_one_quality, t): t for t in tickers}
-        for future in concurrent.futures.as_completed(future_map):
-            ticker, result, ok = future.result()
-            done += 1
-            if ok and any(v is not None for v in result.values()):
-                quality_store[ticker] = result
-                if ticker in _meta_data:
-                    for k, v in result.items():
-                        if v is not None:
-                            _meta_data[ticker][k] = v
-            else:
-                failed += 1
+    batch_size = 5
+    for bi in range(0, len(tickers_with_cik), batch_size):
+        batch = tickers_with_cik[bi:bi + batch_size]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=batch_size) as executor:
+            futures = {executor.submit(_fetch_one_quality_edgar, t, cik): t for t, cik in batch}
+            for future in concurrent.futures.as_completed(futures):
+                ticker, result, ok = future.result()
+                done += 1
+                if ok and any(v is not None for v in result.values()):
+                    quality_store[ticker] = result
+                    if ticker in _meta_data:
+                        for k, v in result.items():
+                            if v is not None:
+                                _meta_data[ticker][k] = v
+                else:
+                    failed += 1
 
-            if done % 100 == 0:
-                with _status_lock:
-                    _status["quality_coverage"] = f"{len(quality_store)}/{len(tickers)}"
-                logger.info(f"Quality enrichment: {done}/{len(tickers)} done, {len(quality_store)} with data")
+        if done % 100 < batch_size:
+            with _status_lock:
+                _status["quality_coverage"] = f"{len(quality_store)}/{len(tickers)}"
+            logger.info(f"Quality enrichment: {done}/{len(tickers_with_cik)} done, {len(quality_store)} with data")
+        time.sleep(1.2)
 
     try:
         cache.set(QUALITY_CACHE_KEY, quality_store, expire=QUALITY_CACHE_TTL)

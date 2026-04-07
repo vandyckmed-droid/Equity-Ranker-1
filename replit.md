@@ -27,7 +27,7 @@ A mobile-first equity ranking and risk application that pulls real market data f
   - **Async price downloader** (`price_adapter.py`): aiohttp with 50 concurrent connections, crumb/cookie auth, exponential backoff; falls back to yfinance sequential batches
   - **Vectorized factors**: numpy matrix ops replace per-ticker loops; batch OLS t-stat via single matrix multiply (0.038s for 2,000 stocks vs ~3s sequential)
   - **Three-layer cache**: factors→rankings→clustering; weight-only changes skip factor recomputation (0.000s cache hits)
-  - **Quality enrichment**: Background thread fetches ROE/ROA/margins/D/E via yfinance .info; increments quality_epoch to cascade cache invalidation
+  - **Quality enrichment**: Background thread fetches ROE/ROA/margins/D/E via SEC EDGAR XBRL API (companyfacts endpoint); supports US-GAAP + IFRS-full taxonomy fallbacks; retry with backoff for 429/5xx; increments quality_epoch to cascade cache invalidation
   - Computes momentum factors: r1, r6, r12, m6 (6-1), m12 (12-1)
   - Computes vol-adjusted Sharpe factors: s6, s12
   - OLS t-stats (always computed): tstat6, tstat12 — required for T sleeve
@@ -104,7 +104,7 @@ Excludes: ETFs/mutual funds, LPs/MLPs, SPACs, OTC/pink sheets, non-equity instru
 - `nasdaq_meta_v1` — NASDAQ screener metadata (market cap, name, exchange) for backfill (24h TTL)
 - `price_data_v5` — downloaded Close + Volume history (8h TTL)
 - `meta_data_v2` — metadata (24h TTL)
-- `quality_data_v1` — quality fundamentals from yfinance .info (24h TTL)
+- `quality_data_v2` — quality fundamentals from SEC EDGAR XBRL (24h TTL)
 - `sec_cik_map_v1` — SEC EDGAR ticker→CIK mapping (7d TTL)
 
 ## Startup Cache Strategy
