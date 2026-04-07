@@ -69,8 +69,7 @@ export default function MethodologyPage() {
             <p><span className="text-foreground">OpMargin</span>   = Operating Income / Revenue</p>
             <p><span className="text-foreground">InvLev</span>     = Equity / Total Debt</p>
             <p className="mt-2 opacity-60">Winsorize [2%, 98%], then z-score each metric cross-sectionally</p>
-            <p className="mt-2"><span className="text-foreground">quality</span>    = (z_ROE + z_ROA + z_GrossMargin + z_OpMargin + z_InvLev) / 5</p>
-            <p className="mt-2"><span className="text-foreground">Q</span>          = Z(quality)</p>
+            <p className="mt-2"><span className="text-foreground">Q</span>           = Z(z_ROE + z_ROA + z_GrossMargin + z_OpMargin + z_InvLev)</p>
           </div>
           <p className="text-xs text-muted-foreground mt-2">Source: SEC EDGAR XBRL, most recent 10-K. US-GAAP with IFRS-full fallback.</p>
         </CardContent>
