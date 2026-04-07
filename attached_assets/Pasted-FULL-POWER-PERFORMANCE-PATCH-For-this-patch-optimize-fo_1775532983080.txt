@@ -1,0 +1,270 @@
+FULL POWER PERFORMANCE PATCH
+
+For this patch, optimize for maximum real-world performance with minimal functional sacrifice. Do not stay constrained by the prior “cheap/simple first” rule for this one. Preserve methodology and output quality as much as possible, but prioritize speed and responsiveness across:
+
+- cold start
+- warm start
+- parameter changes
+- slider interaction
+- sorting/searching/scrolling
+- portfolio interactions
+- metadata refresh
+- clustering
+
+This is a full-system performance patch. Treat it as architectural, not cosmetic.
+
+NON-NEGOTIABLES
+1. Do not materially change the portfolio/ranking methodology unless required for performance, and if anything is approximated, make it explicit.
+2. Preserve transparency and auditability.
+3. Do not silently degrade quality logic; make slow or deferred components clearly visible in audit/status.
+4. Target a fast usable app first, then complete enrichment second.
+5. Separate “engine ready” from “all metadata fully enriched.”
+
+PERFORMANCE GOALS
+1. Cold start: app becomes usable as quickly as possible, even if some slow metadata is still enriching.
+2. Warm ranking request: near-instant for weight-only changes.
+3. Slider changes: should feel immediate, not network-bound.
+4. Table interaction: smooth scrolling/search/sort on full universe.
+5. No repeated expensive recomputation when inputs do not truly require it.
+
+IMPLEMENT ALL OF THE FOLLOWING
+
+A. COLD START ARCHITECTURE
+
+1. Replace the current price download path with a high-performance async downloader.
+- Do not use yfinance.download for bulk historical prices.
+- Build a direct async Yahoo chart downloader using aiohttp or httpx async against the chart endpoint.
+- Use bounded async concurrency with connection pooling, backoff, retry, and timeout handling.
+- Parse daily OHLCV / adjusted-close data robustly.
+- Keep this isolated behind a PriceDataAdapter so the rest of the engine does not depend on transport details.
+- Persist raw downloaded history in cache so the engine does not repeatedly fetch full history on restart.
+
+2. Add incremental history refresh.
+- If cached history already exists for a ticker, do not re-fetch the full 2-year window unless needed.
+- Refresh only the missing tail or most recent range.
+- Rebuild full history only when cache is invalid, stale beyond threshold, or schema changed.
+
+3. Make engine readiness two-stage.
+- Stage 1: universe + price history + essential metadata = app usable
+- Stage 2: slower enrichment (quality/fundamental metadata) = fills in as available
+- Rankings should run as soon as Stage 1 is complete.
+
+4. Pre-filter earlier in the pipeline before price downloads.
+- Build a security master during universe creation.
+- Use symbol/name/quoteType/exchange/marketCap filters as early as possible.
+- Exclude obvious ETFs, funds, partnerships, preferreds, and other non-target instruments before requesting price data.
+
+5. Persist a reusable universe/security-master cache.
+- Cache filtered universe candidates with symbol, name, market cap, exchange, quote type, and any early classification fields.
+- Reuse it across warm starts unless explicitly invalidated or stale.
+
+B. METADATA / FUNDAMENTALS PERFORMANCE
+
+6. Split metadata into two classes:
+- essential metadata needed for engine/ranking startup
+- slow enrichment metadata for quality/fundamental sleeves
+
+7. Replace per-ticker .info calls for essential metadata.
+- Use batched quote endpoints for fields such as market cap, exchange, quote type, name, and any stable quote-level fields available in batch.
+- Remove any serial or per-ticker .info dependency from the engine-ready path.
+
+8. Make slow quality/fundamental enrichment deferred and cacheable.
+- ROE, ROA, margins, leverage, and similar fields should not block engine startup.
+- Load them asynchronously after the engine is already usable.
+- Persist them in a longer-lived cache with timestamping.
+- Reuse stale-but-recent quality data if fresh pulls are unavailable.
+
+9. Add fallback hierarchy for metadata.
+- preferred source
+- cached prior source
+- NASDAQ / universe source
+- null with explicit audit note
+- never let a transient metadata failure collapse the ranking universe if the field is non-essential.
+
+10. Add metadata freshness tracking.
+- Show whether each metadata class is:
+  - live
+  - cached
+  - stale-but-accepted
+  - missing
+- Expose this in startup audit/status.
+
+C. FACTOR ENGINE PERFORMANCE
+
+11. Rewrite factor computation to be vectorized where possible.
+- Replace per-ticker Python loops for returns, volatility, and OLS trend calculations with numpy/pandas vectorized operations on aligned price matrices.
+- Preserve exact current definitions as closely as possible:
+  - same horizons
+  - same skip-month logic
+  - same log-return definitions
+  - same OLS t-stat methodology
+- For irregular/missing histories, use a controlled fallback path only where necessary.
+
+12. Separate factor generation from ranking composition.
+Create at least three cache layers:
+- Layer 1: raw aligned price/fundamental feature frame
+- Layer 2: factor frame keyed only by true factor inputs (for example vol floor, winsorization, lookbacks if applicable)
+- Layer 3: ranking/composition frame keyed by sleeve weights and ranking display params
+Do not rerun expensive factor generation when only weights change.
+
+13. Split clustering into its own cache layer.
+- Cluster outputs should be cached independently.
+- Key clustering on the actual inputs that matter:
+  - top-N membership
+  - cluster lookback
+  - cluster count
+  - clustering method / distance definition
+- Do not recompute clustering when only unrelated display or weight params change.
+
+14. Precompute reusable sleeves.
+- Precompute the per-stock momentum/trend/quality sleeves once.
+- Keep those sleeves in memory/cache.
+- Compose Alpha from those sleeves cheaply when weights change.
+
+15. Optimize cross-sectional operations.
+- Winsorization, z-scoring, sorting, and percentile/rank transforms should be done in vectorized form.
+- Avoid repeated DataFrame copying where possible.
+- Profile and remove redundant conversions, merges, and per-row Python functions.
+
+D. WARM PATH / API RESPONSIVENESS
+
+16. Make weight-only changes local or near-local.
+Implement the best available option:
+Option A (preferred): return reusable sleeve z-scores or normalized sleeves to the frontend, and recompute Alpha / sorting locally for weight changes.
+Option B: if not fully client-side, keep it server-side but ensure weight-only changes hit only the cheap composition layer, not the factor engine.
+
+17. Debounce expensive param changes.
+- Sliders should not issue a request on every drag event.
+- Maintain immediate UI state and a debounced committed query state.
+- Use a short debounce window for server-bound inputs.
+
+18. Reduce ranking endpoint latency aggressively.
+- Reuse cached factor frames.
+- Reuse cached cluster results where valid.
+- Avoid rebuilding the whole response object from scratch when only ranks/weights changed if there is a cheaper path.
+
+19. Add response payload discipline.
+- Do not send unnecessary fields for every stock on every request.
+- If certain columns are hidden, consider whether they need to be in the payload.
+- Keep required audit fields, but avoid bloating row payloads with unused data.
+
+20. Add compression/caching where appropriate.
+- Enable gzip or brotli on API responses if not already enabled.
+- Consider ETag / memoization for repeated identical ranking requests.
+
+E. FRONTEND PERFORMANCE
+
+21. Virtualize the ranking table.
+- Do not render the full DOM for ~1,800 rows at once.
+- Use row virtualization so only visible rows plus buffer are mounted.
+- Preserve current appearance as closely as possible, including sticky identifier behavior if feasible.
+
+22. Memoize all expensive derived row computations.
+- Search/filter/sort/row transforms should be memoized properly.
+- Avoid recomputing the full processed row list on unrelated state changes.
+
+23. Eliminate per-row linear checks.
+- Convert holdings membership to a Set.
+- Hoist repeated lookups out of row rendering.
+- Remove unnecessary closures/object creation inside row maps.
+
+24. Keep control interactions immediate.
+- Sliders, tabs, toggles, and portfolio add/remove actions should update the UI instantly.
+- If a server refresh is pending, show lightweight status without freezing interaction.
+
+25. Consider a Web Worker for client-side ranking if needed.
+- If Alpha recomputation, sorting, or filtering is moved client-side and becomes heavy, offload that work to a worker so the main thread stays smooth.
+
+F. PORTFOLIO PAGE PERFORMANCE
+
+26. Ensure portfolio recalculation is cheap and bounded.
+- Use cached covariance inputs where possible.
+- Do not recompute unnecessary data when only holdings changed slightly.
+- Debounce or batch rapid portfolio mutations if needed.
+
+27. Keep Equal / Inverse Vol / Min Var responsive.
+- Reuse covariance matrix and per-name vol inputs when valid.
+- Only rerun optimizer when required.
+- Show explicit loading/fallback status for Min Var instead of freezing the UI.
+
+G. OBSERVABILITY / PROFILING
+
+28. Add explicit timing instrumentation around all major phases.
+At minimum log:
+- universe fetch
+- early security filtering
+- price download
+- history alignment
+- essential metadata load
+- quality enrichment load
+- factor generation
+- ranking composition
+- clustering
+- API serialization
+- frontend table render time if measurable
+- portfolio risk/optimizer timing
+
+29. Add a startup and request audit summary.
+For cold start show:
+- candidate count
+- excluded early count
+- price download success/fail count
+- essential metadata coverage
+- quality metadata coverage
+- engine ready timestamp
+- full enrichment timestamp
+For ranking requests show:
+- cache hit/miss by layer
+- factor recomputed or reused
+- clustering recomputed or reused
+- total request time
+
+30. Add profiling switches.
+- Add a dev/perf mode that prints per-phase timings and cache hit reasons.
+- Make it easy to identify the next bottleneck after this patch lands.
+
+IMPLEMENTATION GUIDANCE
+
+31. Preserve the current methodology definitions unless performance requires a carefully documented approximation.
+32. Keep transport and parsing code isolated behind adapters so unofficial Yahoo endpoint usage does not infect the whole codebase.
+33. Prefer robust fallback behavior over brittle perfection.
+34. If a slow enrichment path fails, the app should still rank and render unless that field is truly essential.
+
+TARGET END STATE
+
+Cold start:
+- engine becomes usable quickly with ranking available before full enrichment finishes
+- no thread exhaustion
+- no huge serial metadata bottlenecks
+- no full-history redownload unless necessary
+
+Warm path:
+- weight-only changes are fast or instant
+- factor engine is not rerun unnecessarily
+- clustering only reruns when truly needed
+- ranking endpoint latency is materially reduced
+
+Frontend:
+- smooth scroll
+- smooth search
+- smooth sort
+- responsive sliders and portfolio actions
+- no large-table jank
+
+PORTFOLIO:
+- weighting methods remain mathematically correct
+- optimizer/risk calculations stay responsive
+- audit line remains transparent
+
+ACCEPTANCE CHECKS
+
+1. Cold start time is materially reduced.
+2. The app becomes usable before slow fundamental enrichment fully completes.
+3. Warm ranking interactions feel fast.
+4. Weight slider changes no longer trigger a full heavy recomputation path.
+5. Table interaction is smooth at full universe size.
+6. Clustering and portfolio calculations remain correct but do not dominate every interaction.
+7. Audit output clearly shows what is live, cached, deferred, reused, or missing.
+8. No silent degradation of methodology.
+
+Deliver this as a serious performance refactor, not a cosmetic patch.

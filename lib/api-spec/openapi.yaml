@@ -184,6 +184,15 @@ components:
           type: ["integer", "null"]
         cachedAt:
           type: ["string", "null"]
+        enrichment:
+          type: string
+          enum: [pending, loading, complete]
+        qualityCoverage:
+          type: string
+        timings:
+          type: object
+          additionalProperties:
+            type: number
       required:
         - status
         - message

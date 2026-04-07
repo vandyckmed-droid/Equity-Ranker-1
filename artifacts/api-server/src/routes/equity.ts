@@ -21,7 +21,10 @@ router.get("/equity/status", async (req, res): Promise<void> => {
       progress: d.progress ?? null,
       total: d.total ?? null,
       loaded: d.loaded ?? null,
-      cachedAt: d.cached_at ?? null,
+      cachedAt: d.cached_at ?? d.cachedAt ?? null,
+      enrichment: d.enrichment ?? "pending",
+      qualityCoverage: d.qualityCoverage ?? "",
+      timings: d.timings ?? {},
     });
   } catch (err) {
     req.log.error({ err }, "Error fetching equity status");
@@ -32,6 +35,9 @@ router.get("/equity/status", async (req, res): Promise<void> => {
       total: null,
       loaded: null,
       cachedAt: null,
+      enrichment: "pending",
+      qualityCoverage: "",
+      timings: {},
     });
   }
 });

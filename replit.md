@@ -11,19 +11,23 @@ A mobile-first equity ranking and risk application that pulls real market data f
 - **Package manager**: pnpm
 - **TypeScript version**: 5.9
 - **API framework**: Express 5 (Node.js backend)
-- **Data engine**: Python 3.12 + FastAPI + yfinance + pandas + numpy + scipy + scikit-learn
+- **Data engine**: Python 3.12 + FastAPI + yfinance + pandas + numpy + scipy + scikit-learn + aiohttp
 - **Database**: PostgreSQL + Drizzle ORM (available but not used for main data)
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
-- **Frontend**: React + Vite + Tailwind CSS + shadcn/ui + Wouter
+- **Frontend**: React + Vite + Tailwind CSS + shadcn/ui + Wouter + @tanstack/react-virtual
 - **Caching**: diskcache (Python, 8h TTL) at /tmp/equity_cache
 
 ## Architecture
 
 ### Python Equity Engine (`artifacts/equity-engine/`)
 - `engine.py` — Core data loading, factor computation, clustering, and risk analytics
-  - Downloads adjusted daily prices (2y history) from Yahoo Finance via yfinance
+  - **Two-stage startup**: Stage 1 loads prices + essential metadata (NASDAQ screener + batch quotes) → engine usable in <1s from cache, <60s cold; Stage 2 loads quality fundamentals in background thread
+  - **Async price downloader** (`price_adapter.py`): aiohttp with 50 concurrent connections, crumb/cookie auth, exponential backoff; falls back to yfinance sequential batches
+  - **Vectorized factors**: numpy matrix ops replace per-ticker loops; batch OLS t-stat via single matrix multiply (0.038s for 2,000 stocks vs ~3s sequential)
+  - **Three-layer cache**: factors→rankings→clustering; weight-only changes skip factor recomputation (0.000s cache hits)
+  - **Quality enrichment**: Background thread fetches ROE/ROA/margins/D/E via yfinance .info; increments quality_epoch to cascade cache invalidation
   - Computes momentum factors: r1, r6, r12, m6 (6-1), m12 (12-1)
   - Computes vol-adjusted Sharpe factors: s6, s12
   - OLS t-stats (always computed): tstat6, tstat12 — required for T sleeve
@@ -33,10 +37,11 @@ A mobile-first equity ranking and risk application that pulls real market data f
   - All atomic inputs individually z-scored before sleeve construction
   - Clustering: AgglomerativeClustering (Ward linkage, euclidean) on log-return z-scores for top-N stocks
   - Portfolio risk: covariance matrix, portfolio vol = sqrt(w'Σw), avg pairwise correlation
-  - Cache: 8-hour disk cache using diskcache
+- `price_adapter.py` — Async Yahoo Finance chart API client (aiohttp, concurrent connections, retry with backoff)
 - `server.py` — FastAPI server (port 8001)
-  - `/status` — data loading progress
-  - `/rankings` — ranked stock universe with all factors
+  - GZip compression middleware (minimum 1000 bytes)
+  - `/status` — data loading progress + enrichment status + timings
+  - `/rankings` — ranked stock universe with all factors + sleeve z-scores
   - `/universe-filters` — POST endpoint for applying filters
   - `/portfolio-risk` — POST endpoint for computing portfolio risk metrics
 
@@ -46,8 +51,12 @@ A mobile-first equity ranking and risk application that pulls real market data f
 
 ### React Frontend (`artifacts/equity-ranker/`)
 - Dark navy/charcoal financial terminal aesthetic
+- **Table virtualization**: @tanstack/react-virtual renders only visible rows (~40 at a time) for 1,800+ stock table
+- **Client-side alpha**: Weight slider changes recompute alpha from sleeve z-scores locally (instant, no API call)
+- **Debounced server params**: Structural parameter changes (vol_floor, winsor_p, cluster K/N) debounced 400ms before triggering API call
+- **Set-based portfolio lookup**: O(1) membership check via `useMemo(() => new Set(holdings))`
 - Pages:
-  - `/` — Universe Rankings: sortable table, factor controls, cluster color-coding, add to portfolio
+  - `/` — Universe Rankings: virtualized sortable table, factor controls, cluster color-coding, add to portfolio
   - `/portfolio` — Portfolio & Risk: holdings basket, weighting modes, risk metrics, cluster distribution
   - `/methodology` — Formula reference panel
 
@@ -82,7 +91,8 @@ Excludes: ETFs/mutual funds, LPs/MLPs, SPACs, OTC/pink sheets, non-equity instru
 - `universe_v1` — NASDAQ ticker list (24h TTL)
 - `nasdaq_meta_v1` — NASDAQ screener metadata (market cap, name, exchange) for backfill (24h TTL)
 - `price_data_v5` — downloaded Close + Volume history (8h TTL)
-- `meta_data_v2` — yfinance quality metadata (24h TTL)
+- `meta_data_v2` — metadata (24h TTL)
+- `quality_data_v1` — quality fundamentals from yfinance .info (24h TTL)
 
 ## Startup Cache Strategy
 
@@ -105,15 +115,25 @@ Excludes: ETFs/mutual funds, LPs/MLPs, SPACs, OTC/pink sheets, non-equity instru
 - Manual refresh: header ↺ button clears localStorage + invalidates React Query, forcing fresh fetch
 - No fake data: localStorage only ever holds a real API response from a previous successful fetch
 
-## Data Flow (full download)
+## Data Flow
 
-1. Equity Engine starts → calls `_fetch_universe()` to get NYSE+NASDAQ ticker list from NASDAQ screener API (≥$2B mcap), saves NASDAQ metadata (market cap, name) to `nasdaq_meta_v1`
-2. Downloads prices for ~2,100 tickers in sequential batches of 100 via yfinance (avoids Yahoo rate-limit thread exhaustion from parallel batching)
-3. Loads quality metadata (ROE, ROA, margins, DE ratio, quoteType) via yfinance — backfills market_cap, exchange, name from `nasdaq_meta_v1` when yfinance returns 401
-4. Results cached to disk for 8h (diskcache at /tmp/equity_cache)
-5. Frontend polls `/api/equity/status` every 5s until ready
-6. When ready, fetches full rankings via `/api/equity/rankings`
-7. On success, response saved to localStorage `qt:rankings-v3` for next warm start
+### Two-Stage Startup
+1. **Stage 1** (fast, <1s from cache, <60s cold):
+   - Equity Engine starts → fetches universe from NASDAQ screener API
+   - Downloads prices via async adapter (50 concurrent connections) or falls back to yfinance sequential batches
+   - Builds essential metadata from NASDAQ screener + batch quote API (no per-ticker .info calls)
+   - Engine marked "ready" — rankings available with S+T sleeves
+2. **Stage 2** (background, ~20-30s):
+   - Quality enrichment: per-ticker yfinance .info calls for ROE/ROA/margins/D/E
+   - Increments quality_epoch → factor cache invalidated → next ranking request includes Q sleeve
+   - Status endpoint shows enrichment: "loading" → "complete" with quality coverage stats
+
+### Three-Layer Cache Architecture
+- **Layer 1 — Factors**: Keyed on (vol_floor, winsor_p, quality_epoch). Cost: ~1s (vectorized).
+- **Layer 2 — Rankings**: Keyed on factor_key + (w6, w12, w_quality, use_quality). Cost: ~0.05s.
+- **Layer 3 — Clustering**: Keyed on ranking_key + (cluster_n, cluster_k, cluster_lookback). Cost: ~0.1s.
+- Weight-only changes: Layer 1 HIT, Layer 2+3 MISS → ~0.15s total.
+- Full cache hit: 0.000s server-side.
 
 ## Factor Details
 
@@ -155,3 +175,11 @@ Excludes: ETFs/mutual funds, LPs/MLPs, SPACs, OTC/pink sheets, non-equity instru
 
 ### Audit line (UI)
 Displayed in portfolio page footer: method · target 15% · pre-scale vol · ×multiplier · gross exposure · cov Nd
+
+## Performance Metrics (Typical)
+- **Stage 1 cache restore**: ~0.06s
+- **Factor computation (vectorized)**: ~1.0s for 2,000 stocks
+- **OLS t-stat (batch matrix)**: ~0.04s for 2,000 stocks
+- **Quality enrichment**: ~20-30s (background)
+- **Rankings (cache hit)**: 0.000s server-side
+- **GZip compressed response**: ~550ms for 1,809 stocks (dominated by JSON serialization)

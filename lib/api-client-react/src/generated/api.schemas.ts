@@ -18,6 +18,17 @@ export const DataStatusStatus = {
   error: "error",
 } as const;
 
+export type DataStatusEnrichment =
+  (typeof DataStatusEnrichment)[keyof typeof DataStatusEnrichment];
+
+export const DataStatusEnrichment = {
+  pending: "pending",
+  loading: "loading",
+  complete: "complete",
+} as const;
+
+export type DataStatusTimings = { [key: string]: number };
+
 export interface DataStatus {
   status: DataStatusStatus;
   message: string;
@@ -29,6 +40,9 @@ export interface DataStatus {
   loaded?: number | null;
   /** @nullable */
   cachedAt?: string | null;
+  enrichment?: DataStatusEnrichment;
+  qualityCoverage?: string;
+  timings?: DataStatusTimings;
 }
 
 export interface Stock {
@@ -167,8 +181,11 @@ export interface PortfolioRiskResponse {
   grossExposure: number;
   /** Actual method used (may differ from requested if fallback triggered) */
   method: string;
-  /** Non-null when a fallback was triggered */
-  fallback: string | null;
+  /**
+   * Non-null when a fallback was triggered — describes what happened
+   * @nullable
+   */
+  fallback?: string | null;
   /** Days of history used for individual vol estimation */
   volLookback: number;
   /** Days of history used for covariance matrix */

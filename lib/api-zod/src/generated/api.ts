@@ -26,6 +26,9 @@ export const GetDataStatusResponse = zod.object({
   total: zod.number().nullish(),
   loaded: zod.number().nullish(),
   cachedAt: zod.string().nullish(),
+  enrichment: zod.enum(["pending", "loading", "complete"]).optional(),
+  qualityCoverage: zod.string().optional(),
+  timings: zod.record(zod.string(), zod.number()).optional(),
 });
 
 /**
@@ -99,6 +102,14 @@ export const GetRankingsResponse = zod.object({
       zM6: zod.number().nullish(),
       zM12: zod.number().nullish(),
       zQuality: zod.number().nullish(),
+      zS6: zod.number().nullish(),
+      zS12: zod.number().nullish(),
+      zT6: zod.number().nullish(),
+      zT12: zod.number().nullish(),
+      zQ: zod.number().nullish(),
+      sSleeve: zod.number().nullish(),
+      tSleeve: zod.number().nullish(),
+      qSleeve: zod.number().nullish(),
       alpha: zod.number().nullish(),
       rank: zod.number().nullish(),
       percentile: zod.number().nullish(),
@@ -153,6 +164,14 @@ export const ApplyUniverseFiltersResponse = zod.object({
       zM6: zod.number().nullish(),
       zM12: zod.number().nullish(),
       zQuality: zod.number().nullish(),
+      zS6: zod.number().nullish(),
+      zS12: zod.number().nullish(),
+      zT6: zod.number().nullish(),
+      zT12: zod.number().nullish(),
+      zQ: zod.number().nullish(),
+      sSleeve: zod.number().nullish(),
+      tSleeve: zod.number().nullish(),
+      qSleeve: zod.number().nullish(),
       alpha: zod.number().nullish(),
       rank: zod.number().nullish(),
       percentile: zod.number().nullish(),
@@ -178,11 +197,43 @@ export const ComputePortfolioRiskBody = zod.object({
   lookback: zod
     .number()
     .describe("Days of history for covariance (60, 126, or 252)"),
-  weightingMethod: zod.enum(["equal", "inverse_vol", "manual"]),
+  weightingMethod: zod.enum(["equal", "inverse_vol", "min_var"]),
 });
 
 export const ComputePortfolioRiskResponse = zod.object({
-  portfolioVol: zod.number(),
+  portfolioVol: zod
+    .number()
+    .describe(
+      "Final portfolio vol after vol-target scaling (= VOL_TARGET when uncapped)",
+    ),
+  basePortVol: zod
+    .number()
+    .describe("Pre-scale portfolio vol (sqrt of w_base' Σ w_base)"),
+  volTargetMultiplier: zod
+    .number()
+    .describe("Multiplier applied to base weights (= 15% \/ basePortVol)"),
+  grossExposure: zod
+    .number()
+    .describe(
+      "Sum of final weights (= volTargetMultiplier since base weights sum to 1)",
+    ),
+  method: zod
+    .string()
+    .describe(
+      "Actual method used (may differ from requested if fallback triggered)",
+    ),
+  fallback: zod
+    .string()
+    .nullish()
+    .describe(
+      "Non-null when a fallback was triggered — describes what happened",
+    ),
+  volLookback: zod
+    .number()
+    .describe("Days of history used for individual vol estimation"),
+  covLookback: zod
+    .number()
+    .describe("Days of history used for covariance matrix"),
   avgCorrelation: zod.number(),
   holdings: zod.array(
     zod.object({

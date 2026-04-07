@@ -5,7 +5,9 @@
  * Equity Ranking and Risk API
  * OpenAPI spec version: 0.1.0
  */
+import type { DataStatusEnrichment } from "./dataStatusEnrichment";
 import type { DataStatusStatus } from "./dataStatusStatus";
+import type { DataStatusTimings } from "./dataStatusTimings";
 
 export interface DataStatus {
   status: DataStatusStatus;
@@ -18,4 +20,7 @@ export interface DataStatus {
   loaded?: number | null;
   /** @nullable */
   cachedAt?: string | null;
+  enrichment?: DataStatusEnrichment;
+  qualityCoverage?: string;
+  timings?: DataStatusTimings;
 }

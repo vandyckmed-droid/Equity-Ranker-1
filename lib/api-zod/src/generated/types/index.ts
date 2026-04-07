@@ -8,7 +8,9 @@
 
 export * from "./clusterCount";
 export * from "./dataStatus";
+export * from "./dataStatusEnrichment";
 export * from "./dataStatusStatus";
+export * from "./dataStatusTimings";
 export * from "./getRankingsParams";
 export * from "./healthStatus";
 export * from "./portfolioHolding";

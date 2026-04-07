@@ -7,12 +7,15 @@ import os
 from typing import Optional, List
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 import numpy as np
 
 import engine
 
 app = FastAPI(title="Equity Engine")
+
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.add_middleware(
     CORSMiddleware,
@@ -29,7 +32,18 @@ def startup():
 
 @app.get("/status")
 def get_status():
-    return engine.get_status()
+    status = engine.get_status()
+    return {
+        "status": status["status"],
+        "message": status["message"],
+        "progress": status["progress"],
+        "total": status["total"],
+        "loaded": status["loaded"],
+        "cached_at": status.get("cached_at"),
+        "enrichment": status.get("enrichment", "pending"),
+        "qualityCoverage": status.get("quality_coverage", ""),
+        "timings": status.get("timings", {}),
+    }
 
 
 @app.get("/rankings")

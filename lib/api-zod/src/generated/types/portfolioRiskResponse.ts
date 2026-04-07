@@ -9,7 +9,25 @@ import type { ClusterCount } from "./clusterCount";
 import type { PortfolioHoldingRisk } from "./portfolioHoldingRisk";
 
 export interface PortfolioRiskResponse {
+  /** Final portfolio vol after vol-target scaling (= VOL_TARGET when uncapped) */
   portfolioVol: number;
+  /** Pre-scale portfolio vol (sqrt of w_base' Σ w_base) */
+  basePortVol: number;
+  /** Multiplier applied to base weights (= 15% / basePortVol) */
+  volTargetMultiplier: number;
+  /** Sum of final weights (= volTargetMultiplier since base weights sum to 1) */
+  grossExposure: number;
+  /** Actual method used (may differ from requested if fallback triggered) */
+  method: string;
+  /**
+   * Non-null when a fallback was triggered — describes what happened
+   * @nullable
+   */
+  fallback?: string | null;
+  /** Days of history used for individual vol estimation */
+  volLookback: number;
+  /** Days of history used for covariance matrix */
+  covLookback: number;
   avgCorrelation: number;
   holdings: PortfolioHoldingRisk[];
   clusterDistribution: ClusterCount[];
