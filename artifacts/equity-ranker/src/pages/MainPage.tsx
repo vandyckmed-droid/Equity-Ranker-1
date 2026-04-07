@@ -47,6 +47,7 @@ import {
   Loader2,
   Columns3,
   RotateCcw,
+  X,
 } from "lucide-react";
 
 type SortField = keyof Stock;
@@ -121,16 +122,29 @@ export default function MainPage() {
   const [controlsOpen, setControlsOpen] = useState(false);
   const [colsOpen, setColsOpen] = useState(false);
 
+  const CONTROLS_KEY = "qt:controls-v1";
+
+  const loadControlsFromStorage = () => {
+    try {
+      const raw = localStorage.getItem(CONTROLS_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return null;
+  };
+
   // Server params: only these trigger an API call (debounced)
-  const [serverParams, setServerParams] = useState({
-    volFloor: 0.05,
-    winsorP: 2,
-    clusterN: 100,
-    clusterK: 10,
-    clusterLookback: 252,
-    secFilerOnly: false,
-    excludeSectors: "" as string,
-    requireQuality: false,
+  const [serverParams, setServerParams] = useState(() => {
+    const saved = loadControlsFromStorage();
+    return {
+      volFloor: saved?.volFloor ?? 0.05,
+      winsorP: saved?.winsorP ?? 2,
+      clusterN: saved?.clusterN ?? 100,
+      clusterK: saved?.clusterK ?? 10,
+      clusterLookback: saved?.clusterLookback ?? 252,
+      secFilerOnly: saved?.secFilerOnly ?? false,
+      excludeSectors: (saved?.excludeSectors ?? "") as string,
+      requireQuality: saved?.requireQuality ?? false,
+    };
   });
   const [debouncedServerParams, setDebouncedServerParams] = useState(serverParams);
 
@@ -140,9 +154,26 @@ export default function MainPage() {
   }, [serverParams]);
 
   // Local params: handled client-side (instant, no API call)
-  const [localW6, setLocalW6] = useState(0.4);
-  const [localW12, setLocalW12] = useState(0.4);
-  const [localWQ, setLocalWQ] = useState(0.2);
+  const [localW6, setLocalW6] = useState(() => {
+    const saved = loadControlsFromStorage();
+    return saved?.localW6 ?? 0.4;
+  });
+  const [localW12, setLocalW12] = useState(() => {
+    const saved = loadControlsFromStorage();
+    return saved?.localW12 ?? 0.4;
+  });
+  const [localWQ, setLocalWQ] = useState(() => {
+    const saved = loadControlsFromStorage();
+    return saved?.localWQ ?? 0.2;
+  });
+
+  // Persist controls to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, localW6, localW12, localWQ }));
+    } catch {}
+  }, [serverParams, localW6, localW12, localWQ]);
+
   // Unified params object for backward compat (e.g. localStorage, cache key)
   const params: GetRankingsParams = useMemo(() => {
     const p: GetRankingsParams = {
@@ -630,7 +661,14 @@ export default function MainPage() {
 
         {/* Collapsible Controls Panel */}
         {controlsOpen && (
-          <div className="bg-background rounded-lg border border-border p-4 mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 md:gap-6">
+          <div className="bg-background rounded-lg border border-border p-4 mt-3">
+            <div className="flex items-center justify-between mb-3 sm:hidden">
+              <span className="text-sm font-semibold text-foreground">Controls</span>
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setControlsOpen(false)}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 md:gap-6">
             <div className="space-y-4">
               <h3 className="text-sm font-semibold text-primary">Factor Weights</h3>
               <div className="space-y-3">
@@ -731,6 +769,7 @@ export default function MainPage() {
                 </p>
               </div>
             </div>
+          </div>
           </div>
         )}
       </div>
