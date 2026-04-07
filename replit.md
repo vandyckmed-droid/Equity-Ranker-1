@@ -2,7 +2,7 @@
 
 ## Overview
 
-A mobile-first equity ranking and risk application that pulls real market data from Yahoo Finance, ranks ~700 large liquid US stocks using momentum and quality factors, and provides portfolio construction and risk analysis tools.
+A mobile-first equity ranking and risk application that pulls real market data from Yahoo Finance, ranks ~1,800 large liquid US stocks (NYSE + NASDAQ, market cap ≥ $2B) using a 3-sleeve alpha composite (S=return-strength, T=trend-quality, Q=quality), and provides portfolio construction and risk analysis tools.
 
 ## Stack
 
@@ -31,7 +31,7 @@ A mobile-first equity ranking and risk application that pulls real market data f
   - Sleeve-based alpha: S=0.5×Z(s6)+0.5×Z(s12), T=0.5×Z(t6)+0.5×Z(t12), Q=Z(quality)
   - Alpha = wS×S + wT×T + wQ×Q (defaults: 0.4, 0.4, 0.2)
   - All atomic inputs individually z-scored before sleeve construction
-  - Clustering: AgglomerativeClustering on correlation distance for top-N stocks
+  - Clustering: AgglomerativeClustering (Ward linkage, euclidean) on log-return z-scores for top-N stocks
   - Portfolio risk: covariance matrix, portfolio vol = sqrt(w'Σw), avg pairwise correlation
   - Cache: 8-hour disk cache using diskcache
 - `server.py` — FastAPI server (port 8001)
@@ -67,13 +67,22 @@ A mobile-first equity ranking and risk application that pulls real market data f
 
 ## Universe
 
-~700 large, liquid US stocks including S&P 500 + Russell 1000 subset. Filters:
+~1,800 large, liquid US stocks from NYSE + NASDAQ (dynamic, via NASDAQ screener API). Typical load: 2,000–2,100 downloaded → 1,750–1,850 qualifying after filters.
+
+**Pre-filter (NASDAQ API)**: market cap ≥ $2B  
+**Engine filters:**
 - Price ≥ $5
-- Avg daily dollar volume ≥ $10M
-- Market cap ≥ $1B
+- Avg daily dollar volume ≥ $10M (63-day median, computed from yfinance Close×Volume)
+- Market cap ≥ $1B (backfilled from NASDAQ screener when yfinance fails)
 - ≥ 252 trading days history
 
-Excludes: ETFs, CEFs, BDCs, LPs, SPACs, OTC/pink sheets, warrants/rights, preferreds
+Excludes: ETFs/mutual funds, LPs/MLPs, SPACs, OTC/pink sheets, non-equity instruments
+
+**Cache keys:**
+- `universe_v1` — NASDAQ ticker list (24h TTL)
+- `nasdaq_meta_v1` — NASDAQ screener metadata (market cap, name, exchange) for backfill (24h TTL)
+- `price_data_v5` — downloaded Close + Volume history (8h TTL)
+- `meta_data_v2` — yfinance quality metadata (24h TTL)
 
 ## Startup Cache Strategy
 
@@ -98,10 +107,10 @@ Excludes: ETFs, CEFs, BDCs, LPs, SPACs, OTC/pink sheets, warrants/rights, prefer
 
 ## Data Flow (full download)
 
-1. Equity Engine starts → spawns background thread to download prices for ~700 tickers
-2. Downloads in batches of 50 tickers via yfinance
-3. Loads sector/quality metadata (ROE, ROA, margins, DE ratio) per ticker
-4. Results cached to disk for 8 hours (diskcache at /tmp/equity_cache)
+1. Equity Engine starts → calls `_fetch_universe()` to get NYSE+NASDAQ ticker list from NASDAQ screener API (≥$2B mcap), saves NASDAQ metadata (market cap, name) to `nasdaq_meta_v1`
+2. Downloads prices for ~2,100 tickers in sequential batches of 100 via yfinance (avoids Yahoo rate-limit thread exhaustion from parallel batching)
+3. Loads quality metadata (ROE, ROA, margins, DE ratio, quoteType) via yfinance — backfills market_cap, exchange, name from `nasdaq_meta_v1` when yfinance returns 401
+4. Results cached to disk for 8h (diskcache at /tmp/equity_cache)
 5. Frontend polls `/api/equity/status` every 5s until ready
 6. When ready, fetches full rankings via `/api/equity/rankings`
 7. On success, response saved to localStorage `qt:rankings-v3` for next warm start

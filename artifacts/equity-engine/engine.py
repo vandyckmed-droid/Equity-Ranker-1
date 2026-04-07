@@ -68,6 +68,7 @@ UNIVERSE_CACHE_TTL = 24 * 3600   # 24 hours — dynamic universe ticker list
 PRICE_CACHE_KEY    = "price_data_v5"
 META_CACHE_KEY     = "meta_data_v2"
 UNIVERSE_CACHE_KEY = "universe_v1"
+NASDAQ_META_KEY    = "nasdaq_meta_v1"   # NASDAQ screener metadata fallback
 
 cache = diskcache.Cache(CACHE_DIR)
 
@@ -232,7 +233,7 @@ def _fetch_universe() -> list:
     Steps
     -----
     1. Query NYSE and NASDAQ exchanges via the NASDAQ screener API.
-    2. Pre-filter to market cap >= $500M (string-formatted in API response).
+    2. Pre-filter to market cap >= $2B (string-formatted in API response).
     3. Validate ticker format: non-empty, <= 5 chars, alphabetic only.
     4. Merge with _ADR_ANCHORS to ensure key ADR / foreign names are always present.
     5. Cache the combined sorted list in diskcache under UNIVERSE_CACHE_KEY (24h TTL).
@@ -248,7 +249,9 @@ def _fetch_universe() -> list:
         return cached
 
     try:
-        tickers: set = set()
+        tickers: set   = set()
+        nasdaq_meta: dict = {}   # {ticker: {market_cap, sector, name, exchange, is_etf}}
+
         for exchange in ("NYSE", "NASDAQ"):
             url = _NASDAQ_API.format(exchange=exchange)
             resp = requests.get(url, headers=_NASDAQ_HEADERS, timeout=_NASDAQ_TIMEOUT)
@@ -268,17 +271,26 @@ def _fetch_universe() -> list:
                 symbol = (row.get("symbol") or "").strip().upper()
                 if not symbol or len(symbol) > 5 or not symbol.isalpha():
                     continue
-                # Pre-filter by market cap >= $500M
+                # Pre-filter by market cap >= $2B
                 raw_cap = row.get("marketCap") or row.get("market_cap") or ""
                 try:
                     cap = float(str(raw_cap).replace(",", ""))
                 except (ValueError, TypeError):
                     cap = 0.0
-                if cap < 500_000_000:
+                if cap < 2_000_000_000:
                     continue
                 tickers.add(symbol)
                 exchange_count += 1
-            logger.info(f"NASDAQ API ({exchange}): {exchange_count} tickers after $500M filter")
+                # Store NASDAQ-sourced metadata as fallback for yfinance failures
+                is_etf = str(row.get("etf") or "").lower() in ("true", "1", "yes", "y")
+                nasdaq_meta[symbol] = {
+                    "market_cap": cap,
+                    "sector":     row.get("sector") or None,
+                    "name":       row.get("name") or symbol,
+                    "exchange":   exchange,
+                    "is_etf":     is_etf,
+                }
+            logger.info(f"NASDAQ API ({exchange}): {exchange_count} tickers after $2B filter")
 
         # Merge ADR anchors from fallback list (always include)
         for t in _FALLBACK_TICKERS:
@@ -296,6 +308,9 @@ def _fetch_universe() -> list:
 
         logger.info(f"Universe fetched from NASDAQ API: {len(universe)} tickers")
         cache.set(UNIVERSE_CACHE_KEY, universe, expire=UNIVERSE_CACHE_TTL)
+        # Cache NASDAQ metadata separately (24h) — used as fallback when yfinance fails
+        cache.set(NASDAQ_META_KEY, nasdaq_meta, expire=UNIVERSE_CACHE_TTL)
+        logger.info(f"NASDAQ metadata cached for {len(nasdaq_meta)} tickers")
         return universe
 
     except Exception as e:
@@ -309,6 +324,7 @@ _dollar_volume: Optional[pd.DataFrame] = None   # Close×Volume: same shape as _
 _meta_data:     Optional[dict]         = None   # Per-ticker metadata dict
 _rankings_cache = None                          # Cached ranked DataFrame (last params)
 _last_params:   Optional[str]          = None
+_audit_printed  = False                         # Guard: fire audit summary only once
 
 
 # ─── Utilities ────────────────────────────────────────────────────────────────
@@ -342,11 +358,13 @@ def zscore(series: pd.Series) -> pd.Series:
 
 def std_cs(series: pd.Series, winsor_p: float = 2.0) -> pd.Series:
     """Cross-sectional: winsorize then z-score. Returns NaN where input is NaN."""
-    valid = series.notna()
+    # Always cast to float first so None → NaN and negation/arithmetic work safely
+    s = pd.to_numeric(series, errors="coerce")
+    valid = s.notna()
     if valid.sum() < 10:
-        return series.copy().where(~valid, np.nan)
-    out = series.copy().astype(float)
-    out[valid] = zscore(winsorize(series[valid], winsor_p))
+        return pd.Series(np.nan, index=s.index, dtype=float)
+    out = s.copy()
+    out[valid] = zscore(winsorize(s[valid], winsor_p))
     return out
 
 
@@ -421,13 +439,13 @@ def classify_ticker(ticker: str, meta: dict) -> Optional[str]:
 
 # ─── Data loading ─────────────────────────────────────────────────────────────
 
-def load_data_batch(tickers: list, batch_size: int = 50) -> tuple:
+def load_data_batch(tickers: list, batch_size: int = 100) -> tuple:
     """
-    Download 2-year adjusted Close + Volume for all tickers in batches.
+    Download 2-year adjusted Close + Volume for all tickers in sequential batches.
 
-    Batches are downloaded concurrently using 4 ThreadPoolExecutor workers to
-    keep cold-start time under 10 minutes for a ~2,000-ticker universe.
-    A threading.Lock protects the shared all_close / all_dollar_vol / failed dicts.
+    Uses sequential (non-parallel) batching because yfinance internally creates
+    threads per download; parallel wrappers exhaust the system thread limit.
+    Batch size 100 (up from 50) halves round-trips for the larger universe.
 
     Returns
     -------
@@ -438,26 +456,22 @@ def load_data_batch(tickers: list, batch_size: int = 50) -> tuple:
     all_close: dict      = {}
     all_dollar_vol: dict = {}
     failed: list         = []
-    _dict_lock           = threading.Lock()
 
     batches       = [tickers[i:i+batch_size] for i in range(0, len(tickers), batch_size)]
     total_batches = len(batches)
-    completed_batches = [0]  # mutable counter accessed inside worker
 
     update_status("loading", f"Downloading price data (0/{len(tickers)} stocks)...",
                   progress=0, total=len(tickers), loaded=0)
 
-    def _download_batch(bi_batch):
-        bi, batch = bi_batch
+    for bi, batch in enumerate(batches):
         try:
             raw = yf.download(
                 batch, period="2y", auto_adjust=True,
                 progress=False, timeout=60,
             )
             if raw.empty:
-                with _dict_lock:
-                    failed.extend(batch)
-                return
+                failed.extend(batch)
+                continue
 
             if isinstance(raw.columns, pd.MultiIndex):
                 lvl0 = raw.columns.get_level_values(0)
@@ -467,44 +481,31 @@ def load_data_batch(tickers: list, batch_size: int = 50) -> tuple:
                 close  = raw[["Close"]]  if "Close"  in raw.columns else pd.DataFrame()
                 volume = raw[["Volume"]] if "Volume" in raw.columns else pd.DataFrame()
 
-            batch_close      = {}
-            batch_dollar_vol = {}
-            batch_failed     = []
             for ticker in batch:
                 try:
                     if ticker not in close.columns:
-                        batch_failed.append(ticker)
+                        failed.append(ticker)
                         continue
                     col = close[ticker].dropna()
                     if len(col) < 252:
-                        batch_failed.append(ticker)
+                        failed.append(ticker)
                         continue
-                    batch_close[ticker] = col
+                    all_close[ticker] = col
                     if ticker in volume.columns:
                         vol_col = volume[ticker].reindex(col.index).fillna(0)
-                        batch_dollar_vol[ticker] = col * vol_col
+                        all_dollar_vol[ticker] = col * vol_col
                 except Exception:
-                    batch_failed.append(ticker)
-
-            with _dict_lock:
-                all_close.update(batch_close)
-                all_dollar_vol.update(batch_dollar_vol)
-                failed.extend(batch_failed)
-                completed_batches[0] += 1
-                loaded   = len(all_close)
-                progress = completed_batches[0] / total_batches
-            update_status("loading",
-                          f"Downloading price data ({loaded}/{len(tickers)} stocks)...",
-                          progress=progress, total=len(tickers), loaded=loaded)
+                    failed.append(ticker)
 
         except Exception as e:
             logger.error(f"Batch {bi} download error: {e}")
-            with _dict_lock:
-                failed.extend(batch)
-                completed_batches[0] += 1
+            failed.extend(batch)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-        executor.map(_download_batch, enumerate(batches))
+        loaded   = len(all_close)
+        progress = (bi + 1) / total_batches
+        update_status("loading",
+                      f"Downloading price data ({loaded}/{len(tickers)} stocks)...",
+                      progress=progress, total=len(tickers), loaded=loaded)
 
     return all_close, all_dollar_vol, failed
 
@@ -571,6 +572,30 @@ def load_meta_with_info(tickers: list) -> dict:
 
     if failed_count:
         logger.warning(f"Metadata fetch: {failed_count}/{len(tickers)} tickers had errors")
+
+    # Backfill missing fields from NASDAQ screener data (reliable even after yfinance 401s)
+    nasdaq_meta = cache.get(NASDAQ_META_KEY) or {}
+    backfilled = 0
+    for ticker, m in meta.items():
+        nd = nasdaq_meta.get(ticker)
+        if not nd:
+            continue
+        if m.get("market_cap") is None:
+            m["market_cap"] = nd["market_cap"]
+            backfilled += 1
+        if not m.get("sector"):
+            m["sector"] = nd.get("sector")
+        if not m.get("name") or m.get("name") == ticker:
+            m["name"] = nd.get("name", ticker)
+        # Infer ETF status from NASDAQ etf flag when quoteType is blank (yfinance failed)
+        if not m.get("quote_type") and nd.get("is_etf"):
+            m["quote_type"] = "ETF"
+        # Ensure exchange is set for classify_ticker
+        if not m.get("exchange"):
+            m["exchange"] = nd.get("exchange", "")
+
+    if backfilled:
+        logger.info(f"Backfilled market_cap from NASDAQ screener for {backfilled} tickers")
     logger.info(f"Metadata loaded for {len(meta)} tickers")
     return meta
 
@@ -960,8 +985,80 @@ def get_meta_data() -> Optional[dict]:
     return _meta_data
 
 
+def _print_audit_summary(price_data: pd.DataFrame, meta_data: dict,
+                          factors_pre: pd.DataFrame, factors_post: pd.DataFrame) -> None:
+    """
+    Log a one-shot universe drop funnel + null-field audit to INFO.
+
+    Called once per engine lifetime (guarded by _audit_printed). Captures:
+    - Drop counts at each filter stage (structure, price, ADV, market-cap)
+    - Null field counts across factors_pre
+    - Quality and alpha formula breakdowns in factors_post
+    """
+    lines: list = ["", "═" * 60, "  UNIVERSE AUDIT SUMMARY", "═" * 60]
+
+    # ── Drop funnel ────────────────────────────────────────────────────────────
+    downloaded       = len(price_data.columns)
+    pre_total        = len(factors_pre)
+    dropped_history  = downloaded - pre_total   # had <252 days — skipped by compute_factors
+
+    lines.append(f"  Downloaded tickers      : {downloaded:>6}")
+    lines.append(f"  dropped_history_lt_252  : {dropped_history:>6}")
+    lines.append(f"  compute_factors output  : {pre_total:>6}")
+    lines.append("")
+
+    # structure_exclusion breakdown
+    if "structure_exclusion" in factors_pre.columns:
+        se = factors_pre["structure_exclusion"]
+        reasons = se[se.notna()].value_counts()
+        for reason, cnt in reasons.items():
+            lines.append(f"  {reason:<30}: {cnt:>6}")
+        struct_pass = se.isna().sum()
+        lines.append(f"  structure_pass          : {struct_pass:>6}")
+    lines.append("")
+
+    # Price / ADV / market-cap filters
+    post_total = len(factors_post)
+    struct_excl_n = (factors_pre["structure_exclusion"].notna().sum()
+                     if "structure_exclusion" in factors_pre.columns else 0)
+    price_adv_cap_dropped = pre_total - struct_excl_n - post_total
+    lines.append(f"  dropped_price+adv+mcap  : {price_adv_cap_dropped:>6}")
+    lines.append(f"  final_survivors         : {post_total:>6}")
+    lines.append("")
+
+    # ── Null field counts (factors_pre) ───────────────────────────────────────
+    lines.append("  NULL FIELD COUNTS (factors_pre):")
+    for col, label in [("market_cap", "missing_market_cap"),
+                        ("sector",     "missing_sector"),
+                        ("adv",        "missing_adv")]:
+        if col in factors_pre.columns:
+            n = factors_pre[col].isna().sum()
+            lines.append(f"    {label:<30}: {n:>6}")
+
+    # Meta field nulls (from _meta_data directly)
+    if meta_data:
+        miss_exchange   = sum(1 for m in meta_data.values() if not m.get("exchange"))
+        miss_quote_type = sum(1 for m in meta_data.values() if not m.get("quote_type"))
+        lines.append(f"    {'missing_exchange':<30}: {miss_exchange:>6}")
+        lines.append(f"    {'missing_quote_type':<30}: {miss_quote_type:>6}")
+    lines.append("")
+
+    # ── Quality breakdown (factors_post) ──────────────────────────────────────
+    lines.append("  QUALITY & ALPHA (factors_post):")
+    if "quality" in factors_post.columns:
+        miss_qual = factors_post["quality"].isna().sum()
+        lines.append(f"    {'missing_quality':<30}: {miss_qual:>6}")
+    if "alpha_formula" in factors_post.columns:
+        st_only = (factors_post["alpha_formula"] == "S+T").sum()
+        lines.append(f"    {'alpha_st_only (no Q)':<30}: {st_only:>6}")
+    lines.append("═" * 60)
+
+    for line in lines:
+        logger.info(line)
+
+
 def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
-    global _rankings_cache, _last_params, _price_data, _meta_data, _dollar_volume
+    global _rankings_cache, _last_params, _price_data, _meta_data, _dollar_volume, _audit_printed
 
     if _price_data is None:
         return None
@@ -980,7 +1077,15 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
     if factors.empty:
         return factors
 
+    factors_pre = factors.copy()   # snapshot before filtering (for audit)
     factors = apply_universe_filters(factors)
+
+    if not _audit_printed:
+        try:
+            _print_audit_summary(_price_data, _meta_data, factors_pre, factors)
+        except Exception as e:
+            logger.warning(f"Audit summary failed: {e}")
+        _audit_printed = True
 
     ranked = compute_rankings(
         factors,
@@ -1067,6 +1172,10 @@ def initial_data_load():
     """
     global _price_data, _meta_data, _dollar_volume
 
+    # Always call _fetch_universe early so nasdaq_meta_v1 is populated
+    # (fast when universe_v1 is cached; triggers NASDAQ API fetch when not)
+    _fetch_universe()
+
     # ── Try price + dollar-volume cache ──────────────────────────────────────
     price_cached = cache.get(PRICE_CACHE_KEY)
     if price_cached:
@@ -1106,7 +1215,7 @@ def initial_data_load():
     update_status("loading", f"Starting download for {len(tickers)} stocks...",
                   progress=0, total=len(tickers), loaded=0)
 
-    all_close, all_dollar_vol, failed = load_data_batch(tickers, batch_size=50)
+    all_close, all_dollar_vol, failed = load_data_batch(tickers, batch_size=100)
 
     if not all_close:
         update_status("error", "Failed to load any price data. Check network connectivity.")
