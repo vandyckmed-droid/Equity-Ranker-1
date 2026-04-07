@@ -89,6 +89,7 @@ const SECTOR_ABBR: Record<string, string> = {
   "Consumer Cyclical": "Cyc",
   "Consumer Staples": "Cons Stap",
   "Consumer Defensive": "Def",
+  "Telecommunications": "Telecom",
   "Communication Services": "Comm",
   "Industrials": "Ind",
   "Energy": "En",
