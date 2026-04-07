@@ -79,12 +79,17 @@ export function useColumnConfig() {
 
   const moveColumn = useCallback((id: ColumnId, dir: "up" | "down") => {
     setConfig(prev => {
+      const visSet = new Set(prev.visible);
+      const visInOrder = prev.order.filter(v => visSet.has(v));
+      const visIdx = visInOrder.indexOf(id);
+      if (visIdx === -1) return prev;
+      const toVisIdx = dir === "up" ? visIdx - 1 : visIdx + 1;
+      if (toVisIdx < 0 || toVisIdx >= visInOrder.length) return prev;
+      const neighborId = visInOrder[toVisIdx];
       const order = [...prev.order];
-      const idx = order.indexOf(id);
-      if (idx === -1) return prev;
-      const to = dir === "up" ? idx - 1 : idx + 1;
-      if (to < 0 || to >= order.length) return prev;
-      [order[idx], order[to]] = [order[to], order[idx]];
+      const idxA = order.indexOf(id);
+      const idxB = order.indexOf(neighborId);
+      [order[idxA], order[idxB]] = [order[idxB], order[idxA]];
       const next = { ...prev, order };
       persist(next);
       return next;

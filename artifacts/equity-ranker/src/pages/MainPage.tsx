@@ -103,6 +103,8 @@ const SECTOR_ABBR: Record<string, string> = {
 export default function MainPage() {
   const { basket, basketSet, addToBasket, removeFromBasket, setAllStocks } = usePortfolio();
   const { config, orderedVisible, toggleColumn, moveColumn, resetColumns } = useColumnConfig();
+  const hiddenColumns = ALL_COLUMN_IDS.filter(id => !config.visible.includes(id));
+
   const queryClient = useQueryClient();
 
   // ── localStorage snapshot (warm-start) ──────────────────────────────────
@@ -121,6 +123,15 @@ export default function MainPage() {
   // Factor controls — split into server-bound (debounced) and local (instant) params
   const [controlsOpen, setControlsOpen] = useState(false);
   const [colsOpen, setColsOpen] = useState(false);
+  const [recentlyMoved, setRecentlyMoved] = useState<ColumnId | null>(null);
+  const movedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleMove = useCallback((id: ColumnId, dir: "up" | "down") => {
+    moveColumn(id, dir);
+    if (movedTimerRef.current) clearTimeout(movedTimerRef.current);
+    setRecentlyMoved(id);
+    movedTimerRef.current = setTimeout(() => setRecentlyMoved(null), 600);
+  }, [moveColumn]);
 
   const CONTROLS_KEY = "qt:controls-v1";
 
@@ -774,62 +785,95 @@ export default function MainPage() {
         )}
       </div>
 
-      {/* ── Columns Sheet (PATCH 1) ───────────────────────────────────────── */}
+      {/* ── Columns Sheet ────────────────────────────────────────────────── */}
       <Sheet open={colsOpen} onOpenChange={setColsOpen}>
         <SheetContent side="right" className="w-72 p-0 flex flex-col">
           <SheetHeader className="px-4 pt-4 pb-3 border-b border-border">
-            <SheetTitle className="text-sm font-semibold flex items-center gap-2">
-              <Columns3 className="w-4 h-4" />
-              Manage Columns
-            </SheetTitle>
+            <SheetTitle className="text-sm font-semibold">Columns</SheetTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Toggle visibility and reorder. Ticker is always shown.
+              Ticker is always shown.
             </p>
           </SheetHeader>
 
-          <div className="flex-1 overflow-y-auto py-2">
-            {ALL_COLUMN_IDS.map((id, idx) => {
-              const isVisible = config.visible.includes(id);
-              const pos = config.order.indexOf(id);
-              return (
-                <div
-                  key={id}
-                  className="flex items-center gap-3 px-4 py-2.5 border-b border-border/40"
-                >
-                  <Switch
-                    checked={isVisible}
-                    onCheckedChange={() => toggleColumn(id)}
-                    disabled={false}
-                    className="shrink-0"
-                  />
-                  <span className="flex-1 text-sm">{COLUMN_LABELS[id]}</span>
-                  <div className="flex flex-col gap-0.5">
+          <div className="flex-1 overflow-y-auto">
+            {/* Visible */}
+            <div className="px-4 pt-3 pb-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Visible ({orderedVisible.length})
+              </p>
+            </div>
+            {orderedVisible.map((id, i) => (
+              <div
+                key={id}
+                className={cn(
+                  "flex items-center gap-2 px-3 mx-1 rounded-lg h-12 transition-colors duration-500",
+                  recentlyMoved === id ? "bg-primary/10" : "hover:bg-muted/40"
+                )}
+              >
+                <span className="w-5 text-center text-[11px] font-mono text-muted-foreground shrink-0 select-none">
+                  {i + 1}
+                </span>
+                <span className="flex-1 text-sm">{COLUMN_LABELS[id]}</span>
+                <div className="flex items-center shrink-0">
+                  <button
+                    onClick={() => handleMove(id, "up")}
+                    disabled={i === 0}
+                    className="h-10 w-9 flex items-center justify-center rounded hover:bg-muted disabled:opacity-20 disabled:cursor-default transition-colors"
+                    aria-label="Move up"
+                  >
+                    <ChevronUp className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleMove(id, "down")}
+                    disabled={i === orderedVisible.length - 1}
+                    className="h-10 w-9 flex items-center justify-center rounded hover:bg-muted disabled:opacity-20 disabled:cursor-default transition-colors"
+                    aria-label="Move down"
+                  >
+                    <ChevronDown className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => toggleColumn(id)}
+                    className="h-10 w-9 flex items-center justify-center rounded hover:bg-destructive/10 hover:text-destructive transition-colors text-muted-foreground ml-0.5"
+                    aria-label="Hide column"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {/* Hidden */}
+            {hiddenColumns.length > 0 && (
+              <>
+                <div className="px-4 pt-4 pb-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Hidden ({hiddenColumns.length})
+                  </p>
+                </div>
+                {hiddenColumns.map(id => (
+                  <div
+                    key={id}
+                    className="flex items-center gap-2 px-3 mx-1 rounded-lg h-12 opacity-45 hover:opacity-80 transition-opacity"
+                  >
+                    <span className="w-5 shrink-0" />
+                    <span className="flex-1 text-sm">{COLUMN_LABELS[id]}</span>
                     <button
-                      onClick={() => moveColumn(id, "up")}
-                      disabled={pos <= 0}
-                      className="p-0.5 rounded hover:bg-muted disabled:opacity-20 disabled:cursor-default"
-                      aria-label="Move up"
+                      onClick={() => toggleColumn(id)}
+                      className="h-10 w-9 flex items-center justify-center rounded hover:bg-muted transition-colors text-muted-foreground"
+                      aria-label="Show column"
                     >
-                      <ChevronUp className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => moveColumn(id, "down")}
-                      disabled={pos >= ALL_COLUMN_IDS.length - 1}
-                      className="p-0.5 rounded hover:bg-muted disabled:opacity-20 disabled:cursor-default"
-                      aria-label="Move down"
-                    >
-                      <ChevronDown className="w-3.5 h-3.5" />
+                      <Plus className="w-4 h-4" />
                     </button>
                   </div>
-                </div>
-              );
-            })}
+                ))}
+              </>
+            )}
           </div>
 
           <div className="px-4 py-3 border-t border-border">
             <Button variant="outline" size="sm" className="w-full gap-2 text-xs" onClick={resetColumns}>
               <RotateCcw className="w-3.5 h-3.5" />
-              Reset to Defaults
+              Reset to defaults
             </Button>
           </div>
         </SheetContent>

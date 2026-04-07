@@ -1,0 +1,90 @@
+Patch: redesign the column visibility and ordering UI so it is genuinely easy to use on mobile.
+
+The current feature technically works, but the UX is poor.
+Current problems:
+- up/down controls are too crowded and hard to tap
+- there is not enough feedback when a change succeeds
+- the controls themselves do not visually move, so reordering feels unclear
+- overall interaction feels clumsy
+
+You may improve the current approach or replace it entirely.
+Do not stay attached to the existing up/down-arrow design.
+The goal is not to preserve the current interaction.
+The goal is to make column management easy, clear, and reliable.
+
+Requirements:
+
+1. Start from first principles.
+   Redesign the column visibility and ordering experience around usability, not around the current implementation.
+
+2. Preserve the core functionality:
+   - show / hide columns
+   - reorder visible columns
+   But the interaction model may change.
+
+3. Prioritize mobile usability.
+   - large tap targets
+   - clear spacing
+   - easy scanning
+   - minimal accidental taps
+   - no cramped controls
+
+4. Reordering must feel obvious.
+   The user should be able to tell immediately when a column moved.
+   The interface should provide clear visual feedback after each change.
+   A successful move should feel visible, not ambiguous.
+
+5. Visibility state must be obvious.
+   It should be immediately clear which columns are shown and which are hidden.
+
+6. The ordering UI should be easy to use repeatedly.
+   The current system is too tedious.
+   Replace it with the simplest, most reliable, most intuitive approach for mobile.
+   You may choose the implementation details.
+   Examples could include a better button-based system, drag-and-drop, edit mode, or another approach.
+   Choose whatever is most usable and robust.
+
+7. Add clear interaction feedback.
+   Examples:
+   - visible movement in the list
+   - subtle animation
+   - highlighted changed row
+   - temporary confirmation state
+   The user should never wonder whether the action worked.
+
+8. Make the structure easy to understand.
+   The user should be able to tell at a glance:
+   - which columns are visible
+   - which columns are hidden
+   - what the current visible order is
+
+9. Keep the interface simple.
+   Avoid clutter, nested controls, tiny icons, or redundant options.
+   This should feel like a practical tool, not a complicated settings panel.
+
+10. Add only minimal quality-of-life improvements if helpful:
+   - reset to default columns
+   - reset to default order
+   - clearer separation of visible vs hidden columns
+   Keep it clean and non-redundant.
+
+11. Preserve important table structure.
+   If certain core columns should remain pinned or protected, handle that cleanly.
+   Do not let customization break the table layout.
+
+12. Preserve user choices locally if feasible.
+
+13. Do not change calculations or pipeline behavior.
+   This patch is presentation and interaction only.
+   It must not affect:
+   - universe logic
+   - z-scores
+   - ranks
+   - cluster assignments
+   - portfolio construction
+   - optimization
+
+14. Deliver the simplest high-usability solution, even if that means redesigning the feature rather than patching the existing arrow controls.
+
+Design standard:
+cheap, simple, robust, transparent, fast, mobile-friendly, and non-redundant.
