@@ -59,6 +59,9 @@ def get_rankings(
     cluster_n: int = Query(100),
     cluster_k: int = Query(10),
     cluster_lookback: int = Query(252),
+    sec_filer_only: bool = Query(False),
+    exclude_sectors: Optional[str] = Query(None),
+    require_quality: bool = Query(False),
 ):
     status = engine.get_status()
     if status["status"] == "loading":
@@ -68,6 +71,8 @@ def get_rankings(
 
     if status["status"] == "error":
         raise HTTPException(status_code=500, detail=status["message"])
+
+    sectors_list = [s.strip() for s in exclude_sectors.split(",") if s.strip()] if exclude_sectors else []
 
     params = {
         "vol_adjust": vol_adjust,
@@ -81,11 +86,17 @@ def get_rankings(
         "cluster_n": cluster_n,
         "cluster_k": cluster_k,
         "cluster_lookback": cluster_lookback,
+        "sec_filer_only": sec_filer_only,
+        "exclude_sectors": sectors_list,
+        "require_quality": require_quality,
     }
 
-    df = engine.get_ranked_data(params)
-    if df is None or df.empty:
+    result = engine.get_ranked_data(params)
+    if result is None:
         return {"stocks": [], "total": 0, "cluster_count": 0, "cached_at": None}
+    df, audit = result
+    if df is None or df.empty:
+        return {"stocks": [], "total": 0, "cluster_count": 0, "cached_at": None, "audit": audit}
 
     def safe(v):
         if v is None:
@@ -163,6 +174,7 @@ def get_rankings(
         "total": len(stocks),
         "cluster_count": cluster_count,
         "cached_at": status.get("cached_at"),
+        "audit": audit,
     }
 
 
@@ -186,11 +198,14 @@ class UniverseFiltersBody(BaseModel):
 @app.post("/universe-filters")
 def universe_filters(body: UniverseFiltersBody):
     params = body.dict()
-    df = engine.get_ranked_data(params)
+    result = engine.get_ranked_data(params)
+    if result is None:
+        return {"stocks": [], "total": 0, "cluster_count": 0, "cached_at": None}
+    df, _audit = result
     if df is None or df.empty:
         return {"stocks": [], "total": 0, "cluster_count": 0, "cached_at": None}
 
-    filtered = engine.apply_universe_filters(
+    filtered, filter_audit = engine.apply_universe_filters(
         df,
         min_price=body.min_price,
         min_adv=body.min_adv,
@@ -397,10 +412,12 @@ def portfolio_risk(body: PortfolioRiskRequest):
     params = {"vol_adjust": True, "use_quality": True, "use_tstats": False,
               "w6": 0.4, "w12": 0.4, "w_quality": 0.2, "vol_floor": 0.05,
               "winsor_p": 2.0, "cluster_n": 100, "cluster_k": 10, "cluster_lookback": 252}
-    ranked = eng.get_ranked_data(params)
+    ranked_result = eng.get_ranked_data(params)
     cluster_map = {}
-    if ranked is not None and not ranked.empty:
-        cluster_map = dict(zip(ranked["ticker"], ranked["cluster"]))
+    if ranked_result is not None:
+        ranked_df, _ = ranked_result
+        if ranked_df is not None and not ranked_df.empty:
+            cluster_map = dict(zip(ranked_df["ticker"], ranked_df["cluster"]))
 
     holdings_out = []
     cluster_weights: dict[int, float] = {}

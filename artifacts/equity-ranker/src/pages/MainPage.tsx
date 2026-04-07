@@ -128,6 +128,9 @@ export default function MainPage() {
     clusterN: 100,
     clusterK: 10,
     clusterLookback: 252,
+    secFilerOnly: false,
+    excludeSectors: "" as string,
+    requireQuality: false,
   });
   const [debouncedServerParams, setDebouncedServerParams] = useState(serverParams);
 
@@ -141,15 +144,25 @@ export default function MainPage() {
   const [localW12, setLocalW12] = useState(0.4);
   const [localWQ, setLocalWQ] = useState(0.2);
   // Unified params object for backward compat (e.g. localStorage, cache key)
-  const params: GetRankingsParams = useMemo(() => ({
-    volAdjust: true,
-    useQuality: true,
-    useTstats: false,
-    w6: 0.4,
-    w12: 0.4,
-    wQuality: 0.2,
-    ...debouncedServerParams,
-  }), [debouncedServerParams]);
+  const params: GetRankingsParams = useMemo(() => {
+    const p: GetRankingsParams = {
+      volAdjust: true,
+      useQuality: true,
+      useTstats: false,
+      w6: 0.4,
+      w12: 0.4,
+      wQuality: 0.2,
+      volFloor: debouncedServerParams.volFloor,
+      winsorP: debouncedServerParams.winsorP,
+      clusterN: debouncedServerParams.clusterN,
+      clusterK: debouncedServerParams.clusterK,
+      clusterLookback: debouncedServerParams.clusterLookback,
+    };
+    if (debouncedServerParams.secFilerOnly) p.secFilerOnly = true;
+    if (debouncedServerParams.excludeSectors) p.excludeSectors = debouncedServerParams.excludeSectors;
+    if (debouncedServerParams.requireQuality) p.requireQuality = true;
+    return p;
+  }, [debouncedServerParams]);
 
   // Alpha highlight state — persisted in localStorage
   const [topN, setTopN] = useState<number>(() => {
@@ -200,6 +213,7 @@ export default function MainPage() {
 
   const rankingsResult = rankingsData && "stocks" in rankingsData ? rankingsData : null;
   const freshStocks = rankingsResult?.stocks || [];
+  const audit = rankingsResult?.audit;
 
   // Persist fresh API data to localStorage so next startup is instant
   useEffect(() => {
@@ -522,6 +536,18 @@ export default function MainPage() {
             <h1 className="text-lg md:text-2xl font-bold tracking-tight leading-tight">Universe Rankings</h1>
             <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-1.5 mt-0.5">
               <span>{stocks.length > 0 ? stocks.length : (rankingsResult?.total || 0)} equities</span>
+              {audit && (
+                <>
+                  <span>&bull;</span>
+                  <span>Q {audit.qualityPct ?? 0}%</span>
+                  {((audit.activeFilters?.length ?? 0) > 5) && (
+                    <>
+                      <span>&bull;</span>
+                      <span className="text-primary/80">+{(audit.activeFilters?.length ?? 0) - 5} filter{(audit.activeFilters?.length ?? 5) - 5 !== 1 ? "s" : ""}</span>
+                    </>
+                  )}
+                </>
+              )}
               {/* Fresh data timestamp */}
               {rankingsResult?.cachedAt && !isShowingCachedData && (
                 <>
@@ -604,7 +630,7 @@ export default function MainPage() {
 
         {/* Collapsible Controls Panel */}
         {controlsOpen && (
-          <div className="bg-background rounded-lg border border-border p-4 mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+          <div className="bg-background rounded-lg border border-border p-4 mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 md:gap-6">
             <div className="space-y-4">
               <h3 className="text-sm font-semibold text-primary">Factor Weights</h3>
               <div className="space-y-3">
@@ -640,6 +666,37 @@ export default function MainPage() {
                     onValueChange={(v) => handleServerParamChange("clusterN", v[0])} />
                 </div>
               </div>
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-primary">Universe Filters</h3>
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2 bg-muted/50 p-2 rounded-md">
+                  <Label htmlFor="secFiler" className="text-xs flex-1 cursor-pointer">SEC Filers Only</Label>
+                  <Switch id="secFiler" checked={serverParams.secFilerOnly}
+                    onCheckedChange={(v) => handleServerParamChange("secFilerOnly", v)} />
+                </div>
+                <div className="flex items-center space-x-2 bg-muted/50 p-2 rounded-md">
+                  <Label htmlFor="exclFin" className="text-xs flex-1 cursor-pointer">Exclude Financials</Label>
+                  <Switch id="exclFin" checked={serverParams.excludeSectors.includes("Finance")}
+                    onCheckedChange={(v) => handleServerParamChange("excludeSectors",
+                      v ? "Finance,Financial Services,Financials" : "")} />
+                </div>
+                <div className="flex items-center space-x-2 bg-muted/50 p-2 rounded-md">
+                  <Label htmlFor="reqQual" className="text-xs flex-1 cursor-pointer">Require Quality</Label>
+                  <Switch id="reqQual" checked={serverParams.requireQuality}
+                    onCheckedChange={(v) => handleServerParamChange("requireQuality", v)} />
+                </div>
+              </div>
+              {audit && (
+                <div className="text-[10px] text-muted-foreground space-y-0.5 pt-1 border-t border-border/40">
+                  <p>{audit.postFilterCount ?? "—"} / {audit.preFilterCount ?? "—"} stocks</p>
+                  <p>Quality: {audit.qualityCoverage ?? "—"} ({audit.qualityPct ?? 0}%)</p>
+                  {((audit.activeFilters?.length ?? 0) > 5) && (
+                    <p className="text-primary/80">{(audit.activeFilters?.length ?? 0) - 5} extra filter{(audit.activeFilters?.length ?? 5) - 5 !== 1 ? "s" : ""} active</p>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="space-y-4">

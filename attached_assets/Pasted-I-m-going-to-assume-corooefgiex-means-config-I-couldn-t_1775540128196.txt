@@ -1,0 +1,124 @@
+I’m going to assume “corooefgiex” means “config.” I couldn’t find a recognizable term for it.  ￼
+
+Your principle is good. I would formalize it as:
+	1.	Every filter is a binary toggle
+	2.	Every filter is applied before cross-sectional z-scoring
+	3.	Therefore every active filter changes the scoring population and can change alpha
+	4.	No “display-only” filters should masquerade as true universe filters
+
+That keeps the system honest.
+
+Practical filters I would add, in order of usefulness:
+
+1. Price floor
+	•	Toggle: price >= X
+	•	Default useful setting: $5
+	•	Why: removes distressed junk, broken quotes, and many structurally messy names
+	•	Very practical, low controversy
+
+2. Liquidity floor
+	•	Toggle: 63D median dollar volume >= X
+	•	Default useful setting: $10M
+	•	Why: probably the single most useful real-world filter
+	•	Keeps rankings tied to names you could actually trade
+
+3. Market cap floor
+	•	Toggle: market cap >= X
+	•	Default useful setting: $1B
+	•	Why: removes fragile microcaps and reduces noisy accounting data
+	•	Especially useful if quality data quality is uneven in smaller names
+
+4. Minimum history
+	•	Toggle: >= 252 trading days
+	•	Why: avoids unstable momentum / trend / volatility estimates
+	•	Essential for any ranker using 6–12 month horizons
+
+5. Security-type exclusion
+	•	Toggle: common operating company only
+	•	Why: exclude ETFs, CEFs, BDCs, SPACs, preferreds, warrants, LP/MLPs, OTC
+	•	This is more of a structural hygiene filter than an alpha filter, but it should still be a toggle if that is your universal rule
+
+6. Country / filing-status filter
+	•	Toggle: SEC-filer only or US-domiciled only or US-listed + SEC-filer only
+	•	Why: extremely useful if quality coverage is the bottleneck
+	•	This is probably the most practical way to make free quality data work better
+	•	It is blunt, but honest
+
+7. Sector exclusion / inclusion
+	•	Toggle per sector
+	•	Why: useful for removing sectors where accounting is structurally different
+	•	Most useful examples:
+	•	exclude Financials
+	•	exclude Real Estate
+	•	This can materially clean up quality comparisons
+
+8. Industry exclusion / inclusion
+	•	Toggle per industry group
+	•	Why: same idea as sectors, but more precise
+	•	Good if you find recurring distortions in specific groups like biotech, regional banks, mortgage REITs, upstream energy, etc.
+
+9. Profitability gate
+	•	Toggle: require positive TTM operating income, TTM net income, or TTM CFO
+	•	Why: very practical if you want a cleaner “institutional” universe
+	•	My preferred simple version: TTM operating cash flow > 0
+	•	Less noisy than pure earnings alone
+
+10. Balance-sheet risk gate
+	•	Toggle: exclude extreme leverage
+	•	Example: net debt / assets < threshold or debt / equity < threshold
+	•	Why: useful but I would keep it optional, since overdoing this can remove legitimate cyclicals and financials
+
+11. Corporate action / dilution gate
+	•	Toggle: exclude extreme recent share-count growth
+	•	Why: practical if you want to avoid frequent capital raisers
+	•	Especially useful in small caps and speculative growth names
+
+12. Quality coverage gate
+	•	Toggle: require enough raw inputs to compute final quality score
+	•	Why: very important if quality is part of alpha
+	•	Example:
+	•	require profitability bucket present
+	•	and at least one other quality bucket present
+	•	This prevents half the universe from ranking on S+T and the other half on S+T+Q
+
+My strongest recommendations for a first pass are:
+	•	Price floor
+	•	Liquidity floor
+	•	Market cap floor
+	•	Minimum history
+	•	Security-type exclusion
+	•	SEC-filer-only toggle
+	•	Exclude Financials toggle
+	•	Quality-coverage-required toggle
+
+That set is practical, easy to understand, and meaningfully changes alpha in a clean way.
+
+I would also divide filters into three classes internally, even if the UI still presents them all as binary toggles:
+	•	Structural filters: security type, OTC, SPAC, LP, common-stock-only
+	•	Tradability filters: price, liquidity, market cap, minimum history
+	•	Fundamental regime filters: profitability, leverage, SEC-filer-only, sector exclusions, quality-coverage-required
+
+That gives you a clean audit trail.
+
+A good implementation rule would be:
+
+All active universe filters are applied first. Then winsorization and cross-sectional z-scoring are computed only on the surviving universe.
+
+That is the right design.
+
+One important caution: if you make every filter alpha-affecting, then things like “exclude Financials” or “SEC-filer-only” are not just conveniences — they are methodology changes. So the audit view should always show:
+	•	active filters
+	•	resulting universe size
+	•	sector weights of the surviving universe
+	•	percent with valid quality
+	•	date/time applied
+
+That will keep the system transparent.
+
+My bottom-line suggestion for your current problem:
+	•	add a binary SEC-filer-only filter
+	•	add a binary quality-coverage-required filter
+	•	add a binary exclude Financials filter
+	•	keep the existing price/liquidity/market-cap/history filters as binary toggles too
+
+That would immediately make the free-data version much more coherent without much complexity.

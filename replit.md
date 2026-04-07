@@ -87,12 +87,25 @@ A mobile-first equity ranking and risk application that pulls real market data f
 
 Excludes: ETFs/mutual funds, LPs/MLPs, SPACs, OTC/pink sheets, non-equity instruments
 
+**Optional universe filters** (toggle in Controls panel, changes scoring population before z-scoring):
+- `secFilerOnly` — only include companies in SEC EDGAR CIK map
+- `excludeSectors` — comma-separated sector list (e.g. "Finance,Financial Services,Financials")
+- `requireQuality` — only include stocks with quality data (ROE/ROA/margins)
+
+**Universe audit** — every /rankings response includes `audit` object with:
+- `preFilterCount` / `postFilterCount` — universe size before/after all filters
+- `exclusions` — count per exclusion reason
+- `sectorBreakdown` — surviving stocks per sector
+- `qualityCoverage` / `qualityPct` — quality data availability
+- `activeFilters` — list of active filter descriptions
+
 **Cache keys:**
 - `universe_v1` — NASDAQ ticker list (24h TTL)
 - `nasdaq_meta_v1` — NASDAQ screener metadata (market cap, name, exchange) for backfill (24h TTL)
 - `price_data_v5` — downloaded Close + Volume history (8h TTL)
 - `meta_data_v2` — metadata (24h TTL)
 - `quality_data_v1` — quality fundamentals from yfinance .info (24h TTL)
+- `sec_cik_map_v1` — SEC EDGAR ticker→CIK mapping (7d TTL)
 
 ## Startup Cache Strategy
 
@@ -129,7 +142,7 @@ Excludes: ETFs/mutual funds, LPs/MLPs, SPACs, OTC/pink sheets, non-equity instru
    - Status endpoint shows enrichment: "loading" → "complete" with quality coverage stats
 
 ### Three-Layer Cache Architecture
-- **Layer 1 — Factors**: Keyed on (vol_floor, winsor_p, quality_epoch). Cost: ~1s (vectorized).
+- **Layer 1 — Factors**: Keyed on (vol_floor, winsor_p, quality_epoch, sec_filer_only, exclude_sectors, require_quality). Cost: ~1s (vectorized).
 - **Layer 2 — Rankings**: Keyed on factor_key + (w6, w12, w_quality, use_quality). Cost: ~0.05s.
 - **Layer 3 — Clustering**: Keyed on ranking_key + (cluster_n, cluster_k, cluster_lookback). Cost: ~0.1s.
 - Weight-only changes: Layer 1 HIT, Layer 2+3 MISS → ~0.15s total.

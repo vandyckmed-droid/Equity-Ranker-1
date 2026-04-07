@@ -58,6 +58,9 @@ router.get("/equity/rankings", async (req, res): Promise<void> => {
           clusterN: "cluster_n",
           clusterK: "cluster_k",
           clusterLookback: "cluster_lookback",
+          secFilerOnly: "sec_filer_only",
+          excludeSectors: "exclude_sectors",
+          requireQuality: "require_quality",
         };
         const key = mappings[k] || k;
         params.set(key, String(v));
@@ -72,6 +75,7 @@ router.get("/equity/rankings", async (req, res): Promise<void> => {
         total: d.total || 0,
         clusterCount: d.cluster_count || 0,
         cachedAt: d.cached_at || null,
+        audit: d.audit || null,
       });
     } else {
       // Data still loading

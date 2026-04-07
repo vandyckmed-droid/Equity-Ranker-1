@@ -62,6 +62,8 @@ META_CACHE_KEY     = "meta_data_v2"
 UNIVERSE_CACHE_KEY = "universe_v1"
 NASDAQ_META_KEY    = "nasdaq_meta_v1"
 QUALITY_CACHE_KEY  = "quality_data_v1"
+SEC_CIK_CACHE_KEY  = "sec_cik_map_v1"
+SEC_CIK_CACHE_TTL  = 7 * 24 * 3600
 
 cache = diskcache.Cache(CACHE_DIR)
 
@@ -293,6 +295,7 @@ _audit_printed  = False
 _quality_epoch  = 0
 _factor_cache   = None
 _factor_key     = None
+_factor_audit   = None
 _ranking_cache  = None
 _ranking_key    = None
 _cluster_cache  = None
@@ -747,42 +750,139 @@ def compute_clustering(d: pd.DataFrame,
 
 # ─── Universe filtering ───────────────────────────────────────────────────────
 
+def _get_sec_cik_map() -> dict:
+    cached = cache.get(SEC_CIK_CACHE_KEY)
+    if cached and isinstance(cached, dict):
+        return cached
+    try:
+        import requests
+        resp = requests.get(
+            "https://www.sec.gov/files/company_tickers.json",
+            headers={"User-Agent": "QuantTerminal/1.0 admin@example.com"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        raw = resp.json()
+        ticker_to_cik = {}
+        for entry in raw.values():
+            ticker = entry.get("ticker", "").upper()
+            cik = entry.get("cik_str")
+            if ticker and cik:
+                ticker_to_cik[ticker] = cik
+        cache.set(SEC_CIK_CACHE_KEY, ticker_to_cik, expire=SEC_CIK_CACHE_TTL)
+        logger.info(f"SEC CIK map loaded: {len(ticker_to_cik)} tickers")
+        return ticker_to_cik
+    except Exception as e:
+        logger.warning(f"Failed to load SEC CIK map: {e}")
+        return {}
+
+
 def apply_universe_filters(df: pd.DataFrame,
-                           min_price:      float = 5.0,
-                           min_adv:        float = 1e7,
-                           min_market_cap: float = 1e9) -> pd.DataFrame:
+                           min_price:        float = 5.0,
+                           min_adv:          float = 1e7,
+                           min_market_cap:   float = 1e9,
+                           sec_filer_only:   bool  = False,
+                           exclude_sectors:  list  = None,
+                           require_quality:  bool  = False) -> tuple:
     n_in = len(df)
     mask = pd.Series(True, index=df.index)
+    audit_exclusions = {}
 
     if "structure_exclusion" in df.columns:
         struct_fail = df["structure_exclusion"].notna()
         if struct_fail.any():
             for reason in df.loc[struct_fail, "structure_exclusion"].unique():
-                n = (df["structure_exclusion"] == reason).sum()
+                n = int((df["structure_exclusion"] == reason).sum())
+                audit_exclusions[reason] = n
                 logger.info(f"Universe exclusion [{reason}]: {n} tickers")
         mask &= ~struct_fail
 
     if "price" in df.columns:
         price_fail = df["price"].fillna(0) < min_price
         if price_fail.any():
-            logger.info(f"Universe exclusion [excluded_price]: {price_fail.sum()} tickers")
+            audit_exclusions["price_below_floor"] = int(price_fail.sum())
+            logger.info(f"Universe exclusion [price_below_floor]: {price_fail.sum()} tickers")
         mask &= ~price_fail
 
     if "adv" in df.columns:
         adv_fail = df["adv"].fillna(0) < min_adv
         if adv_fail.any():
-            logger.info(f"Universe exclusion [excluded_liquidity]: {adv_fail.sum()} tickers")
+            audit_exclusions["liquidity_below_floor"] = int(adv_fail.sum())
+            logger.info(f"Universe exclusion [liquidity_below_floor]: {adv_fail.sum()} tickers")
         mask &= ~adv_fail
 
     if "market_cap" in df.columns:
         cap_fail = df["market_cap"].fillna(0) < min_market_cap
         if cap_fail.any():
-            logger.info(f"Universe exclusion [excluded_market_cap]: {cap_fail.sum()} tickers")
+            audit_exclusions["market_cap_below_floor"] = int(cap_fail.sum())
+            logger.info(f"Universe exclusion [market_cap_below_floor]: {cap_fail.sum()} tickers")
         mask &= ~cap_fail
+
+    if sec_filer_only and "ticker" in df.columns:
+        cik_map = _get_sec_cik_map()
+        if cik_map:
+            is_sec = df["ticker"].isin(cik_map)
+            non_sec = (~is_sec) & mask
+            if non_sec.any():
+                audit_exclusions["non_sec_filer"] = int(non_sec.sum())
+                logger.info(f"Universe exclusion [non_sec_filer]: {non_sec.sum()} tickers")
+            mask &= is_sec
+        else:
+            logger.warning("SEC CIK map unavailable — secFilerOnly filter skipped")
+            audit_exclusions["sec_filer_unavailable"] = 0
+
+    if exclude_sectors and "sector" in df.columns:
+        excl_set = {s.strip() for s in exclude_sectors}
+        sector_hit = df["sector"].isin(excl_set) & mask
+        if sector_hit.any():
+            for s in excl_set:
+                n = int(((df["sector"] == s) & mask).sum())
+                if n > 0:
+                    audit_exclusions[f"sector_{s.lower().replace(' ','_')}"] = n
+            logger.info(f"Universe exclusion [sector]: {sector_hit.sum()} tickers ({', '.join(excl_set)})")
+        mask &= ~df["sector"].isin(excl_set)
+
+    if require_quality and "quality" in df.columns:
+        no_quality = df["quality"].isna() & mask
+        if no_quality.any():
+            audit_exclusions["missing_quality"] = int(no_quality.sum())
+            logger.info(f"Universe exclusion [missing_quality]: {no_quality.sum()} tickers")
+        mask &= df["quality"].notna()
 
     result = df[mask].copy()
     logger.info(f"Universe filters: {n_in} candidates → {len(result)} qualifying stocks")
-    return result
+
+    sector_counts = {}
+    if "sector" in result.columns:
+        for s, cnt in result["sector"].value_counts().items():
+            if s:
+                sector_counts[s] = int(cnt)
+
+    qual_with = int(result["quality"].notna().sum()) if "quality" in result.columns else 0
+    qual_total = len(result)
+
+    audit = {
+        "preFilterCount":  n_in,
+        "postFilterCount": len(result),
+        "exclusions":      audit_exclusions,
+        "sectorBreakdown": sector_counts,
+        "qualityCoverage": f"{qual_with}/{qual_total}",
+        "qualityPct":      round(100 * qual_with / qual_total, 1) if qual_total else 0,
+        "activeFilters":   [],
+    }
+    audit["activeFilters"].append(f"price>=${min_price}")
+    audit["activeFilters"].append(f"adv>=${min_adv/1e6:.0f}M")
+    audit["activeFilters"].append(f"mcap>=${min_market_cap/1e9:.0f}B")
+    audit["activeFilters"].append("history>=252d")
+    audit["activeFilters"].append("common_stock_only")
+    if sec_filer_only:
+        audit["activeFilters"].append("sec_filer_only")
+    if exclude_sectors:
+        audit["activeFilters"].append(f"exclude_sectors:{','.join(exclude_sectors)}")
+    if require_quality:
+        audit["activeFilters"].append("require_quality")
+
+    return result, audit
 
 
 # ─── Public data accessors ────────────────────────────────────────────────────
@@ -868,13 +968,13 @@ def _print_audit_summary(price_data: pd.DataFrame, meta_data: dict,
 # ─── Three-layer cached ranking pipeline ─────────────────────────────────────
 
 def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
-    global _factor_cache, _factor_key
+    global _factor_cache, _factor_key, _factor_audit
     global _ranking_cache, _ranking_key
     global _cluster_cache, _cluster_key
     global _price_data, _meta_data, _dollar_volume, _audit_printed
 
     if _price_data is None:
-        return None
+        return None, {}
 
     t0 = time.time()
     vol_floor = params.get("vol_floor", 0.05)
@@ -889,8 +989,15 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
     cluster_k   = params.get("cluster_k", 10)
     cluster_lookback = params.get("cluster_lookback", 252)
 
+    sec_filer_only  = params.get("sec_filer_only", False)
+    exclude_sectors = params.get("exclude_sectors", [])
+    require_quality = params.get("require_quality", False)
+
     fk = json.dumps({"vol_floor": vol_floor, "winsor_p": winsor_p,
-                      "qe": _quality_epoch}, sort_keys=True)
+                      "qe": _quality_epoch,
+                      "sec": sec_filer_only,
+                      "xs": sorted(exclude_sectors) if exclude_sectors else [],
+                      "rq": require_quality}, sort_keys=True)
     rk = json.dumps({"fk": fk, "w6": w6, "w12": w12, "wq": w_quality,
                       "uq": use_quality, "ut": use_tstats, "va": vol_adjust,
                       "wp": winsor_p}, sort_keys=True)
@@ -898,10 +1005,12 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
                       "cl": cluster_lookback}, sort_keys=True)
 
     cache_info = []
+    audit = {}
 
     with _cache_lock:
         if _factor_cache is not None and _factor_key == fk:
             factors_filtered = _factor_cache
+            audit = _factor_audit or {}
             cache_info.append("factors:HIT")
         else:
             factors_raw = compute_factors_vectorized(
@@ -911,10 +1020,15 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
                 winsor_p=winsor_p,
             )
             if factors_raw.empty:
-                return factors_raw
+                return factors_raw, {}
 
             factors_pre = factors_raw.copy()
-            factors_filtered = apply_universe_filters(factors_raw)
+            factors_filtered, audit = apply_universe_filters(
+                factors_raw,
+                sec_filer_only=sec_filer_only,
+                exclude_sectors=exclude_sectors,
+                require_quality=require_quality,
+            )
 
             if not _audit_printed:
                 try:
@@ -925,6 +1039,7 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
 
             _factor_cache = factors_filtered
             _factor_key = fk
+            _factor_audit = audit
             _ranking_cache = None
             _ranking_key = None
             _cluster_cache = None
@@ -966,7 +1081,7 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
     elapsed = time.time() - t0
     _timings["get_ranked_data"] = round(elapsed, 3)
     logger.info(f"get_ranked_data: {elapsed:.3f}s [{', '.join(cache_info)}]")
-    return result
+    return result, audit
 
 
 # ─── Portfolio risk ───────────────────────────────────────────────────────────
@@ -1089,7 +1204,7 @@ def _background_quality_enrichment(tickers: list):
     When complete, it invalidates the factor cache so next ranking request
     includes quality data in the Q sleeve.
     """
-    global _meta_data, _quality_epoch, _factor_cache, _factor_key, _audit_printed
+    global _meta_data, _quality_epoch, _factor_cache, _factor_key, _factor_audit, _audit_printed
 
     t0 = time.time()
 
@@ -1112,6 +1227,7 @@ def _background_quality_enrichment(tickers: list):
                 _quality_epoch += 1
                 _factor_cache = None
                 _factor_key = None
+                _factor_audit = None
                 _audit_printed = False
             with _status_lock:
                 _status["enrichment"] = "complete"
@@ -1151,6 +1267,7 @@ def _background_quality_enrichment(tickers: list):
         _quality_epoch += 1
         _factor_cache = None
         _factor_key = None
+        _factor_audit = None
         _audit_printed = False
 
     elapsed = time.time() - t0
