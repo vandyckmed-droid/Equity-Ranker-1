@@ -17,7 +17,7 @@ A mobile-first equity ranking and risk application that pulls real market data f
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
 - **Frontend**: React + Vite + Tailwind CSS + shadcn/ui + Wouter + @tanstack/react-virtual
-- **Caching**: diskcache (Python, 8h TTL) at /tmp/equity_cache
+- **Caching**: diskcache (Python) at `artifacts/equity-engine/.cache` (persistent workspace dir, survives container resets)
 
 ## Architecture
 
@@ -103,9 +103,9 @@ Excludes: ETFs/mutual funds, LPs/MLPs, SPACs, OTC/pink sheets, non-equity instru
 - `universe_v1` — NASDAQ ticker list (24h TTL)
 - `nasdaq_meta_v1` — NASDAQ screener metadata (market cap, name, exchange) for backfill (24h TTL)
 - `price_data_v5` — downloaded Close + Volume history (8h TTL)
-- `meta_data_v2` — metadata (24h TTL)
-- `quality_data_v2` — quality fundamentals from SEC EDGAR XBRL (24h TTL)
-- `sec_cik_map_v1` — SEC EDGAR ticker→CIK mapping (7d TTL)
+- `meta_data_v2` — metadata (48h TTL)
+- `quality_data_v3` — quality fundamentals from SEC EDGAR XBRL (7-day TTL, persistent cache)
+- `sec_cik_map_v1` — SEC EDGAR ticker→CIK mapping (14d TTL)
 
 ## Startup Cache Strategy
 

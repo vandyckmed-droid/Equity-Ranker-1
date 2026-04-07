@@ -52,19 +52,20 @@ import diskcache
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CACHE_DIR          = "/tmp/equity_cache"
+CACHE_DIR          = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache")
 PRICE_CACHE_TTL    = 8  * 3600
-META_CACHE_TTL     = 24 * 3600
+META_CACHE_TTL     = 48 * 3600
 UNIVERSE_CACHE_TTL = 24 * 3600
-QUALITY_CACHE_TTL  = 24 * 3600
+QUALITY_CACHE_TTL  = 7  * 24 * 3600   # 10-K filings are annual — 7-day cache is safe
 PRICE_CACHE_KEY    = "price_data_v5"
 META_CACHE_KEY     = "meta_data_v2"
 UNIVERSE_CACHE_KEY = "universe_v1"
 NASDAQ_META_KEY    = "nasdaq_meta_v1"
-QUALITY_CACHE_KEY  = "quality_data_v2"
+QUALITY_CACHE_KEY  = "quality_data_v3"   # bumped: now stored in persistent dir
 SEC_CIK_CACHE_KEY  = "sec_cik_map_v1"
-SEC_CIK_CACHE_TTL  = 7 * 24 * 3600
+SEC_CIK_CACHE_TTL  = 14 * 24 * 3600   # CIK map changes very rarely
 
+os.makedirs(CACHE_DIR, exist_ok=True)
 cache = diskcache.Cache(CACHE_DIR)
 
 _status = {
