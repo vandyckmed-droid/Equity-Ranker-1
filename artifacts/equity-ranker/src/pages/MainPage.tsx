@@ -79,6 +79,18 @@ const CLUSTER_DOT_COLORS = [
   "bg-sky-500",
 ];
 
+type McapFilter = "all" | "no_small" | "large_only";
+const MCAP_THRESHOLDS: Record<McapFilter, number | null> = {
+  all:        null,
+  no_small:   2_000_000_000,    // Exclude Small Caps ≈ $2B+
+  large_only: 10_000_000_000,   // Large Caps Only   ≈ $10B+
+};
+const MCAP_LABELS: Record<McapFilter, string> = {
+  all:        "All",
+  no_small:   "≥$2B",
+  large_only: "≥$10B",
+};
+
 const SECTOR_ABBR: Record<string, string> = {
   "Information Technology": "Tech",
   "Technology": "Tech",
@@ -177,13 +189,18 @@ export default function MainPage() {
     const saved = loadControlsFromStorage();
     return saved?.localWQ ?? 0.2;
   });
+  const [mcapFilter, setMcapFilter] = useState<McapFilter>(() => {
+    const saved = loadControlsFromStorage();
+    const v = saved?.mcapFilter;
+    return (v === "no_small" || v === "large_only") ? v : "all";
+  });
 
   // Persist controls to localStorage whenever they change
   useEffect(() => {
     try {
-      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, localW6, localW12, localWQ }));
+      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, localW6, localW12, localWQ, mcapFilter }));
     } catch {}
-  }, [serverParams, localW6, localW12, localWQ]);
+  }, [serverParams, localW6, localW12, localWQ, mcapFilter]);
 
   // Unified params object for backward compat (e.g. localStorage, cache key)
   const params: GetRankingsParams = useMemo(() => {
@@ -313,6 +330,11 @@ export default function MainPage() {
   const processedStocks = useMemo(() => {
     let result = [...clientAlphaStocks];
 
+    const mcapThreshold = MCAP_THRESHOLDS[mcapFilter];
+    if (mcapThreshold !== null) {
+      result = result.filter((s) => s.marketCap == null || s.marketCap >= mcapThreshold);
+    }
+
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(
@@ -344,7 +366,7 @@ export default function MainPage() {
     }
 
     return result;
-  }, [clientAlphaStocks, search, sortField, sortDir]);
+  }, [clientAlphaStocks, mcapFilter, search, sortField, sortDir]);
 
   const ROW_HEIGHT = 32;
   const virtualizer = useVirtualizer({
@@ -735,6 +757,26 @@ export default function MainPage() {
                   <Label htmlFor="reqQual" className="text-xs flex-1 cursor-pointer">Require Quality</Label>
                   <Switch id="reqQual" checked={serverParams.requireQuality}
                     onCheckedChange={(v) => handleServerParamChange("requireQuality", v)} />
+                </div>
+                <div className="bg-muted/50 p-2 rounded-md space-y-1.5">
+                  <Label className="text-xs">Market Cap</Label>
+                  <div className="flex rounded-md overflow-hidden border border-border">
+                    {(["all", "no_small", "large_only"] as McapFilter[]).map((v, i) => (
+                      <button
+                        key={v}
+                        className={cn(
+                          "flex-1 py-0.5 text-[11px]",
+                          i > 0 && "border-l border-border",
+                          mcapFilter === v
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                        )}
+                        onClick={() => setMcapFilter(v)}
+                      >
+                        {MCAP_LABELS[v]}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
               {audit && (

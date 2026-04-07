@@ -1,0 +1,73 @@
+Add a simple market cap filter to the Controls panel.
+
+GOAL
+
+Add one new market cap filter with two approximate cutoff options:
+
+1. Exclude Small Caps
+   - approximate cutoff: market cap >= $2B
+
+2. Large Caps Only
+   - approximate cutoff: market cap >= $10B
+
+Keep this simple, transparent, and cheap. No unnecessary complexity.
+
+REQUIREMENTS
+
+UI
+- Add a new control under Universe Filters called:
+  - Market Cap Filter
+- Use a compact segmented control, dropdown, or simple selector with these options:
+  - All
+  - Exclude Small Caps
+  - Large Caps Only
+- Show the active selection clearly
+- Keep styling consistent with the existing Controls panel
+
+FILTER LOGIC
+- Use the security’s market cap field if available
+- Apply these approximate thresholds:
+  - All = no market cap filtering
+  - Exclude Small Caps = include only marketCap >= 2_000_000_000
+  - Large Caps Only = include only marketCap >= 10_000_000_000
+- ETFs can always pass unless current architecture already excludes them in this view
+- If market cap is missing:
+  - safest default: keep the name visible rather than silently dropping it
+  - but make the behavior explicit and consistent in code comments
+
+BEHAVIOR
+- This is a visibility / universe filter only
+- It must not change factor formulas, z-score math, or weighting formulas
+- It should only affect which rows remain in the active filtered universe
+- Update the visible stock count immediately when changed
+- Persist the user’s selection the same way other controls are persisted if that pattern already exists
+
+LABELING
+Use plain language in the UI:
+- All
+- Exclude Small Caps
+- Large Caps Only
+
+Optional small helper text in methodology or tooltip:
+- Exclude Small Caps ≈ $2B+
+- Large Caps Only ≈ $10B+
+
+FILES TO REVIEW
+Inspect and update whichever files currently handle:
+- Controls panel UI
+- universe filtering
+- local storage / persisted control state
+- methodology text if applicable
+
+SUCCESS CRITERIA
+- User can toggle between All / Exclude Small Caps / Large Caps Only
+- Filter uses approximate market cap cutoffs of $2B and $10B
+- Counts update correctly
+- No other ranking or portfolio math changes
+- UI remains clean and mobile friendly
+
+DELIVERABLE
+Implement directly and report:
+- files changed
+- threshold values used
+- how missing market cap was handled
