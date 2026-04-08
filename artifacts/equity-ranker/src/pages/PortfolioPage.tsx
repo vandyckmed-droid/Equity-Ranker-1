@@ -52,6 +52,7 @@ const METHOD_LABELS: Record<string, string> = Object.fromEntries(
 );
 
 const VOL_TARGET = 0.15;
+const LOOKBACK = 126;
 
 export default function PortfolioPage() {
   const { basket, addToBasket, removeFromBasket, clearBasket, seedBasket, allStocks, rankedStocks, setRankedStocks } = usePortfolio();
@@ -71,11 +72,6 @@ export default function PortfolioPage() {
     const s = loadPortfolioPrefs();
     const v = s?.weightingMethod as string | undefined;
     return (METHODS.map(m => m.value).includes(v ?? "")) ? v as PortfolioRiskRequestWeightingMethod : "equal";
-  });
-  const [lookback, setLookback] = useState<60 | 126 | 252>(() => {
-    const s = loadPortfolioPrefs();
-    const v = s?.lookback;
-    return (v === 60 || v === 126 || v === 252) ? v : 252;
   });
   const [seedCount, setSeedCount] = useState(() => {
     const s = loadPortfolioPrefs();
@@ -98,9 +94,9 @@ export default function PortfolioPage() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(PORTFOLIO_PREFS_KEY, JSON.stringify({ weightingMethod, lookback, seedCount, seedMode, maxCorr, suggestMode }));
+      localStorage.setItem(PORTFOLIO_PREFS_KEY, JSON.stringify({ weightingMethod, seedCount, seedMode, maxCorr, suggestMode }));
     } catch {}
-  }, [weightingMethod, lookback, seedCount, seedMode, maxCorr, suggestMode]);
+  }, [weightingMethod, seedCount, seedMode, maxCorr, suggestMode]);
 
   const computeRisk = useComputePortfolioRisk();
   const corrSeed = useComputeCorrSeed();
@@ -113,19 +109,19 @@ export default function PortfolioPage() {
       computeRisk.mutate({
         data: {
           holdings: basket.map((ticker) => ({ ticker, weight: 1 })),
-          lookback,
+          lookback: LOOKBACK,
           weightingMethod,
         },
       });
     }, 300);
-  }, [basket, lookback, weightingMethod, computeRisk]);
+  }, [basket, weightingMethod, computeRisk]);
 
   useEffect(() => {
     triggerCompute();
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [basket, weightingMethod, lookback]);
+  }, [basket, weightingMethod]);
 
   const handleSeed = () => {
     const n = parseInt(seedCount);
@@ -175,7 +171,7 @@ export default function PortfolioPage() {
       const parsedCorr = parseFloat(maxCorr);
       const threshold = isNaN(parsedCorr) ? 0.7 : Math.min(0.99, Math.max(0.10, parsedCorr));
       corrSeed.mutate(
-        { data: { tickers: universe.map((s) => s.ticker), n, maxCorr: threshold, lookback } },
+        { data: { tickers: universe.map((s) => s.ticker), n, maxCorr: threshold, lookback: LOOKBACK } },
         {
           onSuccess: (data) => {
             seedBasket(data.tickers);
@@ -488,31 +484,13 @@ export default function PortfolioPage() {
             </Table>
           </div>
 
-          <div className="p-4 border-t border-border bg-muted/20 space-y-3">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Cov lookback</span>
-              <div className="flex items-center gap-2">
-                {([60, 126, 252] as const).map((days) => (
-                  <Button
-                    key={days}
-                    variant={lookback === days ? "secondary" : "outline"}
-                    size="sm"
-                    className="h-7 text-xs px-2"
-                    onClick={() => setLookback(days)}
-                  >
-                    {days}d
-                  </Button>
-                ))}
-              </div>
-            </div>
-
+          <div className="px-4 py-3 border-t border-border/50 bg-muted/10">
             <AuditLine
               riskData={riskData}
               isComputing={isComputing}
               hasError={hasError}
               isEngineDown={isEngineDown}
               requestedMethod={weightingMethod}
-              lookback={lookback}
             />
           </div>
         </Card>
@@ -569,7 +547,6 @@ export default function PortfolioPage() {
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Construction</p>
               <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[12px]">
                 <Stat label="Method" value={METHOD_LABELS[riskData.method] ?? riskData.method} />
-                <Stat label="Lookback" value={riskData.covModel ?? `${lookback}d`} />
                 <Stat label="Port Vol" value={formatPercent(riskData.portfolioVol, 1)} highlight />
                 <Stat label="Target" value={formatPercent(VOL_TARGET, 0)} />
                 <Stat label="Scale" value={`×${formatNumber(riskData.volTargetMultiplier, 2)}`} />
@@ -878,14 +855,12 @@ function AuditLine({
   hasError,
   isEngineDown,
   requestedMethod,
-  lookback,
 }: {
   riskData: ReturnType<typeof useComputePortfolioRisk>["data"];
   isComputing: boolean;
   hasError: boolean;
   isEngineDown?: boolean;
   requestedMethod: string;
-  lookback: number;
 }) {
   if (isComputing) {
     return (
