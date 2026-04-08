@@ -621,6 +621,26 @@ export default function MainPage() {
   if (serverParams.requireQuality) activeFilterChips.push("Quality");
   if (mcapFilter === "no_small") activeFilterChips.push("≥$2B");
   if (mcapFilter === "large_only") activeFilterChips.push("≥$10B");
+
+  // Rank-within-group: plain IIFE const (no hook) — full pre-filter universe
+  const clusterRankMap: Map<string, { rankInGroup: number; groupSize: number }> = (() => {
+    const byCluster = new Map<number, { ticker: string; rank: number }[]>();
+    for (const s of clientAlphaStocks) {
+      if (s.cluster == null) continue;
+      if (!byCluster.has(s.cluster)) byCluster.set(s.cluster, []);
+      byCluster.get(s.cluster)!.push({ ticker: s.ticker, rank: s.rank ?? Infinity });
+    }
+    const map = new Map<string, { rankInGroup: number; groupSize: number }>();
+    for (const [, items] of byCluster) {
+      items.sort((a, b) => a.rank - b.rank);
+      const size = items.length;
+      items.forEach((item, idx) => {
+        map.set(item.ticker, { rankInGroup: idx + 1, groupSize: size });
+      });
+    }
+    return map;
+  })();
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
 
@@ -1053,11 +1073,10 @@ export default function MainPage() {
                           className="lg:hidden py-2 pr-3 w-[calc(100vw-3.5rem)] cursor-pointer select-none"
                           onClick={() => setExpandedTicker(prev => prev === stock.ticker ? null : stock.ticker)}
                         >
-                          {/* Line 1: ticker + alpha */}
+                          {/* Line 1: ticker (de-emphasized) · score (dominant) */}
                           <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className={cn("inline-block w-2 h-2 rounded-full shrink-0", dotColor)} />
-                              <span className={cn("font-bold text-[15px] tracking-tight", isHighlighted ? "text-emerald-400" : "text-foreground")}>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="text-[13px] font-medium tracking-tight text-muted-foreground">
                                 {stock.ticker}
                               </span>
                               {expandedTicker === stock.ticker
@@ -1065,37 +1084,47 @@ export default function MainPage() {
                                 : <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100" />}
                             </div>
                             <span className={cn(
-                              "font-bold tabular-nums text-[15px] shrink-0",
+                              "font-bold tabular-nums text-[17px] shrink-0 tracking-tight",
                               stock.alpha != null && stock.alpha > 0 ? "text-emerald-400" : "text-rose-400"
                             )}>
                               {stock.alpha != null ? (stock.alpha > 0 ? "+" : "") + stock.alpha.toFixed(2) : "—"}
                             </span>
                           </div>
 
-                          {/* Line 2: rank · group · vol · sector */}
-                          <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
-                            <span className="font-mono">#{stock.rank ?? "—"}</span>
-                            {stock.cluster !== null && stock.cluster !== undefined && (
-                              <>
-                                <span className="opacity-40">·</span>
-                                <span className={cn("font-semibold font-mono", clusterText)}>
-                                  G{stock.cluster}
-                                </span>
-                              </>
-                            )}
-                            {stock.sigma12 != null && (
-                              <>
-                                <span className="opacity-40">·</span>
-                                <span>{(stock.sigma12 * 100).toFixed(1)}%</span>
-                              </>
-                            )}
-                            {stock.sector && (
-                              <>
-                                <span className="opacity-40">·</span>
-                                <span>{sectorAbbr}</span>
-                              </>
-                            )}
-                          </div>
+                          {/* Line 2: #rank · G{n} · rankInGroup/groupSize · Vol X% · sector */}
+                          {(() => {
+                            const grp = stock.cluster != null ? clusterRankMap.get(stock.ticker) : undefined;
+                            return (
+                              <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
+                                <span className="font-mono">#{stock.rank ?? "—"}</span>
+                                {stock.cluster != null && (
+                                  <>
+                                    <span className="opacity-40">·</span>
+                                    <span className={cn("font-semibold font-mono", clusterText)}>
+                                      G{stock.cluster}
+                                    </span>
+                                    {grp && (
+                                      <span className="font-mono opacity-70">
+                                        {grp.rankInGroup}/{grp.groupSize}
+                                      </span>
+                                    )}
+                                  </>
+                                )}
+                                {stock.sigma12 != null && (
+                                  <>
+                                    <span className="opacity-40">·</span>
+                                    <span>Vol {(stock.sigma12 * 100).toFixed(1)}%</span>
+                                  </>
+                                )}
+                                {stock.sector && (
+                                  <>
+                                    <span className="opacity-40">·</span>
+                                    <span>{sectorAbbr}</span>
+                                  </>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </TableCell>
 
                         {/* ── Desktop: ticker (hidden on mobile) ── */}
