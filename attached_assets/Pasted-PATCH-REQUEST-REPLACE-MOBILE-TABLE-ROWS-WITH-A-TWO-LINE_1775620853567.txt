@@ -1,0 +1,159 @@
+PATCH REQUEST — REPLACE MOBILE TABLE ROWS WITH A TWO-LINE MOBILE ROW LAYOUT
+
+Objective:
+Redesign the main Universe Rankings list for mobile so it is easier to read, easier to tap, and less horizontally cramped. Keep the current data, logic, ranking, sorting, filtering, and selection behavior intact unless explicitly noted below. This is a display / interaction patch, not a methodology patch.
+
+Guiding principles:
+- mobile-first
+- performance first
+- smooth scrolling
+- reliable interactions
+- clear visual hierarchy
+- preserve useful density
+- high touch usability
+- robust implementation
+- avoid fragile hacks
+- no unnecessary complexity
+- optimize for responsiveness, stability, and polish rather than minimizing effort
+
+Primary change:
+Replace the current compressed desktop-style grid row presentation with a compact two-line mobile row layout.
+
+Current issue:
+The current table tries to show too many columns in one thin row on a phone. This creates:
+- cramped horizontal layout
+- small tap targets
+- weak hierarchy
+- harder scanning
+- too much spreadsheet behavior on a mobile screen
+
+Target row layout:
+Each stock row should render as a compact two-line block.
+
+Line 1:
+- Ticker on the left
+- Alpha as the primary number on the right or near-right
+- Add/remove portfolio control on the far right with a larger tap target than current
+
+Line 2:
+- Rank
+- Group / cluster chip
+- Volatility
+- Sector
+These should appear in a smaller, more muted secondary line.
+
+Example target structure:
+RBC                    1.61        [selected]
+#1 · C1 · 26.1% · Ind
+
+Or equivalent implementation with the same hierarchy.
+
+Required hierarchy:
+1. Ticker and Alpha must be the dominant visual anchors.
+2. Add/remove must be easy to hit with a thumb.
+3. Rank, Group, Vol, and Sector must remain visible but secondary.
+4. Group / cluster should remain easy to scan visually.
+
+Required UI behavior:
+- Keep sorting functionality.
+- Keep filtering functionality.
+- Keep search functionality.
+- Keep current ranking logic and values unchanged.
+- Keep current portfolio selection behavior unchanged.
+- Tapping add/remove should still add/remove the stock from the portfolio.
+- Tapping the row itself may optionally expand for more detail, but this is optional and should only be added if it remains performant and clean.
+
+Specific display requirements:
+1. Ticker
+   - bold
+   - high contrast
+   - left aligned
+
+2. Alpha
+   - most prominent number in the row
+   - use tabular numerals if possible
+   - right aligned or visually anchored near the right
+   - keep existing color logic only if it is not competing with cluster/group color
+
+3. Add/remove control
+   - larger tap target than current
+   - do not rely on a tiny icon-only gutter target
+   - selected and unselected states must be very obvious
+   - keep the control simple and responsive
+
+4. Secondary line
+   - smaller font than line 1
+   - muted compared with line 1
+   - show rank, group, vol, sector
+   - use compact separators or chips
+   - keep it readable without feeling crowded
+
+5. Group / cluster display
+   - rename “Cls” to “Group” or keep compact “C1/C2/etc” presentation within a clearer chip/badge
+   - preserve group color coding if already implemented
+   - the group chip should be more legible than the current small badge
+
+6. Sector display
+   - keep abbreviated if needed for space
+   - ensure abbreviations remain readable and consistent
+
+7. Volatility display
+   - keep as a plain percentage field on the secondary line
+   - do not over-emphasize it visually
+
+Performance and implementation requirements:
+- Prioritize smooth scrolling and touch responsiveness.
+- Avoid row designs that cause excessive re-rendering or layout thrash.
+- Avoid fragile animation-heavy solutions.
+- Reuse existing components/styles where sensible, but refactor if the current structure blocks a smooth result.
+- Prefer a robust clean implementation over the cheapest or fastest patch.
+- Optimize for stability on real mobile usage, not just visual appearance in static screenshots.
+
+Important constraints:
+- Do not change Alpha calculation.
+- Do not change ranking methodology.
+- Do not change factor logic.
+- Do not change filters or selection logic unless required by the row layout.
+- Do not add unnecessary libraries or architecture churn.
+- Do not turn this into a card-heavy design.
+- Do not reduce the information content materially.
+- Do not make rows so tall that the list loses useful density.
+- Keep the implementation robust, performant, and maintainable.
+
+Recommended layout behavior:
+- Keep the overall list fast and scrollable.
+- Keep rows compact, but clearly tappable.
+- Use two lines only for the default collapsed state.
+- Preserve a clean repeated scan pattern:
+  - first glance: ticker + alpha + selected state
+  - second glance: rank + group + vol + sector
+
+Top-level screen cleanup that should accompany this patch if easy:
+- preserve sticky search/header behavior if already present
+- ensure the main list feels like a phone-native list, not a squeezed desktop table
+- reduce unnecessary horizontal scrolling as much as possible
+
+Visual simplification:
+- reduce competing row cues
+- use one dominant primary cue on line 1
+- use group as the main secondary structural cue
+- avoid multiple equally strong colors fighting for attention
+
+Acceptance criteria:
+1. The main rankings list no longer looks like a compressed desktop grid on mobile.
+2. Each stock row renders in a clear two-line layout.
+3. Ticker and Alpha are easier to scan than before.
+4. Add/remove is easier to tap than before.
+5. Rank, group, vol, and sector remain visible in the collapsed row.
+6. Horizontal crowding is materially reduced.
+7. Selection behavior still works correctly.
+8. Sorting/search/filtering still work correctly.
+9. No methodology or data changes are introduced.
+10. Scrolling and touch interaction remain smooth.
+11. The final result is simpler, clearer, faster-feeling, and more mobile-native than the current implementation.
+
+Implementation preference:
+Make the cleanest robust set of code changes needed to achieve this. Optimize for smoothness, responsiveness, and reliability rather than minimizing effort.
+
+Deliverable:
+Ship the updated mobile rankings list with the two-line row layout as the default presentation for the Universe Rankings screen.

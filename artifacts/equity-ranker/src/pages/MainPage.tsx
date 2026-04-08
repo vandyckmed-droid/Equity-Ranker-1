@@ -78,6 +78,19 @@ const CLUSTER_DOT_COLORS = [
   "bg-sky-500",
 ];
 
+const CLUSTER_TEXT_COLORS = [
+  "text-rose-500",
+  "text-blue-500",
+  "text-emerald-500",
+  "text-amber-500",
+  "text-violet-500",
+  "text-cyan-500",
+  "text-orange-500",
+  "text-fuchsia-500",
+  "text-lime-500",
+  "text-sky-500",
+];
+
 type McapFilter = "all" | "no_small" | "large_only";
 const MCAP_THRESHOLDS: Record<McapFilter, number | null> = {
   all:        null,
@@ -380,11 +393,10 @@ export default function MainPage() {
     return result;
   }, [clientAlphaStocks, mcapFilter, search, sortField, sortDir]);
 
-  const ROW_HEIGHT = 32;
   const virtualizer = useVirtualizer({
     count: processedStocks.length,
     getScrollElement: () => scrollContainerRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => (typeof window !== "undefined" && window.innerWidth < 1024 ? 60 : 32),
     overscan: 20,
   });
 
@@ -952,9 +964,9 @@ export default function MainPage() {
 
       {/* ── Main Table (virtualized) ─────────────────────────────────────── */}
       <div ref={scrollContainerRef} className="flex-1 overflow-auto relative">
-        <div className="min-w-max pb-10">
-          <Table className="table-compact">
-            <TableHeader className="sticky top-0 bg-background/95 backdrop-blur z-10 shadow-sm">
+        <div className="lg:min-w-max pb-10 w-full">
+          <Table className="table-compact w-full">
+            <TableHeader className="hidden lg:table-header-group sticky top-0 bg-background/95 backdrop-blur z-10 shadow-sm">
               <TableRow className="border-b-border/50 hover:bg-transparent">
                 <TableHead className="w-10 text-center sticky left-0 z-20 bg-background/95" />
                 <TableHead
@@ -1007,35 +1019,108 @@ export default function MainPage() {
                         : stock.percentile !== null && stock.percentile !== undefined && stock.percentile >= (100 - topN)
                     );
 
+                    const clusterText =
+                      stock.cluster !== null && stock.cluster !== undefined && stock.cluster < CLUSTER_TEXT_COLORS.length
+                        ? CLUSTER_TEXT_COLORS[stock.cluster]
+                        : "text-muted-foreground";
+                    const sectorAbbr = stock.sector ? (SECTOR_ABBR[stock.sector] ?? stock.sector) : "—";
+
                     return (
                       <React.Fragment key={stock.ticker}>
-                      <TableRow className="group transition-colors border-b-border/30 hover:bg-muted/30">
-                        <TableCell className="p-0 text-center sticky left-0 z-10 bg-background shadow-[1px_0_0_0_rgba(0,0,0,0.1)]">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 rounded-sm opacity-50 group-hover:opacity-100"
+                      <TableRow className="group transition-colors border-b border-border/30 hover:bg-muted/30">
+
+                        {/* ── +/- button — always visible, bigger on mobile ── */}
+                        <TableCell className="p-0 text-center sticky left-0 z-10 bg-background">
+                          <button
+                            className={cn(
+                              "flex items-center justify-center rounded transition-colors",
+                              "h-14 w-12 lg:h-8 lg:w-8",
+                              inPortfolio
+                                ? "text-primary"
+                                : "text-muted-foreground/50 hover:text-foreground"
+                            )}
                             onClick={() => inPortfolio ? removeFromBasket(stock.ticker) : addToBasket(stock.ticker)}
+                            aria-label={inPortfolio ? "Remove from portfolio" : "Add to portfolio"}
                           >
                             {inPortfolio
-                              ? <Check className="w-3 h-3 text-primary" />
-                              : <Plus className="w-3 h-3" />}
-                          </Button>
+                              ? <Check className="w-4 h-4 lg:w-3.5 lg:h-3.5" />
+                              : <Plus className="w-4 h-4 lg:w-3.5 lg:h-3.5" />}
+                          </button>
                         </TableCell>
+
+                        {/* ── Mobile 2-line layout (hidden on lg+) ── */}
                         <TableCell
-                          className="font-bold text-foreground sticky left-10 z-10 bg-background shadow-[1px_0_0_0_rgba(0,0,0,0.1)] cursor-pointer select-none"
+                          className="lg:hidden py-2 pr-3 w-[calc(100vw-3.5rem)] cursor-pointer select-none"
+                          onClick={() => setExpandedTicker(prev => prev === stock.ticker ? null : stock.ticker)}
+                        >
+                          {/* Line 1: ticker + alpha */}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={cn("inline-block w-2 h-2 rounded-full shrink-0", dotColor)} />
+                              <span className={cn("font-bold text-[15px] tracking-tight", isHighlighted ? "text-emerald-400" : "text-foreground")}>
+                                {stock.ticker}
+                              </span>
+                              {expandedTicker === stock.ticker
+                                ? <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
+                                : <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100" />}
+                            </div>
+                            <span className={cn(
+                              "font-bold tabular-nums text-[15px] shrink-0",
+                              stock.alpha != null && stock.alpha > 0 ? "text-emerald-400" : "text-rose-400"
+                            )}>
+                              {stock.alpha != null ? (stock.alpha > 0 ? "+" : "") + stock.alpha.toFixed(2) : "—"}
+                            </span>
+                          </div>
+
+                          {/* Line 2: rank · group · vol · sector */}
+                          <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
+                            <span className="font-mono">#{stock.rank ?? "—"}</span>
+                            {stock.cluster !== null && stock.cluster !== undefined && (
+                              <>
+                                <span className="opacity-40">·</span>
+                                <span className={cn("font-semibold font-mono", clusterText)}>
+                                  C{stock.cluster}
+                                </span>
+                              </>
+                            )}
+                            {stock.sigma12 != null && (
+                              <>
+                                <span className="opacity-40">·</span>
+                                <span>{(stock.sigma12 * 100).toFixed(1)}%</span>
+                              </>
+                            )}
+                            {stock.sector && (
+                              <>
+                                <span className="opacity-40">·</span>
+                                <span>{sectorAbbr}</span>
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
+
+                        {/* ── Desktop: ticker (hidden on mobile) ── */}
+                        <TableCell
+                          className="hidden lg:table-cell font-bold text-foreground sticky left-10 z-10 bg-background shadow-[1px_0_0_0_rgba(0,0,0,0.1)] cursor-pointer select-none"
                           onClick={() => setExpandedTicker(prev => prev === stock.ticker ? null : stock.ticker)}
                           title="Click to audit alpha components"
                         >
                           <span className="flex items-center gap-1.5">
-                            <span className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", dotColor)} title={`Cluster ${stock.cluster ?? "?"}`} />
+                            <span className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", dotColor)} />
                             <span className={cn(isHighlighted && "text-emerald-400")}>{stock.ticker}</span>
                             {expandedTicker === stock.ticker
                               ? <ChevronDown className="w-2.5 h-2.5 text-muted-foreground ml-0.5" />
                               : <ChevronRight className="w-2.5 h-2.5 text-muted-foreground ml-0.5 opacity-0 group-hover:opacity-100" />}
                           </span>
                         </TableCell>
-                        {activeColumns.map((id) => renderCell(id, stock, badgeColor))}
+
+                        {/* ── Desktop: data columns (hidden on mobile) ── */}
+                        {activeColumns.map((id) => {
+                          const cell = renderCell(id, stock, badgeColor);
+                          if (!cell) return null;
+                          return React.cloneElement(cell as React.ReactElement<{ className?: string }>, {
+                            className: cn("hidden lg:table-cell", (cell as React.ReactElement<{ className?: string }>).props.className),
+                          });
+                        })}
                       </TableRow>
 
                       {expandedTicker === stock.ticker && (() => {

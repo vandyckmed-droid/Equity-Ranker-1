@@ -60,6 +60,14 @@ A mobile-first equity ranking and risk application that pulls real market data f
   - `/portfolio` — Portfolio & Risk: holdings basket, weighting modes, risk metrics, cluster distribution
   - `/methodology` — Formula reference panel
 
+### Mobile Row Layout (< lg breakpoint)
+Each stock row renders as a compact 2-line block. No horizontal scrolling.
+- **Line 1**: cluster dot · ticker (bold) · alpha (large, tabular-nums, green/red)
+- **Line 2**: #rank · Cn cluster (colored) · vol% · sector abbr (muted, 11px)
+- **Add/Remove**: h-14 w-12 button on far left (thumb-friendly tap target)
+- Table header hidden on mobile; `estimateSize` is `60px` (mobile) vs `32px` (desktop) via `window.innerWidth`
+- Desktop (lg+): unchanged full-column table with sticky headers and all column configs
+
 ## Key Commands
 
 - `pnpm run typecheck` — full typecheck across all packages
