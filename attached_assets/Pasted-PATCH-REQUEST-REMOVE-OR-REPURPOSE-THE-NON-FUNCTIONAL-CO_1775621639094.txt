@@ -1,0 +1,81 @@
+PATCH REQUEST — REMOVE OR REPURPOSE THE NON-FUNCTIONAL COLUMNS SCREEN
+
+Objective:
+The new two-line mobile rankings row is a clear improvement. Keep that direction. The separate Columns screen shown in the second image is no longer needed in its current form and is not functional. Remove it or repurpose that entry point into something useful and lightweight.
+
+What is working:
+- the new two-line row layout is a real upgrade
+- ticker / alpha readability is better
+- the list feels more mobile-native
+- the overall direction should be preserved
+
+Problem:
+The Columns modal/panel is now redundant and non-functional.
+- it shows visible/hidden column controls that no longer map cleanly to the new mobile row design
+- it adds UI complexity without utility
+- it creates a dead or misleading control surface
+- it should not remain as a broken leftover from the previous table-based design
+
+Required change:
+Remove the old Columns screen entirely unless it can be repurposed cleanly and immediately into something that matches the current mobile layout.
+
+Preferred outcome:
+Option A — preferred:
+- remove the Columns screen and its trigger entirely
+- reclaim that control space for something more relevant
+
+Option B — acceptable only if implemented cleanly:
+repurpose that control into a lightweight “Display” panel for the new mobile list, with only settings that actually work in the new layout
+
+If repurposed, allowed controls should be limited to things like:
+- row density: compact / standard
+- show or hide secondary items such as rank, sector, or vol
+- choose one optional secondary metric if simple
+- maybe toggle group chip display if already supported
+
+Do not keep the old column picker metaphor if the screen is no longer a real column-based grid.
+
+Guiding principles:
+- performance first
+- smooth and responsive
+- reliable and stable
+- simple where possible, but not at the expense of function
+- robust over fragile
+- avoid dead controls
+- avoid UI that implies functionality that does not exist
+- keep the mobile list coherent with the new row-based design
+
+Specific requirements:
+1. Do not leave behind a non-functional Columns screen.
+2. Remove any controls that no longer correspond to the actual list layout.
+3. If the trigger remains, rename it appropriately:
+   - “Display”
+   - “View”
+   - or similar
+   Not “Columns” if this is no longer a true column configuration UI.
+4. Keep the current upgraded two-line row design intact.
+5. Keep the main rankings screen clean and focused.
+6. Do not add unnecessary complexity or extra settings.
+7. If there is no strong immediate use case, delete the screen rather than preserving legacy UI.
+
+Recommended replacement for the old Columns button:
+Use that slot for one of these, in order of preference:
+1. Filters
+2. Display / View options tied to the new row layout
+3. Nothing, if fewer controls makes the screen cleaner
+
+Do not:
+- do not preserve the old screen just because it already exists
+- do not keep broken plus buttons or fake visible/hidden lists
+- do not reintroduce desktop-table concepts that conflict with the current mobile row model
+- do not build a large settings surface unless it has real utility right now
+
+Acceptance criteria:
+1. The non-functional Columns screen is gone or fully repurposed.
+2. No UI element labeled “Columns” remains unless it truly controls relevant visible fields in the current layout.
+3. The upgraded rankings list remains the default and continues to work smoothly.
+4. The screen is simpler, cleaner, and more coherent than before.
+5. There are no dead-end or misleading controls left in the mobile UI.
+
+Implementation preference:
+Choose the cleanest product decision, not the smallest patch. If the old Columns screen is no longer useful, remove it cleanly rather than preserving legacy UI.

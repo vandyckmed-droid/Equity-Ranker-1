@@ -645,7 +645,7 @@ export default function MainPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 px-2 gap-1 text-xs text-muted-foreground hover:text-foreground"
+                className="hidden lg:inline-flex h-7 px-2 gap-1 text-xs text-muted-foreground hover:text-foreground"
                 onClick={() => setColsOpen(true)}
               >
                 <Columns3 className="w-3.5 h-3.5" />
