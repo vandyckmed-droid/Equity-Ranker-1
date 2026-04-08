@@ -622,6 +622,27 @@ export default function MainPage() {
   if (mcapFilter === "no_small") activeFilterChips.push("≥$2B");
   if (mcapFilter === "large_only") activeFilterChips.push("≥$10B");
 
+  // Suggested % for top-25: alpha/vol normalized weights (no hook — plain IIFE)
+  const suggestedWeights: Map<string, number> = (() => {
+    const VOL_FLOOR = 0.10; // floor at 10% annualized vol to cap extreme weights
+    const top25 = clientAlphaStocks
+      .filter(s => s.rank != null && s.rank <= 25 && s.alpha != null && s.sigma12 != null)
+      .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999))
+      .slice(0, 25);
+    const scores = top25.map(s => ({
+      ticker: s.ticker,
+      score: Math.max(s.alpha ?? 0, 0) / Math.max(s.sigma12 ?? VOL_FLOOR, VOL_FLOOR),
+    }));
+    const total = scores.reduce((acc, s) => acc + s.score, 0);
+    const map = new Map<string, number>();
+    if (total > 0) {
+      for (const { ticker, score } of scores) {
+        map.set(ticker, score / total);
+      }
+    }
+    return map;
+  })();
+
   // Rank-within-group: plain IIFE const (no hook) — full pre-filter universe
   const clusterRankMap: Map<string, { rankInGroup: number; groupSize: number }> = (() => {
     const byCluster = new Map<number, { ticker: string; rank: number }[]>();
@@ -1122,6 +1143,17 @@ export default function MainPage() {
                                     <span>{sectorAbbr}</span>
                                   </>
                                 )}
+                              </div>
+                            );
+                          })()}
+
+                          {/* Line 3 (top-25 only): suggested position size */}
+                          {(() => {
+                            const w = suggestedWeights.get(stock.ticker);
+                            if (w == null) return null;
+                            return (
+                              <div className="mt-0.5 text-[10px] font-mono text-primary/70 tracking-tight">
+                                Suggested {(w * 100).toFixed(1)}%
                               </div>
                             );
                           })()}
