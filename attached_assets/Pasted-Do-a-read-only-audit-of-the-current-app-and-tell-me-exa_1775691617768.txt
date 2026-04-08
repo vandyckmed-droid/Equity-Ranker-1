@@ -1,0 +1,63 @@
+Do a read-only audit of the current app and tell me exactly what data is already available right now. No code changes.
+
+I want a concise structured report with these sections:
+
+1. Raw data currently available
+- price data fields available per ticker (for example: date, open, high, low, close, adjusted close, volume)
+- whether data is daily only or includes intraday
+- how many days of history are typically loaded
+- source of each dataset
+
+2. Metadata currently available
+- ticker
+- sector
+- industry/group/cluster
+- any quality/fundamental fields
+- any ETF/security type labels
+- anything else tied to each asset
+
+3. Derived metrics currently available
+List every metric already computed in the app/backend, including:
+- alpha/composite scores
+- returns by horizon
+- volatility metrics
+- covariance/correlation data
+- group assignments
+- risk parity inputs
+- portfolio volatility
+- scale factor
+- exposure by sector/group
+- any cap logic
+- any cached or stored portfolio outputs
+
+4. Portfolio/history data currently available
+- current weights
+- base weights vs final scaled weights
+- whether cash is explicitly represented
+- whether historical portfolio returns are already computable from current data
+- whether rolling drawdown / rolling vol / equity curve can be generated now without adding new data storage
+
+5. What is NOT currently available
+Specifically call out missing items such as:
+- historical portfolio snapshots
+- historical rebalances
+- point-in-time rankings
+- factor history
+- benchmark history
+- Monte Carlo inputs if missing
+- anything needed for charts or backtests that we do not yet have
+
+6. Practical build implications
+Answer yes/no and briefly explain:
+- Can we build a portfolio equity curve now?
+- Can we build rolling volatility now?
+- Can we build rolling drawdown now?
+- Can we build a correlation heatmap now?
+- Can we build risk contribution by holding now?
+- Can we build a true historical backtest now?
+- Can we build a forward scenario / projection chart now?
+
+7. File map
+List the main files/functions where this data is fetched, stored, computed, and passed to the UI.
+
+Keep it factual and specific. Do not suggest improvements yet. I only want a current-state data inventory.
