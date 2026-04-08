@@ -126,6 +126,7 @@ export default function PortfolioPage() {
   const riskData = computeRisk.data;
   const isComputing = computeRisk.isPending;
   const hasError = computeRisk.isError;
+  const isEngineDown = hasError && (computeRisk.error as { status?: number })?.status === 503;
 
   const weightMap = useMemo(() => {
     if (!riskData) return {} as Record<string, number>;
@@ -377,6 +378,7 @@ export default function PortfolioPage() {
               riskData={riskData}
               isComputing={isComputing}
               hasError={hasError}
+              isEngineDown={isEngineDown}
               requestedMethod={weightingMethod}
               lookback={lookback}
             />
@@ -389,8 +391,32 @@ export default function PortfolioPage() {
         <h2 className="text-base font-semibold text-muted-foreground hidden lg:block">Risk Analysis</h2>
 
         {hasError && !riskData ? (
-          <div className="flex-1 flex items-center justify-center border border-destructive/30 border-dashed rounded-xl bg-card/20 text-destructive min-h-[120px] lg:min-h-0">
-            <p className="text-sm p-6 text-center">Failed to compute risk. Check that data is fully loaded.</p>
+          <div className="flex-1 flex items-center justify-center border border-dashed rounded-xl bg-card/20 min-h-[120px] lg:min-h-0 border-destructive/30">
+            <div className="flex flex-col items-center gap-3 p-6 text-center">
+              {isEngineDown ? (
+                <>
+                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">Engine is starting up — data loads in a few seconds.</p>
+                  <button
+                    onClick={triggerCompute}
+                    className="text-xs text-primary underline underline-offset-2 hover:opacity-80"
+                  >
+                    Retry now
+                  </button>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="w-6 h-6 text-destructive/70" />
+                  <p className="text-sm text-destructive">Failed to compute risk.</p>
+                  <button
+                    onClick={triggerCompute}
+                    className="text-xs text-primary underline underline-offset-2 hover:opacity-80"
+                  >
+                    Retry
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         ) : !riskData ? (
           <div className="flex-1 flex items-center justify-center border border-border border-dashed rounded-xl bg-card/20 text-muted-foreground min-h-[120px] lg:min-h-0">
@@ -608,12 +634,14 @@ function AuditLine({
   riskData,
   isComputing,
   hasError,
+  isEngineDown,
   requestedMethod,
   lookback,
 }: {
   riskData: ReturnType<typeof useComputePortfolioRisk>["data"];
   isComputing: boolean;
   hasError: boolean;
+  isEngineDown?: boolean;
   requestedMethod: string;
   lookback: number;
 }) {
@@ -627,7 +655,12 @@ function AuditLine({
   }
 
   if (hasError && !riskData) {
-    return (
+    return isEngineDown ? (
+      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60">
+        <Loader2 className="w-3 h-3 animate-spin" />
+        <span>Engine starting…</span>
+      </div>
+    ) : (
       <div className="flex items-center gap-1.5 text-[11px] text-destructive/80">
         <AlertTriangle className="w-3 h-3" />
         <span>Computation failed</span>

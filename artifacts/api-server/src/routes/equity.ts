@@ -5,10 +5,32 @@ const router: IRouter = Router();
 
 const EQUITY_ENGINE_URL = `http://localhost:${process.env.EQUITY_ENGINE_PORT || "8001"}`;
 
-async function proxyRequest(url: string, options?: RequestInit): Promise<[number, unknown]> {
-  const response = await fetch(url, options);
-  const data = await response.json();
-  return [response.status, data];
+async function proxyRequest(
+  url: string,
+  options?: RequestInit,
+  retries = 3,
+  delayMs = 800,
+): Promise<[number, unknown]> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      const data = await response.json();
+      return [response.status, data];
+    } catch (err: unknown) {
+      const isConnRefused =
+        err instanceof Error &&
+        (err.message.includes("ECONNREFUSED") || err.message.includes("fetch failed"));
+      if (isConnRefused && attempt < retries) {
+        await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
+        continue;
+      }
+      if (isConnRefused) {
+        return [503, { error: "engine_unavailable", message: "Data engine is starting up — please try again in a moment." }];
+      }
+      throw err;
+    }
+  }
+  return [503, { error: "engine_unavailable", message: "Data engine is starting up — please try again in a moment." }];
 }
 
 router.get("/equity/status", async (req, res): Promise<void> => {
