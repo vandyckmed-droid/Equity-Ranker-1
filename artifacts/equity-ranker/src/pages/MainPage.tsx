@@ -745,8 +745,16 @@ export default function MainPage() {
               )}
               {" "}eq
             </span>
+            {/* Quality coverage */}
+            {audit && (
+              <span className="inline-flex items-center h-5 rounded-full px-2 text-[11px] bg-muted/60 border border-border/40 whitespace-nowrap shrink-0 text-muted-foreground">
+                Q {audit.qualityPct ?? 0}%
+              </span>
+            )}
             {/* Active filter chips */}
-            {activeFilterChips.map(chip => (
+            {activeFilterChips
+              .filter(chip => chip !== "Quality")
+              .map(chip => (
               <span key={chip} className="inline-flex items-center h-5 rounded-full px-2 text-[11px] bg-primary/10 border border-primary/20 whitespace-nowrap shrink-0 text-primary">
                 {chip}
               </span>
