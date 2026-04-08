@@ -30,7 +30,6 @@ import { Slider } from "@/components/ui/slider";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   ChevronDown,
@@ -42,7 +41,7 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Settings2,
+  SlidersHorizontal,
   RefreshCw,
   Loader2,
   Columns3,
@@ -603,125 +602,139 @@ export default function MainPage() {
   };
 
   // ─── Main render ──────────────────────────────────────────────────────────
+  // Active filter chips — computed inline (O(5), no useMemo needed)
+  const activeFilterChips: string[] = [];
+  if (serverParams.secFilerOnly) activeFilterChips.push("SEC Only");
+  if (serverParams.excludeSectors.includes("Finance")) activeFilterChips.push("No Fin");
+  if (serverParams.requireQuality) activeFilterChips.push("Quality");
+  if (mcapFilter === "no_small") activeFilterChips.push("≥$2B");
+  if (mcapFilter === "large_only") activeFilterChips.push("≥$10B");
   return (
     <div className="flex flex-col h-full overflow-hidden">
 
-      {/* ── Header & Controls ────────────────────────────────────────────── */}
-      <div className="flex-none px-3 py-3 md:px-6 md:py-4 border-b border-border bg-card/50 backdrop-blur sticky top-0 z-20">
-        <div className="flex items-start justify-between gap-2 mb-3">
-          <div className="min-w-0">
-            <h1 className="text-lg md:text-2xl font-bold tracking-tight leading-tight">Universe Rankings</h1>
-            <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-1.5 mt-0.5">
-              <span>
-                {processedStocks.length.toLocaleString()} equities
-                {stocks.length > 0 && processedStocks.length < stocks.length && (
-                  <span className="text-muted-foreground/60"> of {stocks.length.toLocaleString()}</span>
+      {/* ── Sticky header shell ──────────────────────────────────────────── */}
+      <div className="flex-none border-b border-border bg-card/60 backdrop-blur-sm sticky top-0 z-20">
+
+        {/* Row 1: Title + action buttons */}
+        <div className="overflow-hidden max-h-12">
+          <div className="flex items-center justify-between px-3 md:px-5 h-10 gap-2">
+            <h1 className="text-sm font-bold tracking-tight truncate">Universe Rankings</h1>
+            <div className="flex items-center gap-1 shrink-0">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                onClick={handleRefresh}
+                title="Force refresh rankings"
+                disabled={isRankingsLoading || (!isReady && !isShowingCachedData)}
+              >
+                <RefreshCw className={cn("w-3.5 h-3.5", isRankingsLoading && "animate-spin")} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 gap-1 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setColsOpen(true)}
+              >
+                <Columns3 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Columns</span>
+              </Button>
+              <Button
+                variant={controlsOpen ? "secondary" : "ghost"}
+                size="sm"
+                className={cn(
+                  "h-7 px-2 gap-1 text-xs",
+                  controlsOpen ? "" : "text-muted-foreground hover:text-foreground",
+                  activeFilterChips.length > 0 && !controlsOpen && "text-primary"
                 )}
-              </span>
-              {audit && (
-                <>
-                  <span>&bull;</span>
-                  <span>Q {audit.qualityPct ?? 0}%</span>
-                  {((audit.activeFilters?.length ?? 0) > 5) && (
-                    <>
-                      <span>&bull;</span>
-                      <span className="text-primary/80">+{(audit.activeFilters?.length ?? 0) - 5} filter{(audit.activeFilters?.length ?? 5) - 5 !== 1 ? "s" : ""}</span>
-                    </>
-                  )}
-                </>
-              )}
-              {/* Fresh data timestamp */}
-              {rankingsResult?.cachedAt && !isShowingCachedData && (
-                <>
-                  <span>&bull;</span>
-                  <span className="hidden sm:inline">
-                    Updated: {new Date(rankingsResult.cachedAt).toLocaleString()}
+                onClick={() => setControlsOpen(true)}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Filters</span>
+                {activeFilterChips.length > 0 && (
+                  <span className="ml-0.5 tabular-nums bg-primary/20 text-primary rounded-full px-1 text-[10px] leading-none py-0.5">
+                    {activeFilterChips.length}
                   </span>
-                </>
-              )}
-              {/* Warm-start: showing localStorage snapshot */}
-              {isShowingCachedData && localCache && (
-                <>
-                  <span>&bull;</span>
-                  <span className="text-amber-500/80">
-                    Cached · {formatCacheAge(localCache.savedAt)}
-                  </span>
-                </>
-              )}
-              {/* Background refresh spinner */}
-              {(isRankingsLoading || (!isReady && isShowingCachedData)) && (
-                <span className="flex items-center gap-1 text-muted-foreground/60">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  <span className="hidden sm:inline">Refreshing…</span>
-                </span>
-              )}
-              {/* Cold-start: nothing in cache, engine loading */}
-              {isColdStart && (
-                <span className="flex items-center gap-1">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  Loading engine…
-                </span>
-              )}
-            </p>
-          </div>
-
-          {/* Control buttons */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 w-8 p-0"
-              onClick={handleRefresh}
-              title="Force refresh rankings"
-              disabled={isRankingsLoading || (!isReady && !isShowingCachedData)}
-            >
-              <RefreshCw className={cn("w-3.5 h-3.5", isRankingsLoading && "animate-spin")} />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5 h-8 px-2.5"
-              onClick={() => setColsOpen(true)}
-              title="Manage columns"
-            >
-              <Columns3 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline text-xs">Columns</span>
-            </Button>
-            <Collapsible open={controlsOpen} onOpenChange={setControlsOpen}>
-              <CollapsibleTrigger asChild>
-                <Button variant={controlsOpen ? "secondary" : "outline"} size="sm" className="gap-1.5 h-8 px-2.5">
-                  <Settings2 className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline text-xs">Controls</span>
-                  {controlsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                </Button>
-              </CollapsibleTrigger>
-            </Collapsible>
-          </div>
-        </div>
-
-        {/* Search bar */}
-        <div className="relative">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-          <Input
-            placeholder="Search ticker or name…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 w-full bg-background/50 border-border/50 h-9"
-          />
-        </div>
-
-        {/* Collapsible Controls Panel */}
-        {controlsOpen && (
-          <div className="bg-background rounded-lg border border-border p-4 mt-3">
-            <div className="flex items-center justify-between mb-3 sm:hidden">
-              <span className="text-sm font-semibold text-foreground">Controls</span>
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setControlsOpen(false)}>
-                <X className="w-4 h-4" />
+                )}
               </Button>
             </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 md:gap-6">
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-primary">Factor Weights</h3>
+          </div>
+        </div>
+
+        {/* Row 2: Status chips — horizontally scrollable */}
+        <div className="overflow-hidden max-h-8">
+          <div className="flex items-center gap-1.5 px-3 md:px-5 pb-1.5 overflow-x-auto scrollbar-none">
+            {/* Universe count */}
+            <span className="inline-flex items-center h-5 rounded-full px-2 text-[11px] bg-muted/60 border border-border/40 whitespace-nowrap shrink-0 text-muted-foreground">
+              {processedStocks.length.toLocaleString()}
+              {stocks.length > 0 && processedStocks.length < stocks.length && (
+                <span className="opacity-60 ml-0.5">/{stocks.length.toLocaleString()}</span>
+              )}
+              {" "}eq
+            </span>
+            {/* Quality coverage */}
+            {audit && (
+              <span className="inline-flex items-center h-5 rounded-full px-2 text-[11px] bg-muted/60 border border-border/40 whitespace-nowrap shrink-0 text-muted-foreground">
+                Q {audit.qualityPct ?? 0}%
+              </span>
+            )}
+            {/* Active filter chips */}
+            {activeFilterChips.map(chip => (
+              <span key={chip} className="inline-flex items-center h-5 rounded-full px-2 text-[11px] bg-primary/10 border border-primary/20 whitespace-nowrap shrink-0 text-primary">
+                {chip}
+              </span>
+            ))}
+            {/* Timestamp / cache state */}
+            {rankingsResult?.cachedAt && !isShowingCachedData && (
+              <span className="inline-flex items-center h-5 rounded-full px-2 text-[11px] bg-muted/60 border border-border/40 whitespace-nowrap shrink-0 text-muted-foreground/70">
+                {new Date(rankingsResult.cachedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
+            {isShowingCachedData && localCache && (
+              <span className="inline-flex items-center h-5 rounded-full px-2 text-[11px] bg-amber-500/10 border border-amber-500/20 whitespace-nowrap shrink-0 text-amber-500/90">
+                {formatCacheAge(localCache.savedAt)}
+              </span>
+            )}
+            {(isRankingsLoading || (!isReady && isShowingCachedData)) && (
+              <span className="inline-flex items-center gap-1 h-5 rounded-full px-2 text-[11px] bg-muted/40 border border-border/30 whitespace-nowrap shrink-0 text-muted-foreground/60">
+                <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                syncing
+              </span>
+            )}
+            {isColdStart && (
+              <span className="inline-flex items-center gap-1 h-5 rounded-full px-2 text-[11px] bg-muted/40 border border-border/30 whitespace-nowrap shrink-0 text-muted-foreground/70">
+                <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                loading
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Row 3: Search — always visible */}
+        <div className="px-3 md:px-5 pb-2 pt-1">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/60 pointer-events-none" />
+            <Input
+              placeholder="Search ticker or name…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 h-7 text-xs bg-background/40 border-border/40 focus-visible:ring-1 w-full"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Filters Sheet ────────────────────────────────────────────────── */}
+      <Sheet open={controlsOpen} onOpenChange={setControlsOpen}>
+        <SheetContent side="right" className="w-80 p-0 flex flex-col overflow-y-auto">
+          <SheetHeader className="px-4 pt-4 pb-3 border-b border-border shrink-0">
+            <SheetTitle className="text-sm font-semibold">Filters &amp; Controls</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
+
+            {/* Factor Weights */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Factor Weights</h3>
               <div className="space-y-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs">S Sleeve — wS ({formatNumber(localW6 * 100, 0)}%)</Label>
@@ -741,8 +754,56 @@ export default function MainPage() {
               </div>
             </div>
 
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-primary">Clustering</h3>
+            {/* Universe Filters */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Universe Filters</h3>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
+                  <Label htmlFor="secFiler" className="text-xs cursor-pointer">SEC Filers Only</Label>
+                  <Switch id="secFiler" checked={serverParams.secFilerOnly}
+                    onCheckedChange={(v) => handleServerParamChange("secFilerOnly", v)} />
+                </div>
+                <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
+                  <Label htmlFor="exclFin" className="text-xs cursor-pointer">Exclude Financials</Label>
+                  <Switch id="exclFin" checked={serverParams.excludeSectors.includes("Finance")}
+                    onCheckedChange={(v) => handleServerParamChange("excludeSectors",
+                      v ? "Finance,Financial Services,Financials" : "")} />
+                </div>
+                <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
+                  <Label htmlFor="reqQual" className="text-xs cursor-pointer">Require Quality</Label>
+                  <Switch id="reqQual" checked={serverParams.requireQuality}
+                    onCheckedChange={(v) => handleServerParamChange("requireQuality", v)} />
+                </div>
+                <div className="bg-muted/40 px-3 py-2 rounded-md space-y-2">
+                  <Label className="text-xs">Market Cap</Label>
+                  <div className="flex rounded-md overflow-hidden border border-border">
+                    {(["all", "no_small", "large_only"] as McapFilter[]).map((v, i) => (
+                      <button
+                        key={v}
+                        className={cn(
+                          "flex-1 py-1 text-[11px]",
+                          i > 0 && "border-l border-border",
+                          mcapFilter === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                        )}
+                        onClick={() => setMcapFilter(v)}
+                      >
+                        {MCAP_LABELS[v]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {audit && (
+                <div className="text-[10px] text-muted-foreground space-y-0.5 pt-1 border-t border-border/40">
+                  <p>{audit.postFilterCount ?? "—"} / {audit.preFilterCount ?? "—"} stocks pass filters</p>
+                  <p>Quality coverage: {audit.qualityCoverage ?? "—"} ({audit.qualityPct ?? 0}%)</p>
+                </div>
+              )}
+            </div>
+
+            {/* Clustering */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Clustering</h3>
               <div className="space-y-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs">Clusters K ({serverParams.clusterK})</Label>
@@ -757,64 +818,14 @@ export default function MainPage() {
               </div>
             </div>
 
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-primary">Universe Filters</h3>
-              <div className="space-y-2">
-                <div className="flex items-center space-x-2 bg-muted/50 p-2 rounded-md">
-                  <Label htmlFor="secFiler" className="text-xs flex-1 cursor-pointer">SEC Filers Only</Label>
-                  <Switch id="secFiler" checked={serverParams.secFilerOnly}
-                    onCheckedChange={(v) => handleServerParamChange("secFilerOnly", v)} />
-                </div>
-                <div className="flex items-center space-x-2 bg-muted/50 p-2 rounded-md">
-                  <Label htmlFor="exclFin" className="text-xs flex-1 cursor-pointer">Exclude Financials</Label>
-                  <Switch id="exclFin" checked={serverParams.excludeSectors.includes("Finance")}
-                    onCheckedChange={(v) => handleServerParamChange("excludeSectors",
-                      v ? "Finance,Financial Services,Financials" : "")} />
-                </div>
-                <div className="flex items-center space-x-2 bg-muted/50 p-2 rounded-md">
-                  <Label htmlFor="reqQual" className="text-xs flex-1 cursor-pointer">Require Quality</Label>
-                  <Switch id="reqQual" checked={serverParams.requireQuality}
-                    onCheckedChange={(v) => handleServerParamChange("requireQuality", v)} />
-                </div>
-                <div className="bg-muted/50 p-2 rounded-md space-y-1.5">
-                  <Label className="text-xs">Market Cap</Label>
-                  <div className="flex rounded-md overflow-hidden border border-border">
-                    {(["all", "no_small", "large_only"] as McapFilter[]).map((v, i) => (
-                      <button
-                        key={v}
-                        className={cn(
-                          "flex-1 py-0.5 text-[11px]",
-                          i > 0 && "border-l border-border",
-                          mcapFilter === v
-                            ? "bg-primary text-primary-foreground"
-                            : "text-muted-foreground hover:text-foreground"
-                        )}
-                        onClick={() => setMcapFilter(v)}
-                      >
-                        {MCAP_LABELS[v]}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              {audit && (
-                <div className="text-[10px] text-muted-foreground space-y-0.5 pt-1 border-t border-border/40">
-                  <p>{audit.postFilterCount ?? "—"} / {audit.preFilterCount ?? "—"} stocks</p>
-                  <p>Quality: {audit.qualityCoverage ?? "—"} ({audit.qualityPct ?? 0}%)</p>
-                  {((audit.activeFilters?.length ?? 0) > 5) && (
-                    <p className="text-primary/80">{(audit.activeFilters?.length ?? 0) - 5} extra filter{(audit.activeFilters?.length ?? 5) - 5 !== 1 ? "s" : ""} active</p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-primary">Display</h3>
-              <div className="flex items-center space-x-2 bg-muted/50 p-2 rounded-md">
-                <Label htmlFor="zscores" className="text-xs flex-1 cursor-pointer">Show Raw Z-Scores</Label>
+            {/* Display */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Display</h3>
+              <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
+                <Label htmlFor="zscores" className="text-xs cursor-pointer">Show Raw Z-Scores</Label>
                 <Switch id="zscores" checked={showZScores} onCheckedChange={setShowZScores} />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 bg-muted/40 px-3 py-2 rounded-md">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs">Alpha highlight</Label>
                   <div className="flex rounded-md overflow-hidden border border-border">
@@ -835,15 +846,15 @@ export default function MainPage() {
                   step={1}
                   onValueChange={(v) => setTopN(v[0])}
                 />
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground">
                   {topN === 0 ? "Off" : topNMode === 'n' ? `Top ${topN} names` : `Top ${topN}%`}
                 </p>
               </div>
             </div>
+
           </div>
-          </div>
-        )}
-      </div>
+        </SheetContent>
+      </Sheet>
 
       {/* ── Columns Sheet ────────────────────────────────────────────────── */}
       <Sheet open={colsOpen} onOpenChange={setColsOpen}>
@@ -1120,3 +1131,4 @@ export default function MainPage() {
     </div>
   );
 }
+
