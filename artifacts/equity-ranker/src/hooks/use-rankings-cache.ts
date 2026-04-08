@@ -26,12 +26,24 @@ export interface CachedRankings {
   paramsHash: string;        // JSON of params used, for display only
 }
 
+function countQualityStocks(stocks: Stock[]): number {
+  return stocks.filter(s => s.quality != null).length;
+}
+
 export function saveRankingsCache(data: {
   stocks: Stock[];
   total: number;
   cachedAt?: string | null;
 }, paramsHash: string): void {
   try {
+    const existing = loadRankingsCache();
+    if (existing && existing.stocks.length > 0) {
+      const existingQuality = countQualityStocks(existing.stocks);
+      const newQuality = countQualityStocks(data.stocks);
+      if (newQuality < existingQuality * 0.8 && existingQuality > 50) {
+        return;
+      }
+    }
     const entry: CachedRankings = {
       stocks: data.stocks,
       total: data.total,
@@ -41,7 +53,6 @@ export function saveRankingsCache(data: {
     };
     localStorage.setItem(CACHE_KEY, JSON.stringify(entry));
   } catch {
-    // localStorage full or unavailable — silently ignore
   }
 }
 

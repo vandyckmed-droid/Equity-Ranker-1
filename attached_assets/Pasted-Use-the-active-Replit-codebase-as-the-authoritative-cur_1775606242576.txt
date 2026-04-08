@@ -1,0 +1,159 @@
+Use the active Replit codebase as the authoritative current implementation for diagnosis and fixes. You may inspect other copies only for comparison or recovery, but base all recommendations and changes on the active Replit code unless I explicitly direct otherwise.
+
+I want a reliability-and-performance stabilization pass focused on rankings data, especially fundamentals / quality coverage.
+
+PRIMARY OBJECTIVE
+
+Optimize the app for:
+1. a stable pre-filter universe in roughly the 1,500–2,000 range
+2. consistently strong fundamentals / quality coverage across that universe
+3. fast startup
+4. smooth scrolling and interaction
+5. stable all-day behavior without random degradation, disappearing data, or reload churn
+
+This is a production-hardening task, not a feature sprint.
+
+PRIORITY ORDER
+
+Prioritize in this order:
+1. consistency
+2. reliability
+3. speed
+4. UI smoothness
+5. data freshness
+
+I do NOT need intraday freshness.
+It is acceptable, and preferred, to serve data that is about 12–24 hours old if that materially improves consistency and performance.
+A manual refresh path is sufficient for fetching newer data on demand.
+
+CORE PROBLEMS TO INVESTIGATE AND FIX
+
+The app appears to have inconsistent data hydration and/or unstable refresh behavior, especially around quality/fundamental fields.
+
+Symptoms to trace and eliminate:
+- universe size changes unpredictably across startups or reloads
+- fundamentals / quality coverage changes too much across sessions
+- quality data partially disappears even when it was previously available
+- startup or background reloads appear to replace better data with worse or incomplete data
+- partial fetches may be overwriting stronger cached data
+- UI smoothness degrades during reloads, recomputes, or data replacement
+- there may be unnecessary live-fetch behavior that harms consistency without adding useful freshness
+
+TARGET STATE
+
+I want the system to behave like this:
+- large stable pre-filter universe
+- strong and consistent quality-data coverage
+- startup from durable cached/snapshotted data
+- no random loss of quality fields during normal use
+- manual refresh available when needed
+- smooth app behavior throughout the day
+- minimal errors, minimal shutdowns, minimal visible churn
+
+DEFAULT DESIGN DIRECTION
+
+Move the system toward a snapshot-first architecture:
+- prefer durable cached rankings + fundamentals snapshots for normal app load
+- treat live refresh as a controlled background or manual action
+- do not let partial or degraded refreshes replace a stronger prior dataset
+- prioritize continuity and data completeness over freshness
+
+WHAT TO AUDIT
+
+Inspect the active code and identify:
+1. where universe membership is built
+2. where market/fundamental/quality data is fetched
+3. where data is merged
+4. where cache or local persistence is used
+5. where startup hydration occurs
+6. where auto-refresh, background refresh, or refetch-on-focus behavior may exist
+7. where partial fetch failure can degrade the active in-memory dataset
+8. where UI lag is caused by expensive recomputation or unnecessary rerenders
+
+IMPLEMENTATION GOALS
+
+1) SNAPSHOT-FIRST DATA LOADING
+Make normal startup load from the best available stable snapshot/cache first.
+The app should become usable quickly from cached data without waiting on a full live rebuild.
+
+2) PROTECT AGAINST DATA DEGRADATION
+Do not allow weaker partial refreshes to overwrite a stronger existing dataset.
+If a refresh returns fewer valid fundamentals / quality fields than the currently stored dataset, preserve the stronger prior values unless there is a clear reason to replace them.
+
+3) STABILIZE QUALITY COVERAGE
+Improve the merge logic so quality/fundamental fields are not lost unnecessarily.
+If some fields are missing on a refresh, preserve prior known-good fields where appropriate instead of blanking them out.
+
+4) MANUAL REFRESH OVER CONSTANT CHURN
+If the current app is refetching too aggressively:
+- reduce or eliminate unnecessary automatic refresh triggers
+- prefer manual refresh or scheduled controlled refresh
+- keep the app stable during ordinary viewing
+
+5) FAST AND SMOOTH UI
+Reduce expensive recomputation and rerendering caused by data churn.
+Preserve smooth scrolling and interaction on mobile.
+Do not repeatedly rebuild large derived datasets if the underlying snapshot has not meaningfully changed.
+
+6) ERROR-HARDENING
+Add guards so bad fetches, partial data, or endpoint hiccups do not crash the app or wipe good state.
+Fail gracefully and preserve the last known good dataset.
+
+PREFERRED ARCHITECTURE
+
+Aim for something like:
+- last known good snapshot
+- startup hydration from snapshot
+- optional background refresh
+- refresh only promoted to active dataset if it passes integrity checks
+- manual refresh button for the user
+- visible “as of” timestamp if helpful
+- no unnecessary constant refetching during the day
+
+INTEGRITY CHECKS TO ADD
+
+Before promoting refreshed data to the active dataset, validate things like:
+- total universe size
+- number / percentage of names with usable quality inputs
+- number / percentage of names with required core fields
+- whether new coverage is materially worse than prior coverage
+- whether the refresh is partial or incomplete
+
+If refreshed data is materially worse, do not replace the current active dataset automatically.
+
+QUALITY COVERAGE GOAL
+
+Target consistently strong quality coverage across the eligible equity universe.
+Favor stable retention of previously known-good fundamental fields over unnecessary nulling.
+The goal is not perfection; the goal is reliable high coverage and stable alpha inputs.
+
+PERFORMANCE GOAL
+
+Make startup and normal use feel fast and steady.
+Do not chase maximum recency at the cost of UI smoothness or consistency.
+Old-but-stable data is preferred to fresh-but-erratic data.
+
+DO NOT CHANGE
+
+Do not change unless clearly necessary:
+- alpha methodology
+- ranking formulas
+- portfolio methodology
+- clustering methodology
+- overall user workflow
+- UI style beyond what is needed for smoothness or clarity
+
+DELIVERABLE
+
+Please:
+1. audit the active Replit code
+2. identify the most likely causes of data inconsistency
+3. implement the highest-value, lowest-risk fixes
+4. harden the fetch/cache/snapshot flow
+5. report back with:
+   - files changed
+   - root causes found
+   - what was changed
+   - how snapshot/caching now works
+   - how degraded refreshes are prevented from replacing better data
+   - any remaining limitations or follow-up recommendations

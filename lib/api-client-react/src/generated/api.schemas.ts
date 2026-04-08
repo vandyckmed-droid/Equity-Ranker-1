@@ -42,6 +42,7 @@ export interface DataStatus {
   cachedAt?: string | null;
   enrichment?: DataStatusEnrichment;
   qualityCoverage?: string;
+  qualityEpoch?: number;
   timings?: DataStatusTimings;
 }
 

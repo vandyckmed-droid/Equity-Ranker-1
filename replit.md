@@ -107,20 +107,33 @@ Excludes: ETFs/mutual funds, LPs/MLPs, SPACs, OTC/pink sheets, non-equity instru
 - `quality_data_v3` — quality fundamentals from SEC EDGAR XBRL (7-day TTL, persistent cache)
 - `sec_cik_map_v1` — SEC EDGAR ticker→CIK mapping (14d TTL)
 
-## Startup Cache Strategy
+## Startup Cache Strategy (Snapshot-First Architecture)
 
-### Warm start (has localStorage snapshot — common case)
+### Engine startup (backend)
+1. Universe, prices, metadata all restored from persistent disk cache (`.cache/`) — typically < 1s
+2. Quality enrichment: loads quality cache first, merges into meta immediately; only fetches missing tickers incrementally from SEC EDGAR
+3. Failed tickers marked with `_no_data` sentinel to avoid re-fetching known non-filers
+4. After enrichment: meta cache re-saved with quality fields for next restart
+5. `qualityEpoch` counter exposed via `/status` — frontend uses this to detect quality readiness
+
+### Frontend warm start (has localStorage snapshot — common case)
 1. Page loads → `loadRankingsCache()` reads `qt:rankings-v3` from localStorage instantly
 2. Table renders immediately with cached rows; header shows "Cached · Xm ago" + spinning Refreshing indicator
 3. Status polling continues in background (engine typically responds "ready" within 1–2s from disk cache)
 4. When engine is ready, fresh rankings fetched; table atomically swapped; localStorage updated
-5. Header shows "Updated: [timestamp]", spinner gone
+5. Status polling continues until `enrichment === "complete"`; when `qualityEpoch` increments, rankings are re-fetched with quality data
+6. Header shows "Updated: [timestamp]" + quality coverage %
 
-### Cold start (no localStorage — first run or cache expired)
+### Frontend cold start (no localStorage — first run or cache expired)
 1. Page loads → `loadRankingsCache()` returns null
 2. Table shows "Loading quant engine…" spinner inside empty table body
 3. Status polling finds engine "ready" (disk cache) in ~1–2s or "loading" during full download
 4. When engine ready, rankings fetched and displayed; saved to localStorage for next warm start
+
+### Cache degradation protection
+- localStorage save checks quality coverage: if new data has < 80% of existing quality count, save is blocked (preserves richer prior snapshot)
+- Quality cache is additive only: incremental fetches merge into existing cache, never shrink it
+- `_no_data` markers prevent 2-minute re-fetch of ~360 known non-filers on every restart
 
 ### Cache details
 - Cache key: `qt:rankings-v3` (version bump auto-invalidates old entries on schema changes)

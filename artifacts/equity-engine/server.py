@@ -42,6 +42,7 @@ def get_status():
         "cached_at": status.get("cached_at"),
         "enrichment": status.get("enrichment", "pending"),
         "qualityCoverage": status.get("quality_coverage", ""),
+        "qualityEpoch": engine._quality_epoch,
         "timings": status.get("timings", {}),
     }
 

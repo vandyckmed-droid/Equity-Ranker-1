@@ -123,14 +123,27 @@ export default function MainPage() {
   // Read once at mount; never mutated — fresh API data replaces it atomically.
   const [localCache] = useState<CachedRankings | null>(() => loadRankingsCache());
 
-  // Polling data status — stops when ready
   const { data: statusData } = useGetDataStatus({
     query: {
-      refetchInterval: (query) => (query.state.data?.status === "ready" ? false : 5000),
+      refetchInterval: (query) => {
+        const d = query.state.data;
+        if (!d || d.status !== "ready") return 5000;
+        if (d.enrichment !== "complete") return 8000;
+        return false;
+      },
     },
   });
 
   const isReady = statusData?.status === "ready";
+  const qualityEpoch = statusData?.qualityEpoch ?? 0;
+
+  const prevEpochRef = useRef(qualityEpoch);
+  useEffect(() => {
+    if (qualityEpoch > 0 && qualityEpoch !== prevEpochRef.current && prevEpochRef.current > 0) {
+      queryClient.invalidateQueries({ queryKey: ["/api/equity/rankings"] });
+    }
+    prevEpochRef.current = qualityEpoch;
+  }, [qualityEpoch, queryClient]);
 
   // Factor controls — split into server-bound (debounced) and local (instant) params
   const [controlsOpen, setControlsOpen] = useState(false);

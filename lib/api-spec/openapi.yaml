@@ -204,6 +204,8 @@ components:
           enum: [pending, loading, complete]
         qualityCoverage:
           type: string
+        qualityEpoch:
+          type: integer
         timings:
           type: object
           additionalProperties:

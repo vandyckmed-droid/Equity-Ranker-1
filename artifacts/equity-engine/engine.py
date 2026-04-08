@@ -1291,12 +1291,35 @@ def _fetch_one_quality_edgar(ticker: str, cik: int, max_retries: int = 3) -> tup
         return ticker, {}, False
 
 
+_QUALITY_MERGE_FIELDS = ("roe", "roa", "gross_margin", "op_margin", "de_ratio")
+
+
+def _merge_quality_into_meta(quality_dict: dict, tickers: list):
+    """Merge quality fields into _meta_data for tickers present in both."""
+    merged = 0
+    for t in tickers:
+        if t in quality_dict and t in _meta_data:
+            vals = quality_dict[t]
+            if vals.get("_no_data"):
+                continue
+            for k in _QUALITY_MERGE_FIELDS:
+                v = vals.get(k)
+                if v is not None:
+                    _meta_data[t][k] = v
+            merged += 1
+    return merged
+
+
 def _background_quality_enrichment(tickers: list):
     """
-    Stage 2: Load quality fundamental data in background.
-    This runs AFTER the engine is already marked 'ready' with S+T rankings.
-    When complete, it invalidates the factor cache so next ranking request
-    includes quality data in the Q sleeve.
+    Stage 2: Snapshot-first quality enrichment.
+
+    Strategy:
+      1. ALWAYS merge whatever is in the quality cache (no coverage threshold)
+      2. Identify tickers still missing quality data
+      3. Incrementally fetch ONLY the missing tickers from SEC EDGAR
+      4. Merge new results into the existing cache (never shrink)
+      5. Re-save META_CACHE_KEY with enriched _meta_data
     """
     global _meta_data, _quality_epoch, _factor_cache, _factor_key, _factor_audit, _audit_printed
 
@@ -1306,32 +1329,57 @@ def _background_quality_enrichment(tickers: list):
         _status["enrichment"] = "loading"
         _status["quality_coverage"] = f"0/{len(tickers)}"
 
+    quality_store = {}
     quality_cached = cache.get(QUALITY_CACHE_KEY)
     if quality_cached and isinstance(quality_cached, dict):
-        cached_count = sum(1 for t in tickers if t in quality_cached)
-        coverage = cached_count / len(tickers) if tickers else 0
-        if coverage >= 0.7:
-            logger.info(f"Quality data from cache: {cached_count}/{len(tickers)} ({coverage:.0%})")
-            for t in tickers:
-                if t in quality_cached and t in _meta_data:
-                    for k, v in quality_cached[t].items():
-                        if v is not None and _meta_data[t].get(k) is None:
-                            _meta_data[t][k] = v
-            with _cache_lock:
-                _quality_epoch += 1
-                _factor_cache = None
-                _factor_key = None
-                _factor_audit = None
-                _audit_printed = False
-            with _status_lock:
-                _status["enrichment"] = "complete"
-                _status["quality_coverage"] = f"{cached_count}/{len(tickers)}"
-            _timings["quality_enrichment"] = round(time.time() - t0, 3)
-            return
+        quality_store = dict(quality_cached)
+
+    def _real_quality_count():
+        return sum(
+            1 for t in tickers
+            if t in quality_store and not quality_store[t].get("_no_data")
+            and any(quality_store[t].get(f) is not None for f in _QUALITY_MERGE_FIELDS)
+        )
+
+    cached_real = _real_quality_count()
+
+    if cached_real > 0:
+        logger.info(f"Quality cache restored: {cached_real}/{len(tickers)} tickers with data")
+        _merge_quality_into_meta(quality_store, tickers)
+        with _cache_lock:
+            _quality_epoch += 1
+            _factor_cache = None
+            _factor_key = None
+            _factor_audit = None
+            _audit_printed = False
+        with _status_lock:
+            _status["quality_coverage"] = f"{cached_real}/{len(tickers)}"
+
+    tickers_needing_fetch = []
+    for t in tickers:
+        if t in quality_store:
+            vals = quality_store[t]
+            if vals.get("_no_data") or any(vals.get(f) is not None for f in _QUALITY_MERGE_FIELDS):
+                continue
+        tickers_needing_fetch.append(t)
+
+    if not tickers_needing_fetch:
+        logger.info(f"Quality enrichment: all {cached_real}/{len(tickers)} from cache, no fetch needed")
+        try:
+            cache.set(META_CACHE_KEY, _meta_data, expire=META_CACHE_TTL)
+        except Exception as e:
+            logger.warning(f"Meta cache write failed: {e}")
+        with _status_lock:
+            _status["enrichment"] = "complete"
+            _status["quality_coverage"] = f"{cached_real}/{len(tickers)}"
+        _timings["quality_enrichment"] = round(time.time() - t0, 3)
+        return
+
+    logger.info(f"Quality enrichment: {cached_real} from cache, {len(tickers_needing_fetch)} need fetch")
 
     cik_map = _get_sec_cik_map()
-    tickers_with_cik = [(t, cik_map[t]) for t in tickers if t in cik_map]
-    logger.info(f"Quality enrichment: {len(tickers_with_cik)}/{len(tickers)} tickers have CIK mapping")
+    tickers_with_cik = [(t, cik_map[t]) for t in tickers_needing_fetch if t in cik_map]
+    logger.info(f"Quality fetch: {len(tickers_with_cik)}/{len(tickers_needing_fetch)} have CIK mapping")
 
     import requests as _req
     for wait_attempt in range(6):
@@ -1347,9 +1395,9 @@ def _background_quality_enrichment(tickers: list):
         logger.info(f"SEC EDGAR rate-limited, waiting {pause}s before enrichment (attempt {wait_attempt+1}/6)")
         time.sleep(pause)
 
-    quality_store = {}
     done = 0
     failed = 0
+    fresh_count = 0
 
     batch_size = 5
     for bi in range(0, len(tickers_with_cik), batch_size):
@@ -1361,23 +1409,33 @@ def _background_quality_enrichment(tickers: list):
                 done += 1
                 if ok and any(v is not None for v in result.values()):
                     quality_store[ticker] = result
+                    fresh_count += 1
                     if ticker in _meta_data:
                         for k, v in result.items():
                             if v is not None:
                                 _meta_data[ticker][k] = v
                 else:
                     failed += 1
+                    quality_store[ticker] = {"_no_data": True}
 
         if done % 100 < batch_size:
+            real_count = _real_quality_count()
             with _status_lock:
-                _status["quality_coverage"] = f"{len(quality_store)}/{len(tickers)}"
-            logger.info(f"Quality enrichment: {done}/{len(tickers_with_cik)} done, {len(quality_store)} with data")
+                _status["quality_coverage"] = f"{real_count}/{len(tickers)}"
+            logger.info(f"Quality enrichment: {done}/{len(tickers_with_cik)} done, {real_count} with real data")
         time.sleep(1.2)
+
+    real_count = _real_quality_count()
 
     try:
         cache.set(QUALITY_CACHE_KEY, quality_store, expire=QUALITY_CACHE_TTL)
     except Exception as e:
         logger.warning(f"Quality cache write failed: {e}")
+
+    try:
+        cache.set(META_CACHE_KEY, _meta_data, expire=META_CACHE_TTL)
+    except Exception as e:
+        logger.warning(f"Meta cache write failed after quality enrichment: {e}")
 
     with _cache_lock:
         _quality_epoch += 1
@@ -1391,11 +1449,11 @@ def _background_quality_enrichment(tickers: list):
 
     with _status_lock:
         _status["enrichment"] = "complete"
-        _status["quality_coverage"] = f"{len(quality_store)}/{len(tickers)}"
+        _status["quality_coverage"] = f"{real_count}/{len(tickers)}"
 
     logger.info(
-        f"Quality enrichment complete: {len(quality_store)}/{len(tickers)} enriched, "
-        f"{failed} failed, {elapsed:.1f}s"
+        f"Quality enrichment complete: {real_count}/{len(tickers)} with data "
+        f"({cached_real} cached + {fresh_count} fresh, {failed} no-data), {elapsed:.1f}s"
     )
 
 
