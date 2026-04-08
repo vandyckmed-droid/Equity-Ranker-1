@@ -75,15 +75,15 @@ export default function PortfolioPage() {
     return Object.fromEntries(riskData.holdings.map((h) => [h.ticker, h.baseWeight]));
   }, [riskData]);
 
-  // Sector breakdown — join against allStocks on ticker, aggregate baseWeight
+  // Sector breakdown — filter out unmapped tickers; only trust if >50% weight is resolved
   const sectorStats = useMemo(() => {
-    if (!riskData || riskData.holdings.length === 0) {
-      return { numSectors: 0, breakdown: [] as { sector: string; weight: number; count: number }[], topSector: "", topWeight: 0 };
-    }
-    const sectorMap = Object.fromEntries(allStocks.map((s) => [s.ticker, s.sector ?? "Unknown"]));
+    const empty = { valid: false, numSectors: 0, breakdown: [] as { sector: string; weight: number; count: number }[], topSector: "", topWeight: 0 };
+    if (!riskData || riskData.holdings.length === 0) return empty;
+    const sectorMap = Object.fromEntries(allStocks.map((s) => [s.ticker, s.sector ?? ""]));
     const agg: Record<string, { weight: number; count: number }> = {};
     for (const h of riskData.holdings) {
-      const sector = sectorMap[h.ticker] ?? "Unknown";
+      const sector = sectorMap[h.ticker];
+      if (!sector) continue;
       if (!agg[sector]) agg[sector] = { weight: 0, count: 0 };
       agg[sector].weight += h.baseWeight;
       agg[sector].count += 1;
@@ -91,13 +91,15 @@ export default function PortfolioPage() {
     const breakdown = Object.entries(agg)
       .map(([sector, v]) => ({ sector, ...v }))
       .sort((a, b) => b.weight - a.weight);
-    return { numSectors: breakdown.length, breakdown, topSector: breakdown[0]?.sector ?? "", topWeight: breakdown[0]?.weight ?? 0 };
+    const mappedWeight = breakdown.reduce((s, r) => s + r.weight, 0);
+    const valid = mappedWeight > 0.5;
+    return { valid, numSectors: breakdown.length, breakdown, topSector: breakdown[0]?.sector ?? "", topWeight: breakdown[0]?.weight ?? 0 };
   }, [riskData, allStocks]);
 
-  // Cluster breakdown — computed from baseWeight for consistency with constituent table
-  const clusterStats = useMemo(() => {
+  // Group (cluster) breakdown
+  const groupStats = useMemo(() => {
     if (!riskData || riskData.holdings.length === 0) {
-      return { numClusters: 0, breakdown: [] as { cluster: number; weight: number; count: number }[], topCluster: null as number | null, topWeight: 0 };
+      return { numGroups: 0, breakdown: [] as { cluster: number; weight: number; count: number }[], topGroup: null as number | null, topWeight: 0 };
     }
     const agg: Record<number, { weight: number; count: number }> = {};
     for (const h of riskData.holdings) {
@@ -109,10 +111,9 @@ export default function PortfolioPage() {
     const breakdown = Object.entries(agg)
       .map(([c, v]) => ({ cluster: Number(c), ...v }))
       .sort((a, b) => b.weight - a.weight);
-    return { numClusters: breakdown.length, breakdown, topCluster: breakdown[0]?.cluster ?? null, topWeight: breakdown[0]?.weight ?? 0 };
+    return { numGroups: breakdown.length, breakdown, topGroup: breakdown[0]?.cluster ?? null, topWeight: breakdown[0]?.weight ?? 0 };
   }, [riskData]);
 
-  // Max position from base weights
   const maxPosition = useMemo(() => {
     if (!riskData || riskData.holdings.length === 0) return 0;
     return Math.max(...riskData.holdings.map((h) => h.baseWeight));
@@ -163,7 +164,6 @@ export default function PortfolioPage() {
   }
 
   return (
-    // On mobile: natural document scroll. On lg+: fixed-height two-column flex.
     <div className="p-3 md:p-4 max-w-7xl mx-auto flex gap-4 md:gap-6 flex-col lg:flex-row lg:h-full lg:overflow-hidden">
 
       {/* LEFT PANEL: Basket & Method */}
@@ -272,7 +272,7 @@ export default function PortfolioPage() {
         </Card>
       </div>
 
-      {/* RIGHT PANEL: Risk Metrics — scrolls independently on lg; flows naturally on mobile */}
+      {/* RIGHT PANEL: Risk Metrics */}
       <div className="flex-1 flex flex-col gap-3 lg:overflow-hidden lg:h-full">
         <h2 className="text-base font-semibold text-muted-foreground hidden lg:block">Risk Analysis</h2>
 
@@ -292,34 +292,61 @@ export default function PortfolioPage() {
             )}
           </div>
         ) : (
-          /* Scrollable on lg; natural flow on mobile with safe-area bottom padding */
-          <div className="lg:flex-1 lg:overflow-auto space-y-4 lg:pr-2 pb-[max(env(safe-area-inset-bottom,0px),1.5rem)]">
+          <div className="lg:flex-1 lg:overflow-auto space-y-3 lg:pr-2 pb-[max(env(safe-area-inset-bottom,0px),1.5rem)]">
 
-            {/* KPI Row 1: Volatility & overlay stats */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <KpiCard label="Portfolio Vol" value={formatPercent(riskData.portfolioVol, 1)} sub="15% target" />
-              <KpiCard label="Equity Sleeve" value={formatPercent(riskData.riskySleeve, 1)}
-                sub={`×${formatNumber(riskData.volTargetMultiplier, 2)} scale`} />
-              <KpiCard label="SGOV / Cash" value={formatPercent(riskData.sgovWeight, 1)}
-                sub={riskData.sgovWeight > 0.001 ? "residual in cash" : "fully invested"} />
-              <KpiCard label="Div. Ratio" value={formatNumber(riskData.diversificationRatio, 2)} sub="avg vol / port vol" />
-              <KpiCard label="Avg Corr" value={formatNumber(riskData.avgCorrelation, 2)} />
-              <KpiCard label="Eff. N" value={formatNumber(riskData.effectiveN, 1)} sub={`of ${riskData.numHoldings} names`} />
+            {/* ── A. Construction strip ─────────────────────────────────── */}
+            <div className="bg-card border border-border rounded-lg px-4 py-3">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Construction</p>
+              <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[12px]">
+                <Stat label="Method" value={METHOD_LABELS[riskData.method] ?? riskData.method} />
+                <Stat label="Lookback" value={riskData.covModel ?? `${lookback}d`} />
+                <Stat label="Port Vol" value={formatPercent(riskData.portfolioVol, 1)} highlight />
+                <Stat label="Target" value={formatPercent(VOL_TARGET, 0)} />
+                <Stat label="Scale" value={`×${formatNumber(riskData.volTargetMultiplier, 2)}`} />
+                <Stat label="Max pos" value={formatPercent(maxPosition, 1)} />
+                <Stat label="Names" value={String(riskData.numHoldings)} />
+              </div>
             </div>
 
-            {/* KPI Row 2: Concentration summary */}
+            {/* ── B. Health metrics grid ────────────────────────────────── */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <KpiCard label="Max Position" value={formatPercent(maxPosition, 1)} sub="largest base wt" />
-              <KpiCard label="Names at Cap" value={String((riskData.namesCapped ?? []).length)}
-                sub={(riskData.namesCapped ?? []).length > 0 ? "at 15% limit" : "none at cap"} />
-              <KpiCard label="Sectors" value={String(sectorStats.numSectors)}
-                sub={sectorStats.topSector ? `top: ${sectorStats.topSector.slice(0, 12)}` : "—"} />
-              <KpiCard label="Clusters" value={String(clusterStats.numClusters)}
-                sub={clusterStats.topCluster != null ? `top: C${clusterStats.topCluster} ${formatPercent(clusterStats.topWeight, 0)}` : "—"} />
+              <KpiCard label="Avg Corr" value={formatNumber(riskData.avgCorrelation, 2)} />
+              <KpiCard
+                label="Names at Cap"
+                value={String((riskData.namesCapped ?? []).length)}
+                sub={(riskData.namesCapped ?? []).length > 0 ? "at 15% limit" : "none at cap"}
+              />
+              <KpiCard
+                label="Groups"
+                value={String(groupStats.numGroups)}
+                sub={groupStats.topGroup != null ? `top: G${groupStats.topGroup} ${formatPercent(groupStats.topWeight, 0)}` : undefined}
+              />
+              {sectorStats.valid ? (
+                <KpiCard
+                  label="Sectors"
+                  value={String(sectorStats.numSectors)}
+                  sub={sectorStats.topSector ? `top: ${sectorStats.topSector.slice(0, 14)}` : undefined}
+                />
+              ) : (
+                <KpiCard label="Sectors" value="—" sub="data pending" muted />
+              )}
             </div>
 
-            {/* Sector Breakdown */}
-            {sectorStats.breakdown.length > 0 && (
+            {/* ── C. Group exposure ─────────────────────────────────────── */}
+            {groupStats.breakdown.length > 0 && (
+              <BreakdownCard
+                title="Group Exposure"
+                description="Base weight by momentum / quality group · top 3 shown"
+                rows={groupStats.breakdown.slice(0, 3)}
+                otherWeight={groupStats.breakdown.slice(3).reduce((s, r) => s + r.weight, 0)}
+                otherCount={groupStats.breakdown.slice(3).reduce((s, r) => s + r.count, 0)}
+                labelFn={(r) => `G${(r as { cluster: number }).cluster}`}
+                maxWeight={groupStats.breakdown[0]?.weight ?? 1}
+              />
+            )}
+
+            {/* ── D. Sector concentration (only if mapped) ──────────────── */}
+            {sectorStats.valid && sectorStats.breakdown.length > 0 && (
               <BreakdownCard
                 title="Sector Concentration"
                 description="Base weight allocated per sector · top 3 shown"
@@ -331,26 +358,12 @@ export default function PortfolioPage() {
               />
             )}
 
-            {/* Cluster Breakdown */}
-            {clusterStats.breakdown.length > 0 && (
-              <BreakdownCard
-                title="Factor Cluster Exposure"
-                description="Base weight by momentum/quality cluster · top 3 shown"
-                rows={clusterStats.breakdown.slice(0, 3)}
-                otherWeight={clusterStats.breakdown.slice(3).reduce((s, r) => s + r.weight, 0)}
-                otherCount={clusterStats.breakdown.slice(3).reduce((s, r) => s + r.count, 0)}
-                labelFn={(r) => `C${(r as { cluster: number }).cluster}`}
-                maxWeight={clusterStats.breakdown[0]?.weight ?? 1}
-              />
-            )}
-
-            {/* Constituent Table */}
+            {/* ── E. Constituent table ──────────────────────────────────── */}
             <Card className="bg-card border-border">
               <CardHeader className="p-4">
                 <CardTitle className="text-sm">Constituent Weights &amp; Risk</CardTitle>
                 <CardDescription>
-                  Base wt sums to 100% · scaled by ×{formatNumber(riskData.volTargetMultiplier, 2)} to target{" "}
-                  {formatPercent(VOL_TARGET, 0)} vol ·{" "}
+                  Base wt sums to 100% · scaled ×{formatNumber(riskData.volTargetMultiplier, 2)} to {formatPercent(VOL_TARGET, 0)} vol target ·{" "}
                   {riskData.sgovWeight > 0.001
                     ? `${formatPercent(riskData.sgovWeight, 1)} in SGOV / cash`
                     : "fully invested in equity"}{" "}
@@ -365,7 +378,7 @@ export default function PortfolioPage() {
                       <TableHead className="text-right">Base Wt%</TableHead>
                       <TableHead className="text-right">Risk%</TableHead>
                       <TableHead className="text-right">Ann. Vol</TableHead>
-                      <TableHead className="text-center">Cls</TableHead>
+                      <TableHead className="text-center">Grp</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -382,7 +395,7 @@ export default function PortfolioPage() {
                           {formatPercent(h.vol, 1)}
                         </TableCell>
                         <TableCell className="text-center text-muted-foreground">
-                          {h.cluster != null ? `C${h.cluster}` : "—"}
+                          {h.cluster != null ? `G${h.cluster}` : "—"}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -398,7 +411,31 @@ export default function PortfolioPage() {
   );
 }
 
-// Reusable compact breakdown card (sectors or clusters)
+// ── Sub-components ─────────────────────────────────────────────────────────
+
+function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <span>
+      <span className="text-muted-foreground">{label} </span>
+      <span className={cn("font-medium", highlight ? "text-primary" : "text-foreground")}>{value}</span>
+    </span>
+  );
+}
+
+function KpiCard({ label, value, sub, muted }: { label: string; value: string; sub?: string; muted?: boolean }) {
+  return (
+    <Card className="bg-card">
+      <CardHeader className="pb-1 p-3">
+        <CardTitle className="text-[10px] text-muted-foreground uppercase tracking-wider font-normal">{label}</CardTitle>
+      </CardHeader>
+      <CardContent className="p-3 pt-0">
+        <div className={cn("text-xl font-bold font-mono", muted ? "text-muted-foreground/40" : "text-foreground")}>{value}</div>
+        {sub && <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div>}
+      </CardContent>
+    </Card>
+  );
+}
+
 function BreakdownCard<T extends { weight: number; count: number }>({
   title,
   description,
@@ -455,20 +492,6 @@ function BreakdownCard<T extends { weight: number; count: number }>({
   );
 }
 
-function KpiCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <Card className="bg-card">
-      <CardHeader className="pb-1 p-3">
-        <CardTitle className="text-[10px] text-muted-foreground uppercase tracking-wider font-normal">{label}</CardTitle>
-      </CardHeader>
-      <CardContent className="p-3 pt-0">
-        <div className="text-xl font-bold text-foreground font-mono">{value}</div>
-        {sub && <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div>}
-      </CardContent>
-    </Card>
-  );
-}
-
 function AuditLine({
   riskData,
   isComputing,
@@ -518,17 +541,13 @@ function AuditLine({
         {covModel && <> · <span className="text-foreground/60">{covModel}</span></>}
         {" · "}base vol <span className="text-foreground/80">{formatPercent(riskData.basePortVol, 1)}</span>
         {" · "}×<span className="text-foreground/80">{formatNumber(riskData.volTargetMultiplier, 2)}</span>
-        {" · "}equity <span className="text-foreground/80">{formatPercent(riskData.riskySleeve, 0)}</span>
-        {riskData.sgovWeight > 0.001 && (
-          <> · SGOV <span className="text-blue-400/80">{formatPercent(riskData.sgovWeight, 0)}</span></>
-        )}
-        {" · "}cov {riskData.covLookback}d
+        {" → "}<span className="text-foreground/80">{formatPercent(riskData.portfolioVol, 1)}</span>
+        {" target "}<span className="text-foreground/80">{formatPercent(VOL_TARGET, 0)}</span>
       </div>
-      {riskData.fallback && (
-        <div className="flex items-center gap-1 text-[10px] text-amber-400/90">
-          <AlertTriangle className="w-3 h-3 flex-shrink-0" />
-          <span>{riskData.fallback}</span>
-        </div>
+      {riskData.method !== requestedMethod && (
+        <p className="text-[10px] text-amber-400/80">
+          ⚠ Returned method ({riskData.method}) differs from requested ({requestedMethod})
+        </p>
       )}
     </div>
   );

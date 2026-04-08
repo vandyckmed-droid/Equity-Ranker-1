@@ -1,0 +1,176 @@
+PATCH REQUEST — CLEAN UP PORTFOLIO SUMMARY SCREEN
+
+Objective:
+Clean up the portfolio summary screen so it feels intentional, high-signal, and decision-useful. Remove dead weight, remove misleading placeholders, tighten hierarchy, and keep only information that helps evaluate portfolio construction, concentration, and risk.
+
+Current problems:
+- Too many summary cards
+- Several cards show `—` and add no value
+- The screen gives equal visual weight to useful and useless information
+- Sector data appears broken or unmapped (`Unknown`, `100%`, top: Unknown)
+- `Clusters` should be renamed to a better term
+- The summary area is fragmented instead of organized around how the user actually thinks about the portfolio
+
+Product direction:
+This screen should answer three questions quickly:
+1. How was the portfolio built?
+2. How risky / concentrated is it?
+3. What is actually useful to review next?
+
+Do not preserve cards or sections just to fill space.
+
+Guiding principles:
+- performance first
+- smooth and responsive
+- reliable and stable
+- robust over fragile
+- simple where possible, but not at the expense of function
+- clear hierarchy
+- remove dead controls and dead metrics
+- no placeholder cards
+- no misleading “unknown” outputs presented as real analytics
+- optimize for real decision use on mobile
+
+REQUIRED CHANGES
+
+1. Remove useless or empty summary cards
+Remove any summary card that:
+- shows `—`
+- is not populated
+- is redundant
+- does not materially affect decisions
+- depends on broken or missing data
+
+Remove these immediately unless they can reliably show real values now:
+- Equity Sleeve
+- SGOV / Cash
+- Div. Ratio
+- Eff. N
+
+Do not leave empty space where removed cards used to be.
+
+2. Keep only high-value summary metrics
+Retain only summary items that are populated and useful, such as:
+- Portfolio Vol
+- Avg Corr
+- Max Position
+- Names at Cap
+- Sectors
+- Groups
+
+If any retained metric is broken or not trustworthy, hide it rather than showing a bad value.
+
+3. Rename “Clusters”
+Replace “Cluster” / “Clusters” / `Cls` terminology with:
+- Group
+- Groups
+- Grp (only if abbreviation is necessary in very tight spaces)
+
+Preferred replacements:
+- `Clusters` → `Groups`
+- `Factor Cluster Exposure` → `Group Exposure`
+- row label `Cls` → `Group` or compact `G`
+
+Examples:
+- `Groups`
+- `Top group: G2 28%`
+- `Group Exposure`
+
+4. Fix broken sector display
+Do not show:
+- `Unknown 100%`
+- `top: Unknown`
+- sector concentration cards based on bad mapping
+
+If sector mapping is missing or broken:
+- hide the sector summary card and sector concentration section entirely
+OR
+- show one explicit fallback state such as `Sector mapping unavailable`
+
+Do not present broken sector outputs as if they are valid analytics.
+
+5. Reorganize the summary into a cleaner structure
+Replace the current loose card grid with a tighter summary layout.
+
+Preferred structure:
+
+A. Construction summary (one compact top card or strip)
+Show:
+- Weighting method
+- Covariance lookback
+- Portfolio vol
+- Target vol
+- Scale factor
+- Max position
+- Number of names
+
+B. Portfolio health strip (small, compact)
+Show only populated metrics such as:
+- Avg Corr
+- Names at Cap
+- Groups
+- Sectors (only if valid)
+
+C. Exposure sections below
+Keep:
+- Group Exposure
+- Sector Concentration only if valid
+
+Do not give every metric its own large tile if it does not need one.
+
+6. Improve wording and clarity
+Use clearer labels:
+- `Portfolio Vol`
+- `Avg Corr`
+- `Max Position`
+- `Names at Cap`
+- `Groups`
+- `Group Exposure`
+
+If scale factor is shown, make it readable:
+- `Base vol 20.8% → scaled to 15.0% target`
+- `Scale factor 0.72`
+
+If portfolio vol is below target because the base portfolio is already below target, state that clearly instead of implying a missing sleeve or cash logic.
+
+7. Remove low-value visual symmetry
+Do not preserve a two-column card grid if it forces weak metrics to remain.
+It is acceptable for the new summary area to be asymmetrical if that produces a cleaner, more useful result.
+
+8. Keep mobile-first presentation
+The summary should:
+- feel compact
+- scan quickly
+- not waste vertical space
+- not bury useful analytics under placeholder cards
+
+PREFERRED END STATE
+
+Top of portfolio screen:
+1. One compact construction card/strip
+2. One compact health strip
+3. Group Exposure section
+4. Sector Concentration section only if valid
+5. Holdings / weights / risk section below
+
+EXPLICIT DO NOTS
+- Do not keep cards that show `—`
+- Do not keep broken sector analytics visible
+- Do not keep `Unknown` as a fake top sector
+- Do not keep “Clusters” terminology
+- Do not add more cards
+- Do not preserve current layout just because it already exists
+- Do not replace removed cards with filler text or decorative placeholders
+
+ACCEPTANCE CRITERIA
+1. No empty summary card remains.
+2. No card with `—` remains.
+3. `Clusters` terminology is replaced with `Groups`.
+4. Broken sector outputs are hidden or handled explicitly.
+5. The summary area is smaller, cleaner, and higher signal.
+6. Useful portfolio metrics are easier to scan than before.
+7. The screen feels more intentional and less like a draft dashboard.
+8. The final layout is clearly better for mobile use.
+
+Implementation preference:
+Choose the cleaner product decision, not the most conservative patch. Remove anything that is weak, broken, or nonessential.

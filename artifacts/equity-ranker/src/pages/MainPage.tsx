@@ -535,7 +535,7 @@ export default function MainPage() {
       case "cluster":
         return (
           <TableHead key={colId} className="text-center cursor-pointer hover:text-foreground" onClick={() => handleSort("cluster")}>
-            <div className="flex items-center justify-center text-xs">Cls {getSortIcon("cluster")}</div>
+            <div className="flex items-center justify-center text-xs">Grp {getSortIcon("cluster")}</div>
           </TableHead>
         );
     }
@@ -605,7 +605,7 @@ export default function MainPage() {
           <TableCell key={colId} className="text-center p-1">
             {stock.cluster !== null && stock.cluster !== undefined ? (
               <Badge variant="outline" className={cn("text-[9px] px-1 py-0 h-4 border-opacity-30 rounded-sm font-mono", badgeColor)}>
-                C{stock.cluster}
+                G{stock.cluster}
               </Badge>
             ) : "—"}
           </TableCell>
@@ -813,17 +813,17 @@ export default function MainPage() {
               )}
             </div>
 
-            {/* Clustering */}
+            {/* Groups */}
             <div className="space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Clustering</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Groups</h3>
               <div className="space-y-3">
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Clusters K ({serverParams.clusterK})</Label>
+                  <Label className="text-xs">Number of Groups K ({serverParams.clusterK})</Label>
                   <Slider value={[serverParams.clusterK || 10]} min={2} max={20} step={1}
                     onValueChange={(v) => handleServerParamChange("clusterK", v[0])} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Top N to Cluster ({serverParams.clusterN})</Label>
+                  <Label className="text-xs">Top N to Group ({serverParams.clusterN})</Label>
                   <Slider value={[serverParams.clusterN || 100]} min={20} max={500} step={10}
                     onValueChange={(v) => handleServerParamChange("clusterN", v[0])} />
                 </div>
@@ -1079,7 +1079,7 @@ export default function MainPage() {
                               <>
                                 <span className="opacity-40">·</span>
                                 <span className={cn("font-semibold font-mono", clusterText)}>
-                                  C{stock.cluster}
+                                  G{stock.cluster}
                                 </span>
                               </>
                             )}

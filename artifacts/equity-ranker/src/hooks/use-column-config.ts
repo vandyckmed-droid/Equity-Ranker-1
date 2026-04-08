@@ -19,7 +19,7 @@ export const COLUMN_LABELS: Record<ColumnId, string> = {
   quality: "Quality",
   vol12: "Vol (12m)",
   alpha: "Alpha",
-  cluster: "Cluster",
+  cluster: "Group",
 };
 
 export const DEFAULT_VISIBLE: ColumnId[] = [

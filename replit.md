@@ -60,10 +60,25 @@ A mobile-first equity ranking and risk application that pulls real market data f
   - `/portfolio` — Portfolio & Risk: holdings basket, weighting modes, risk metrics, cluster distribution
   - `/methodology` — Formula reference panel
 
+### Cluster / Group terminology
+- All user-facing labels use "Group" / "Grp" / "G0…G9" (not "Cluster" / "Cls" / "C0")
+- Internal code, API schema, Python engine, and cache keys retain "cluster" as the data field name
+- Mobile rows show `G{n}`, desktop badge shows `G{n}`, table header shows `Grp`, filter sheet says "Groups"
+- Portfolio page uses "Groups" / "Group Exposure" / `G{n}` identifiers throughout
+
+### Portfolio Summary screen
+- **Construction strip**: Method · Lookback · Port Vol · Target · Scale · Max pos · Names (compact inline, no big card)
+- **Health grid** (4 cards): Avg Corr · Names at Cap · Groups · Sectors (sector only shown if >50% weight mapped)
+- **Removed cards**: Equity Sleeve (often `—`), SGOV/Cash (`—`), Div. Ratio (`—`), Eff. N (`—`)
+- **Sector handling**: filters out unmapped tickers; hides sector section if <50% portfolio weight has known sector
+- **Group Exposure** section: bar chart showing G0–G9 breakdowns by base weight
+- **Sector Concentration** section: only rendered when `sectorStats.valid === true`
+- **Constituent table**: "Grp" column header, `G{n}` identifiers
+
 ### Mobile Row Layout (< lg breakpoint)
 Each stock row renders as a compact 2-line block. No horizontal scrolling.
 - **Line 1**: cluster dot · ticker (bold) · alpha (large, tabular-nums, green/red)
-- **Line 2**: #rank · Cn cluster (colored) · vol% · sector abbr (muted, 11px)
+- **Line 2**: #rank · Gn group (colored) · vol% · sector abbr (muted, 11px)
 - **Add/Remove**: h-14 w-12 button on far left (thumb-friendly tap target)
 - Table header hidden on mobile; `estimateSize` is `60px` (mobile) vs `32px` (desktop) via `window.innerWidth`
 - Desktop (lg+): unchanged full-column table with sticky headers and all column configs
