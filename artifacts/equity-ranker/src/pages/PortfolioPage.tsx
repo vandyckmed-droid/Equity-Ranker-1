@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import {
   useComputePortfolioRisk,
   useComputeCorrSeed,
+  useGetRankings,
   PortfolioRiskRequestWeightingMethod,
   type Stock,
 } from "@workspace/api-client-react";
@@ -13,9 +14,22 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Trash2, Calculator, Loader2, Info, AlertTriangle } from "lucide-react";
+import { Trash2, Calculator, Loader2, Info, AlertTriangle, Plus, Sparkles } from "lucide-react";
 
 type SeedMode = "alpha" | "group" | "corr";
+type SuggestMode = "group" | "sector" | "both";
+
+interface DiversifySuggestion {
+  ticker: string;
+  name: string;
+  alpha: number;
+  sector: string;
+  group: number;
+  groupShare: number;
+  sectorShare: number;
+  deficit: number;
+  via: "group" | "sector" | "both";
+}
 
 const PORTFOLIO_PREFS_KEY = "qt:portfolio-prefs-v1";
 const loadPortfolioPrefs = (): Record<string, unknown> | null => {
@@ -40,7 +54,18 @@ const METHOD_LABELS: Record<string, string> = Object.fromEntries(
 const VOL_TARGET = 0.15;
 
 export default function PortfolioPage() {
-  const { basket, removeFromBasket, clearBasket, seedBasket, allStocks, rankedStocks } = usePortfolio();
+  const { basket, addToBasket, removeFromBasket, clearBasket, seedBasket, allStocks, rankedStocks, setRankedStocks } = usePortfolio();
+
+  // Auto-fetch universe when navigating directly to /portfolio (rankedStocks empty until MainPage loads)
+  const { data: autoFetchData } = useGetRankings(undefined, {
+    query: { enabled: basket.length > 0 && rankedStocks.length === 0, staleTime: 5 * 60 * 1000 },
+  });
+  useEffect(() => {
+    if (autoFetchData?.stocks && rankedStocks.length === 0) {
+      const sorted = [...autoFetchData.stocks].sort((a, b) => (b.alpha ?? 0) - (a.alpha ?? 0));
+      setRankedStocks(sorted);
+    }
+  }, [autoFetchData, rankedStocks.length, setRankedStocks]);
 
   const [weightingMethod, setWeightingMethod] = useState<PortfolioRiskRequestWeightingMethod>(() => {
     const s = loadPortfolioPrefs();
@@ -65,12 +90,17 @@ export default function PortfolioPage() {
     const s = loadPortfolioPrefs();
     return typeof s?.maxCorr === "string" ? s.maxCorr as string : "0.70";
   });
+  const [suggestMode, setSuggestMode] = useState<SuggestMode>(() => {
+    const s = loadPortfolioPrefs();
+    const v = s?.suggestMode;
+    return (v === "group" || v === "sector" || v === "both") ? v : "both";
+  });
 
   useEffect(() => {
     try {
-      localStorage.setItem(PORTFOLIO_PREFS_KEY, JSON.stringify({ weightingMethod, lookback, seedCount, seedMode, maxCorr }));
+      localStorage.setItem(PORTFOLIO_PREFS_KEY, JSON.stringify({ weightingMethod, lookback, seedCount, seedMode, maxCorr, suggestMode }));
     } catch {}
-  }, [weightingMethod, lookback, seedCount, seedMode, maxCorr]);
+  }, [weightingMethod, lookback, seedCount, seedMode, maxCorr, suggestMode]);
 
   const computeRisk = useComputePortfolioRisk();
   const corrSeed = useComputeCorrSeed();
@@ -209,6 +239,75 @@ export default function PortfolioPage() {
     if (!riskData || riskData.holdings.length === 0) return 0;
     return Math.max(...riskData.holdings.map((h) => h.baseWeight));
   }, [riskData]);
+
+  // ── Diversify suggestions ────────────────────────────────────────────────
+  const diversifySuggestions = useMemo((): DiversifySuggestion[] => {
+    if (basket.length === 0 || rankedStocks.length === 0) return [];
+    const n = basket.length;
+    const bSet = new Set(basket);
+    const stockMap = new Map(rankedStocks.map((s) => [s.ticker, s]));
+
+    // Group (cluster) analysis
+    const uGroupCounts = new Map<number, number>();
+    for (const s of rankedStocks) {
+      const g = s.cluster ?? -1;
+      uGroupCounts.set(g, (uGroupCounts.get(g) ?? 0) + 1);
+    }
+    const groupTarget = 1 / uGroupCounts.size;
+    const bGroupCounts = new Map<number, number>();
+    for (const t of basket) {
+      const g = stockMap.get(t)?.cluster ?? -1;
+      bGroupCounts.set(g, (bGroupCounts.get(g) ?? 0) + 1);
+    }
+    const groupDeficits = new Map<number, number>();
+    for (const g of uGroupCounts.keys()) {
+      const d = groupTarget - (bGroupCounts.get(g) ?? 0) / n;
+      if (d > 0) groupDeficits.set(g, d);
+    }
+
+    // Sector analysis
+    const uSectorCounts = new Map<string, number>();
+    for (const s of rankedStocks) {
+      const sec = s.sector ?? "Unknown";
+      uSectorCounts.set(sec, (uSectorCounts.get(sec) ?? 0) + 1);
+    }
+    const sectorTarget = 1 / uSectorCounts.size;
+    const bSectorCounts = new Map<string, number>();
+    for (const t of basket) {
+      const sec = stockMap.get(t)?.sector ?? "Unknown";
+      bSectorCounts.set(sec, (bSectorCounts.get(sec) ?? 0) + 1);
+    }
+    const sectorDeficits = new Map<string, number>();
+    for (const sec of uSectorCounts.keys()) {
+      const d = sectorTarget - (bSectorCounts.get(sec) ?? 0) / n;
+      if (d > 0) sectorDeficits.set(sec, d);
+    }
+
+    // Score every candidate (rankedStocks is alpha-sorted)
+    const result: DiversifySuggestion[] = [];
+    for (const s of rankedStocks) {
+      if (bSet.has(s.ticker)) continue;
+      const g = s.cluster ?? -1;
+      const sec = s.sector ?? "Unknown";
+      const gd = suggestMode !== "sector" ? (groupDeficits.get(g) ?? 0) : 0;
+      const sd = suggestMode !== "group" ? (sectorDeficits.get(sec) ?? 0) : 0;
+      const deficit = Math.max(gd, sd);
+      if (deficit === 0) continue;
+      result.push({
+        ticker: s.ticker,
+        name: s.name ?? "",
+        alpha: s.alpha ?? 0,
+        sector: sec,
+        group: g,
+        groupShare: (bGroupCounts.get(g) ?? 0) / n,
+        sectorShare: (bSectorCounts.get(sec) ?? 0) / n,
+        deficit,
+        via: gd > 0 && sd > 0 ? "both" : gd > 0 ? "group" : "sector",
+      });
+    }
+    result.sort((a, b) => b.deficit - a.deficit || b.alpha - a.alpha);
+    return result.slice(0, 10);
+  }, [basket, rankedStocks, suggestMode]);
 
   if (basket.length === 0) {
     return (
@@ -575,6 +674,16 @@ export default function PortfolioPage() {
               </CardContent>
             </Card>
 
+            {/* ── F. Diversify Suggestions ──────────────────────────────── */}
+            {diversifySuggestions.length > 0 && (
+              <DiversifyCard
+                suggestions={diversifySuggestions}
+                suggestMode={suggestMode}
+                onModeChange={setSuggestMode}
+                onAdd={addToBasket}
+              />
+            )}
+
           </div>
         )}
       </div>
@@ -658,6 +767,106 @@ function BreakdownCard<T extends { weight: number; count: number }>({
             <div className="w-10 text-right text-[11px] text-muted-foreground">{otherCount}n</div>
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DiversifyCard({
+  suggestions,
+  suggestMode,
+  onModeChange,
+  onAdd,
+}: {
+  suggestions: DiversifySuggestion[];
+  suggestMode: SuggestMode;
+  onModeChange: (m: SuggestMode) => void;
+  onAdd: (ticker: string) => void;
+}) {
+  const modes: { value: SuggestMode; label: string }[] = [
+    { value: "group", label: "Group" },
+    { value: "sector", label: "Sector" },
+    { value: "both", label: "Both" },
+  ];
+
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader className="p-4 pb-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-3.5 h-3.5 text-primary/70 shrink-0" />
+            <CardTitle className="text-sm">Diversify Suggestions</CardTitle>
+          </div>
+          <div className="flex rounded-md border border-border overflow-hidden shrink-0">
+            {modes.map((m) => (
+              <button
+                key={m.value}
+                onClick={() => onModeChange(m.value)}
+                className={cn(
+                  "px-2.5 py-1 text-[11px] font-medium transition-colors",
+                  suggestMode === m.value
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-transparent text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <CardDescription className="text-[11px] mt-1">
+          Highest-alpha names from underrepresented{" "}
+          {suggestMode === "group" ? "groups" : suggestMode === "sector" ? "sectors" : "groups & sectors"}{" "}
+          · equal-weight target across {suggestMode === "group" ? "groups" : suggestMode === "sector" ? "sectors" : "both"}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="p-0">
+        <div className="divide-y divide-border/50">
+          {suggestions.map((s) => {
+            const alphaSign = s.alpha >= 0 ? "+" : "";
+            const alphaStr = `${alphaSign}${s.alpha.toFixed(2)}`;
+            const alphaColor = s.alpha >= 0 ? "text-emerald-400" : "text-rose-400";
+            const groupLabel = s.group === -1 ? "—" : `G${s.group}`;
+            const viaBadge =
+              s.via === "both"
+                ? "Grp+Sec"
+                : s.via === "group"
+                ? `Grp ${formatPercent(s.groupShare, 0)}`
+                : `Sec ${formatPercent(s.sectorShare, 0)}`;
+            const viaBadgeColor =
+              s.via === "both"
+                ? "text-amber-400/80"
+                : s.via === "group"
+                ? "text-sky-400/80"
+                : "text-violet-400/80";
+
+            return (
+              <div key={s.ticker} className="flex items-center gap-2.5 px-4 py-2.5 hover:bg-muted/30 transition-colors">
+                {/* Left: ticker + alpha */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-sm text-foreground tracking-tight">{s.ticker}</span>
+                    <span className={cn("font-mono text-xs font-semibold", alphaColor)}>{alphaStr}</span>
+                    <span className={cn("text-[10px] font-medium", viaBadgeColor)}>{viaBadge}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-[11px] text-muted-foreground truncate max-w-[120px]">{s.sector}</span>
+                    <span className="text-[10px] text-muted-foreground/50">·</span>
+                    <span className="text-[11px] text-muted-foreground/70 font-mono shrink-0">{groupLabel}</span>
+                  </div>
+                </div>
+                {/* Right: Add button */}
+                <button
+                  onClick={() => onAdd(s.ticker)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary/10 hover:bg-primary/20 text-primary text-[11px] font-semibold transition-colors shrink-0"
+                >
+                  <Plus className="w-3 h-3" />
+                  Add
+                </button>
+              </div>
+            );
+          })}
+        </div>
       </CardContent>
     </Card>
   );
