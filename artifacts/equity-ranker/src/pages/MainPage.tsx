@@ -692,6 +692,26 @@ export default function MainPage() {
                 <Columns3 className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Columns</span>
               </Button>
+              {/* Group sort toggle — mobile only */}
+              <Button
+                variant={sortField === "cluster" ? "secondary" : "ghost"}
+                size="sm"
+                className={cn(
+                  "lg:hidden h-7 px-2 gap-1 text-xs",
+                  sortField === "cluster" ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                )}
+                onClick={() => {
+                  if (sortField === "cluster") {
+                    setSortField("alpha");
+                    setSortDirection("desc");
+                  } else {
+                    setSortField("cluster");
+                    setSortDirection("asc");
+                  }
+                }}
+              >
+                <span>Group</span>
+              </Button>
               <Button
                 variant={controlsOpen ? "secondary" : "ghost"}
                 size="sm"
@@ -1066,8 +1086,28 @@ export default function MainPage() {
                         : "text-muted-foreground";
                     const sectorAbbr = stock.sector ? (SECTOR_ABBR[stock.sector] ?? stock.sector) : "—";
 
+                    const prevCluster = processedStocks[virtualRow.index - 1]?.cluster;
+                    const isNewGroup = sortField === "cluster" && stock.cluster !== prevCluster;
+
                     return (
                       <React.Fragment key={stock.ticker}>
+                      {/* Group section header — only when sorted by group */}
+                      {isNewGroup && stock.cluster != null && (
+                        <tr>
+                          <td colSpan={99} className="pt-3 pb-0.5 px-3">
+                            <div className="flex items-center gap-2">
+                              <span className={cn("text-[11px] font-bold font-mono tracking-wide", clusterText)}>
+                                Group {stock.cluster}
+                              </span>
+                              {clusterRankMap.get(stock.ticker) && (
+                                <span className="text-[10px] text-muted-foreground/50 font-mono">
+                                  {clusterRankMap.get(stock.ticker)!.groupSize} names
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
                       <TableRow className="group transition-colors border-b border-border/30 hover:bg-muted/30">
 
                         {/* ── +/- button — always visible, bigger on mobile ── */}
@@ -1125,9 +1165,12 @@ export default function MainPage() {
                                       G{stock.cluster}
                                     </span>
                                     {grp && (
-                                      <span className="font-mono opacity-70">
-                                        {grp.rankInGroup}/{grp.groupSize}
-                                      </span>
+                                      <>
+                                        <span className="opacity-40">·</span>
+                                        <span className="font-mono opacity-60 text-[10px]">
+                                          #{grp.rankInGroup}/{grp.groupSize}
+                                        </span>
+                                      </>
                                     )}
                                   </>
                                 )}
