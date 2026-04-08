@@ -151,7 +151,7 @@ function getAlphaColor(p: number): string {
 }
 
 export default function MainPage() {
-  const { basket, basketSet, addToBasket, removeFromBasket, setAllStocks } = usePortfolio();
+  const { basket, basketSet, addToBasket, removeFromBasket, setAllStocks, setRankedStocks } = usePortfolio();
   const { config, orderedVisible, toggleColumn, moveColumn, resetColumns } = useColumnConfig();
   const hiddenColumns = ALL_COLUMN_IDS.filter(id => !config.visible.includes(id));
 
@@ -349,7 +349,30 @@ export default function MainPage() {
 
   useEffect(() => {
     if (stocks.length > 0) setAllStocks(stocks);
-  }, [stocks, setAllStocks]);
+    if (stocks.length > 0) {
+      // Inline alpha rerank (mirrors clientAlphaStocks) — seeds the portfolio context
+      // with the current ranked+filtered universe without a forward ref to the useMemo below.
+      const wS = localW6, wT = localW12, wQ = localWQ;
+      const reranked = stocks
+        .map((s) => {
+          const hasQ = !(s as any).qualityMissing && wQ > 0;
+          const totalW = hasQ ? wS + wT + wQ : wS + wT;
+          const alpha = totalW === 0
+            ? 0
+            : hasQ
+              ? (wS * ((s as any).sSleeve ?? 0) + wT * ((s as any).tSleeve ?? 0) + wQ * ((s as any).qSleeve ?? 0)) / totalW
+              : (wS * ((s as any).sSleeve ?? 0) + wT * ((s as any).tSleeve ?? 0)) / totalW;
+          return { ...s, alpha };
+        })
+        .sort((a, b) => (b.alpha ?? 0) - (a.alpha ?? 0));
+      const threshold = MCAP_THRESHOLDS[mcapFilter];
+      setRankedStocks(
+        threshold !== null
+          ? reranked.filter((s) => s.marketCap == null || s.marketCap >= threshold)
+          : reranked
+      );
+    }
+  }, [stocks, localW6, localW12, localWQ, mcapFilter, setAllStocks, setRankedStocks]);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 

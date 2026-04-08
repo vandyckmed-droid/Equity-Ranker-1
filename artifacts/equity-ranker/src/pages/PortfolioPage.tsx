@@ -2,7 +2,9 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Link } from "wouter";
 import {
   useComputePortfolioRisk,
+  useComputeCorrSeed,
   PortfolioRiskRequestWeightingMethod,
+  type Stock,
 } from "@workspace/api-client-react";
 import { usePortfolio } from "@/hooks/use-portfolio";
 import { formatNumber, formatPercent, cn } from "@/lib/utils";
@@ -12,6 +14,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Trash2, Calculator, Loader2, Info, AlertTriangle } from "lucide-react";
+
+type SeedMode = "alpha" | "group" | "corr";
 
 const METHODS: { value: string; label: string; desc: string }[] = [
   { value: "equal",       label: "Equal Weight", desc: "Same weight to every holding — simple and transparent" },
@@ -27,13 +31,16 @@ const METHOD_LABELS: Record<string, string> = Object.fromEntries(
 const VOL_TARGET = 0.15;
 
 export default function PortfolioPage() {
-  const { basket, removeFromBasket, clearBasket, seedBasket, allStocks } = usePortfolio();
+  const { basket, removeFromBasket, clearBasket, seedBasket, allStocks, rankedStocks } = usePortfolio();
 
   const [weightingMethod, setWeightingMethod] = useState<PortfolioRiskRequestWeightingMethod>("equal");
   const [lookback, setLookback] = useState<60 | 126 | 252>(252);
   const [seedCount, setSeedCount] = useState("20");
+  const [seedMode, setSeedMode] = useState<SeedMode>("alpha");
+  const [maxCorr, setMaxCorr] = useState("0.70");
 
   const computeRisk = useComputePortfolioRisk();
+  const corrSeed = useComputeCorrSeed();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const triggerCompute = useCallback(() => {
@@ -60,10 +67,60 @@ export default function PortfolioPage() {
   const handleSeed = () => {
     const n = parseInt(seedCount);
     if (isNaN(n) || n <= 0) return;
-    const sorted = [...allStocks].sort((a, b) => (b.alpha || 0) - (a.alpha || 0));
-    const topN = sorted.slice(0, n).map((s) => s.ticker);
-    seedBasket(topN);
-    setWeightingMethod("equal");
+
+    // Source is always the current ranked universe from MainPage (alpha-sorted, mcap-filtered)
+    const universe: Stock[] = rankedStocks.length > 0 ? rankedStocks : allStocks;
+
+    if (seedMode === "alpha") {
+      // ── Mode 1: Pure alpha rank — top N by composite score ─────────────────
+      seedBasket(universe.slice(0, n).map((s) => s.ticker));
+      setWeightingMethod("equal");
+
+    } else if (seedMode === "group") {
+      // ── Mode 2: Group-balanced — round-robin across cluster groups ──────────
+      // universe is already sorted best-alpha-first within each group.
+      const byGroup = new Map<number, Stock[]>();
+      for (const s of universe) {
+        const key = s.cluster ?? -1;   // -1 = unclustered (ranks > cluster_n)
+        if (!byGroup.has(key)) byGroup.set(key, []);
+        byGroup.get(key)!.push(s);
+      }
+      // Numbered groups first (ascending), unclustered (-1) last
+      const groups = [...byGroup.entries()]
+        .sort(([a], [b]) => (a === -1 ? 1 : b === -1 ? -1 : a - b))
+        .map(([, stocks]) => stocks);
+
+      const selected: string[] = [];
+      let round = 0;
+      outer: while (selected.length < n) {
+        let anyAdded = false;
+        for (const group of groups) {
+          if (round < group.length) {
+            selected.push(group[round].ticker);
+            anyAdded = true;
+            if (selected.length >= n) break outer;
+          }
+        }
+        if (!anyAdded) break;
+        round++;
+      }
+      seedBasket(selected);
+      setWeightingMethod("equal");
+
+    } else {
+      // ── Mode 3: Correlation-constrained — greedy server-side selection ──────
+      const parsedCorr = parseFloat(maxCorr);
+      const threshold = isNaN(parsedCorr) ? 0.7 : Math.min(0.99, Math.max(0.10, parsedCorr));
+      corrSeed.mutate(
+        { data: { tickers: universe.map((s) => s.ticker), n, maxCorr: threshold, lookback } },
+        {
+          onSuccess: (data) => {
+            seedBasket(data.tickers);
+            setWeightingMethod("equal");
+          },
+        }
+      );
+    }
   };
 
   const riskData = computeRisk.data;
@@ -139,6 +196,47 @@ export default function PortfolioPage() {
               <span>OR</span>
               <span className="h-px bg-border flex-1"></span>
             </div>
+
+            {/* ── Seed mode selector ─────────────────────────────────── */}
+            <div className="flex gap-1">
+              {(["alpha", "group", "corr"] as const).map((m) => (
+                <Button
+                  key={m}
+                  variant={seedMode === m ? "secondary" : "outline"}
+                  size="sm"
+                  className="flex-1 h-7 text-xs"
+                  onClick={() => setSeedMode(m)}
+                >
+                  {m === "alpha" ? "Alpha" : m === "group" ? "Group" : "Corr"}
+                </Button>
+              ))}
+            </div>
+
+            {/* ── Mode description ───────────────────────────────────── */}
+            <p className="text-[11px] text-muted-foreground/70 leading-snug text-left -mt-1">
+              {seedMode === "alpha" && "Top N names by composite alpha score."}
+              {seedMode === "group" && "Round-robin across groups: picks the best name from each group, then second-best, until full."}
+              {seedMode === "corr" && "Greedy selection: adds each candidate only if its max pairwise correlation to current basket is ≤ threshold."}
+            </p>
+
+            {/* ── Corr threshold (corr mode only) ────────────────────── */}
+            {seedMode === "corr" && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground shrink-0">Max r</span>
+                <Input
+                  type="number"
+                  value={maxCorr}
+                  onChange={(e) => setMaxCorr(e.target.value)}
+                  className="w-20 text-center h-7 text-xs"
+                  min="0.10"
+                  max="0.99"
+                  step="0.05"
+                />
+                <span className="text-[11px] text-muted-foreground/50">abs. Pearson</span>
+              </div>
+            )}
+
+            {/* ── N input + seed button ──────────────────────────────── */}
             <div className="flex gap-2">
               <Input
                 type="number"
@@ -146,15 +244,29 @@ export default function PortfolioPage() {
                 onChange={(e) => setSeedCount(e.target.value)}
                 className="w-20 text-center"
                 min="1"
-                max="40"
+                max="60"
               />
-              <Button variant="outline" className="flex-1" onClick={handleSeed} disabled={allStocks.length === 0}>
-                Seed Top N
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={handleSeed}
+                disabled={allStocks.length === 0 || corrSeed.isPending}
+              >
+                {corrSeed.isPending && seedMode === "corr"
+                  ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Seeding…</>
+                  : "Seed Top N"
+                }
               </Button>
             </div>
+
             {allStocks.length === 0 && (
               <p className="text-xs text-amber-500/80 flex items-center justify-center gap-1">
                 <Info className="w-3 h-3" /> Rankings not loaded yet
+              </p>
+            )}
+            {corrSeed.isError && (
+              <p className="text-xs text-destructive/80 flex items-center justify-center gap-1">
+                <AlertTriangle className="w-3 h-3" /> Corr seed failed — try a higher max r or Alpha mode.
               </p>
             )}
           </div>

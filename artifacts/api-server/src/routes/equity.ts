@@ -182,4 +182,25 @@ router.post("/portfolio/risk", async (req, res): Promise<void> => {
   }
 });
 
+router.post("/portfolio/corr-seed", async (req, res): Promise<void> => {
+  try {
+    const body = req.body as Record<string, unknown>;
+    const mapped = {
+      tickers: body.tickers,
+      n: body.n ?? 20,
+      max_corr: body.maxCorr ?? body.max_corr ?? 0.7,
+      lookback: body.lookback ?? 252,
+    };
+    const [status, data] = await proxyRequest(`${EQUITY_ENGINE_URL}/portfolio-corr-seed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(mapped),
+    });
+    res.status(status).json(data);
+  } catch (err) {
+    req.log.error({ err }, "Error computing correlation seed");
+    res.status(500).json({ error: "Failed to compute correlation seed" });
+  }
+});
+
 export default router;

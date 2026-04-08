@@ -17,6 +17,8 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  CorrSeedRequest,
+  CorrSeedResponse,
   DataStatus,
   GetRankingsParams,
   HealthStatus,
@@ -453,4 +455,36 @@ export const useComputePortfolioRisk = <
   TContext
 > => {
   return useMutation(getComputePortfolioRiskMutationOptions(options));
+};
+
+/**
+ * @summary Greedy correlation-constrained basket seeding
+ */
+export const computeCorrSeed = async (
+  corrSeedRequest: CorrSeedRequest,
+  options?: RequestInit,
+): Promise<CorrSeedResponse> => {
+  return customFetch<CorrSeedResponse>("/api/portfolio/corr-seed", {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(corrSeedRequest),
+  });
+};
+
+export const useComputeCorrSeed = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    CorrSeedResponse,
+    TError,
+    { data: CorrSeedRequest },
+    TContext
+  >;
+}): UseMutationResult<CorrSeedResponse, TError, { data: CorrSeedRequest }, TContext> => {
+  return useMutation({
+    mutationFn: ({ data }) => computeCorrSeed(data),
+    ...options?.mutation,
+  });
 };

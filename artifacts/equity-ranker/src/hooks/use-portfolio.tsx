@@ -30,6 +30,9 @@ interface PortfolioContextType {
   seedBasket: (tickers: string[]) => void;
   allStocks: Stock[];
   setAllStocks: (stocks: Stock[]) => void;
+  /** Current ranked universe (alpha-sorted, mcap-filtered) — used for seeding */
+  rankedStocks: Stock[];
+  setRankedStocks: (stocks: Stock[]) => void;
 }
 
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
@@ -37,6 +40,7 @@ const PortfolioContext = createContext<PortfolioContextType | undefined>(undefin
 export function PortfolioProvider({ children }: { children: ReactNode }) {
   const [basket, setBasket] = useState<string[]>(loadBasket);
   const [allStocks, setAllStocks] = useState<Stock[]>([]);
+  const [rankedStocks, setRankedStocks] = useState<Stock[]>([]);
 
   useEffect(() => {
     saveBasket(basket);
@@ -72,6 +76,8 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
         seedBasket,
         allStocks,
         setAllStocks,
+        rankedStocks,
+        setRankedStocks,
       }}
     >
       {children}

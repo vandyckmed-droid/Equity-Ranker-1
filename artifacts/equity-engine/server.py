@@ -328,6 +328,13 @@ class PortfolioRiskRequest(BaseModel):
     weighting_method: str = "equal"  # "equal", "inverse_vol", "min_var"
 
 
+class CorrSeedRequest(BaseModel):
+    tickers: List[str]       # candidates in alpha-rank order (best first)
+    n: int = 20              # max basket size
+    max_corr: float = 0.70   # pairwise correlation ceiling
+    lookback: int = 252      # trading days used for correlation
+
+
 MIN_VAR_MAX_WEIGHT = 0.40   # single-name concentration cap
 MIN_VAR_RIDGE_BASE = 1e-4  # ridge coefficient (relative to trace/n)
 
@@ -869,6 +876,82 @@ def portfolio_risk(body: PortfolioRiskRequest):
         "clusterDistribution": cluster_dist,
         "largestWeight":      round(largest_weight, 6),
         "numHoldings":        len(holdings_out),
+    }
+
+
+@app.post("/portfolio-corr-seed")
+def portfolio_corr_seed(body: CorrSeedRequest):
+    """
+    Greedy correlation-constrained basket seeding.
+    Candidates (already sorted best-alpha-first) are accepted only if their
+    maximum pairwise correlation to every already-accepted name is ≤ max_corr.
+    """
+    import logging
+    logger = logging.getLogger("server")
+
+    if not body.tickers:
+        raise HTTPException(status_code=400, detail="No tickers provided")
+
+    status = engine.get_status()
+    if status["status"] != "ready":
+        raise HTTPException(status_code=503, detail="Data not ready")
+
+    price_data = engine.get_price_data()
+    if price_data is None:
+        raise HTTPException(status_code=503, detail="Price data not available")
+
+    # Keep only tickers that exist in the price matrix (preserve alpha order)
+    valid = [t for t in body.tickers if t in price_data.columns]
+    if not valid:
+        raise HTTPException(status_code=400, detail="No valid tickers in price data")
+
+    # Build log-return matrix once (shared lookback window, drop incomplete rows)
+    prices_sub = price_data[valid].tail(body.lookback)
+    log_rets = np.log(prices_sub / prices_sub.shift(1)).dropna()
+
+    # Filter to tickers that survived the dropna (have full history)
+    valid = [t for t in valid if t in log_rets.columns]
+
+    selected: list[str] = []
+    rets_selected: list[np.ndarray] = []   # pre-extracted columns for speed
+
+    for ticker in valid:
+        if len(selected) >= body.n:
+            break
+
+        col = log_rets[ticker].values
+
+        if not selected:
+            selected.append(ticker)
+            rets_selected.append(col)
+            continue
+
+        # Max absolute pairwise correlation vs every current basket member
+        max_corr_val = 0.0
+        for existing_col in rets_selected:
+            # Pearson correlation via numpy (fast, no overhead)
+            corr = float(np.corrcoef(col, existing_col)[0, 1])
+            if abs(corr) > max_corr_val:
+                max_corr_val = abs(corr)
+            if max_corr_val > body.max_corr:
+                break   # early exit — already failed threshold
+
+        if max_corr_val <= body.max_corr:
+            selected.append(ticker)
+            rets_selected.append(col)
+
+    logger.info(
+        f"corr-seed: selected {len(selected)}/{body.n} from {len(valid)} candidates "
+        f"(max_corr={body.max_corr}, lookback={body.lookback})"
+    )
+
+    return {
+        "tickers":           selected,
+        "count":             len(selected),
+        "requested":         body.n,
+        "maxCorr":           body.max_corr,
+        "lookback":          body.lookback,
+        "candidatesScanned": len(valid),
     }
 
 

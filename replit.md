@@ -44,10 +44,12 @@ A mobile-first equity ranking and risk application that pulls real market data f
   - `/rankings` — ranked stock universe with all factors + sleeve z-scores
   - `/universe-filters` — POST endpoint for applying filters
   - `/portfolio-risk` — POST endpoint for computing portfolio risk metrics
+  - `/portfolio-corr-seed` — POST endpoint for greedy correlation-constrained basket seeding
 
 ### Express API Server (`artifacts/api-server/`)
 - Proxies requests to Python engine at localhost:8001
-- Routes: `/api/equity/status`, `/api/equity/rankings`, `/api/equity/universe-filters`, `/api/portfolio/risk`
+- Routes: `/api/equity/status`, `/api/equity/rankings`, `/api/equity/universe-filters`, `/api/portfolio/risk`, `/api/portfolio/corr-seed`
+- camelCase→snake_case field mapping on all proxy routes
 
 ### React Frontend (`artifacts/equity-ranker/`)
 - Dark navy/charcoal financial terminal aesthetic

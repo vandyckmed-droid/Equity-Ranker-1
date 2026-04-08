@@ -268,6 +268,26 @@ export interface PortfolioRiskResponse {
   numHoldings: number;
 }
 
+export interface CorrSeedRequest {
+  /** Candidate tickers in alpha-rank order (best first) */
+  tickers: string[];
+  /** Max basket size */
+  n: number;
+  /** Pairwise correlation ceiling (absolute value) */
+  maxCorr: number;
+  /** Trading days used for correlation estimation */
+  lookback: number;
+}
+
+export interface CorrSeedResponse {
+  tickers: string[];
+  count: number;
+  requested: number;
+  maxCorr: number;
+  lookback: number;
+  candidatesScanned: number;
+}
+
 export type GetRankingsParams = {
   /**
    * Apply Sharpe-style vol adjustment to momentum
