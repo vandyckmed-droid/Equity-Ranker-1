@@ -734,9 +734,6 @@ def portfolio_risk(body: PortfolioRiskRequest):
             cov_ewma, _, cov_model = _build_ewma_cov(log_rets)
             base_w    = _compute_risk_parity_weights(cov_ewma)
             cov_overlay = cov_ewma   # use same cov for vol-target (consistency)
-            names_capped = [tickers_v[i] for i in range(n) if base_w[i] >= ERC_MAX_WEIGHT - 1e-4]
-            if names_capped:
-                fallback = f"Cap {ERC_MAX_WEIGHT*100:.0f}% active: {', '.join(names_capped)}"
         except Exception as e:
             logger.warning(f"Risk Parity failed ({e}) — falling back to Inverse Vol")
             inv_v  = 1.0 / vols_ann
@@ -787,6 +784,30 @@ def portfolio_risk(body: PortfolioRiskRequest):
         base_w = np.ones(n) / n
         actual_method = "equal"
         fallback = f"Unknown method '{body.weighting_method}'. Used Equal weights."
+
+    # ── Universal max-position cap (applies to every weighting method) ─────────
+    # Iteratively clip any weight that exceeds MAX_POSITION and redistribute
+    # the excess pro-rata to uncapped names.  Tracks which names were genuinely
+    # over the limit before clipping so names_capped is accurate.
+    MAX_POSITION = 0.15
+    genuinely_over: set[int] = set()
+    for _ in range(n + 1):
+        over_idx = np.where(base_w > MAX_POSITION + 1e-8)[0]
+        if len(over_idx) == 0:
+            break
+        genuinely_over.update(over_idx.tolist())
+        excess = float((base_w[over_idx] - MAX_POSITION).sum())
+        base_w[over_idx] = MAX_POSITION
+        free_idx = np.array([i for i in range(n) if i not in genuinely_over])
+        if len(free_idx) == 0:
+            break
+        base_w[free_idx] += excess / len(free_idx)
+
+    # Also count names sitting exactly at the cap (e.g. ERC solver pinned them there)
+    AT_CAP_TOL = 1e-6
+    names_capped = [tickers_v[i] for i in range(n) if base_w[i] >= MAX_POSITION - AT_CAP_TOL]
+    if names_capped and not fallback:
+        fallback = f"Max-pos {MAX_POSITION*100:.0f}% cap active: {', '.join(names_capped)}"
 
     # ── Step 2: Pre-scale portfolio vol using the same cov as optimisation ────
     pre_var = float(base_w @ cov_overlay @ base_w)
