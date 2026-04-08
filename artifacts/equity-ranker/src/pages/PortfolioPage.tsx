@@ -17,6 +17,15 @@ import { Trash2, Calculator, Loader2, Info, AlertTriangle } from "lucide-react";
 
 type SeedMode = "alpha" | "group" | "corr";
 
+const PORTFOLIO_PREFS_KEY = "qt:portfolio-prefs-v1";
+const loadPortfolioPrefs = (): Record<string, unknown> | null => {
+  try {
+    const raw = localStorage.getItem(PORTFOLIO_PREFS_KEY);
+    if (raw) return JSON.parse(raw) as Record<string, unknown>;
+  } catch {}
+  return null;
+};
+
 const METHODS: { value: string; label: string; desc: string }[] = [
   { value: "equal",       label: "Equal Weight", desc: "Same weight to every holding — simple and transparent" },
   { value: "inverse_vol", label: "Inverse Vol",  desc: "Smaller weight to more volatile names — diagonal risk control" },
@@ -33,11 +42,35 @@ const VOL_TARGET = 0.15;
 export default function PortfolioPage() {
   const { basket, removeFromBasket, clearBasket, seedBasket, allStocks, rankedStocks } = usePortfolio();
 
-  const [weightingMethod, setWeightingMethod] = useState<PortfolioRiskRequestWeightingMethod>("equal");
-  const [lookback, setLookback] = useState<60 | 126 | 252>(252);
-  const [seedCount, setSeedCount] = useState("20");
-  const [seedMode, setSeedMode] = useState<SeedMode>("alpha");
-  const [maxCorr, setMaxCorr] = useState("0.70");
+  const [weightingMethod, setWeightingMethod] = useState<PortfolioRiskRequestWeightingMethod>(() => {
+    const s = loadPortfolioPrefs();
+    const v = s?.weightingMethod as string | undefined;
+    return (METHODS.map(m => m.value).includes(v ?? "")) ? v as PortfolioRiskRequestWeightingMethod : "equal";
+  });
+  const [lookback, setLookback] = useState<60 | 126 | 252>(() => {
+    const s = loadPortfolioPrefs();
+    const v = s?.lookback;
+    return (v === 60 || v === 126 || v === 252) ? v : 252;
+  });
+  const [seedCount, setSeedCount] = useState(() => {
+    const s = loadPortfolioPrefs();
+    return typeof s?.seedCount === "string" ? s.seedCount as string : "20";
+  });
+  const [seedMode, setSeedMode] = useState<SeedMode>(() => {
+    const s = loadPortfolioPrefs();
+    const v = s?.seedMode;
+    return (v === "alpha" || v === "group" || v === "corr") ? v : "alpha";
+  });
+  const [maxCorr, setMaxCorr] = useState(() => {
+    const s = loadPortfolioPrefs();
+    return typeof s?.maxCorr === "string" ? s.maxCorr as string : "0.70";
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PORTFOLIO_PREFS_KEY, JSON.stringify({ weightingMethod, lookback, seedCount, seedMode, maxCorr }));
+    } catch {}
+  }, [weightingMethod, lookback, seedCount, seedMode, maxCorr]);
 
   const computeRisk = useComputePortfolioRisk();
   const corrSeed = useComputeCorrSeed();

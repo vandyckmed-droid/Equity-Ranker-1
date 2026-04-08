@@ -246,12 +246,26 @@ export default function MainPage() {
     return (v === "no_small" || v === "large_only") ? v : "all";
   });
 
+  // UI state — persisted together with controls in CONTROLS_KEY
+  const [showZScores, setShowZScores] = useState(() => {
+    const s = loadControlsFromStorage();
+    return s?.showZScores === true;
+  });
+  const [sortField, setSortField] = useState<SortField>(() => {
+    const s = loadControlsFromStorage();
+    return typeof s?.sortField === "string" ? s.sortField as SortField : "alpha";
+  });
+  const [sortDir, setSortDirection] = useState<SortDirection>(() => {
+    const s = loadControlsFromStorage();
+    return s?.sortDir === "asc" ? "asc" : "desc";
+  });
+
   // Persist controls to localStorage whenever they change
   useEffect(() => {
     try {
-      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, localW6, localW12, localWQ, mcapFilter }));
+      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, localW6, localW12, localWQ, mcapFilter, showZScores, sortField, sortDir }));
     } catch {}
-  }, [serverParams, localW6, localW12, localWQ, mcapFilter]);
+  }, [serverParams, localW6, localW12, localWQ, mcapFilter, showZScores, sortField, sortDir]);
 
   // Unified params object for backward compat (e.g. localStorage, cache key)
   const params: GetRankingsParams = useMemo(() => {
@@ -305,11 +319,8 @@ export default function MainPage() {
     } catch {}
   }, [topN, topNMode]);
 
-  // UI state
-  const [showZScores, setShowZScores] = useState(false);
+  // Session-only UI state (not persisted)
   const [search, setSearch] = useState("");
-  const [sortField, setSortField] = useState<SortField>("alpha");
-  const [sortDir, setSortDirection] = useState<SortDirection>("desc");
   const [expandedTicker, setExpandedTicker] = useState<string | null>(null);
 
   // Fetch rankings once engine is ready — staleTime matches engine 8-hour cache
