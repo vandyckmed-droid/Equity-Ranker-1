@@ -124,6 +124,32 @@ const SECTOR_ABBR: Record<string, string> = {
   "Real Estate": "RE",
 };
 
+/**
+ * Maps an alpha percentile [0=lowest, 1=highest] to a dark-mode-safe CSS color.
+ * Neutral zone ±0.3 from center stays gray; tails get diverging green/red with
+ * intensity proportional to extremeness (power-curved so middle stays quiet).
+ */
+function getAlphaColor(p: number): string {
+  const dev = (p - 0.5) * 2; // -1..+1
+  const absdev = Math.abs(dev);
+  const THRESHOLD = 0.3; // inner ±30% = neutral gray zone (~60% of stocks)
+  if (absdev < THRESHOLD) return "hsl(220, 6%, 46%)";
+  // Remap outer region to [0..1] with slight power curve
+  const t = Math.pow((absdev - THRESHOLD) / (1 - THRESHOLD), 1.1);
+  if (dev > 0) {
+    // Positive alpha — green
+    const sat = Math.round(t * 62);
+    const lum = Math.round(58 - t * 7);
+    return `hsl(142, ${sat}%, ${lum}%)`;
+  } else {
+    // Negative alpha — red (slight orange shift at moderate, pure red at extreme)
+    const hue = Math.round(6 - t * 6);
+    const sat = Math.round(t * 60);
+    const lum = Math.round(58 - t * 6);
+    return `hsl(${hue}, ${sat}%, ${lum}%)`;
+  }
+}
+
 export default function MainPage() {
   const { basket, basketSet, addToBasket, removeFromBasket, setAllStocks } = usePortfolio();
   const { config, orderedVisible, toggleColumn, moveColumn, resetColumns } = useColumnConfig();
@@ -422,6 +448,19 @@ export default function MainPage() {
 
   const portfolioSet = basketSet;
 
+  // Alpha percentile map — relative to current visible universe (no hook, plain IIFE)
+  // Computed here so renderCell can close over it.
+  const alphaPercentileMap: Map<string, number> = (() => {
+    const withAlpha = processedStocks.filter(s => s.alpha != null);
+    const sorted = [...withAlpha].sort((a, b) => (a.alpha ?? 0) - (b.alpha ?? 0));
+    const n = sorted.length;
+    const map = new Map<string, number>();
+    sorted.forEach((s, i) => {
+      map.set(s.ticker, n > 1 ? i / (n - 1) : 0.5);
+    });
+    return map;
+  })();
+
   // ─── Loading state ────────────────────────────────────────────────────────
   if (!isReady) {
     const progress = statusData?.progress ? statusData.progress * 100 : 0;
@@ -542,7 +581,7 @@ export default function MainPage() {
   };
 
   // ─── Column cell renderer ──────────────────────────────────────────────────
-  const renderCell = (colId: ColumnId, stock: Stock, badgeColor: string) => {
+  const renderCell = (colId: ColumnId, stock: Stock, badgeColor: string, alphaP?: number) => {
     switch (colId) {
       case "rank":
         return (
@@ -596,7 +635,8 @@ export default function MainPage() {
         return <TableCell key={colId} className="text-right text-muted-foreground">{formatPercent(stock.sigma12)}</TableCell>;
       case "alpha":
         return (
-          <TableCell key={colId} className={cn("text-right font-bold bg-emerald-950/10", stock.alpha! > 0 ? "text-emerald-400" : "text-rose-400")}>
+          <TableCell key={colId} className="text-right font-bold bg-emerald-950/10"
+            style={{ color: getAlphaColor(alphaP ?? 0.5) }}>
             {formatNumber(stock.alpha)}
           </TableCell>
         );
@@ -1146,10 +1186,10 @@ export default function MainPage() {
                                 ? <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
                                 : <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100" />}
                             </div>
-                            <span className={cn(
-                              "font-bold tabular-nums text-[17px] shrink-0 tracking-tight",
-                              stock.alpha != null && stock.alpha > 0 ? "text-emerald-400" : "text-rose-400"
-                            )}>
+                            <span
+                              className="font-bold tabular-nums text-[17px] shrink-0 tracking-tight"
+                              style={{ color: getAlphaColor(alphaPercentileMap.get(stock.ticker) ?? 0.5) }}
+                            >
                               {stock.alpha != null ? (stock.alpha > 0 ? "+" : "") + stock.alpha.toFixed(2) : "—"}
                             </span>
                           </div>
@@ -1221,7 +1261,7 @@ export default function MainPage() {
 
                         {/* ── Desktop: data columns (hidden on mobile) ── */}
                         {activeColumns.map((id) => {
-                          const cell = renderCell(id, stock, badgeColor);
+                          const cell = renderCell(id, stock, badgeColor, alphaPercentileMap.get(stock.ticker) ?? 0.5);
                           if (!cell) return null;
                           return React.cloneElement(cell as React.ReactElement<{ className?: string }>, {
                             className: cn("hidden lg:table-cell", (cell as React.ReactElement<{ className?: string }>).props.className),
