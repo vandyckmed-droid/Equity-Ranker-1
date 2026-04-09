@@ -1,0 +1,73 @@
+New patch: expand fundamentals data carefully, with performance protection as the top priority.
+
+Goal:
+Add only a small, high-value set of raw fundamentals that are worth getting for future quality work, without degrading startup speed, rankings latency, smoothness, or app stability.
+
+This patch is data expansion only.
+Do not change alpha logic yet.
+Do not change filters yet.
+Do not change UI yet except for minimal internal audit/debug output if needed.
+Do not build a new subsystem.
+
+Data to add, in priority order:
+1) total assets
+2) total liabilities
+3) revenue
+4) operating income
+
+Preferred history depth:
+- latest annual values for all 4
+- prior annual total assets at minimum so asset growth can be computed later
+- TTM revenue / operating income only if cheap and reliable
+- do not force extra history if it increases load materially
+
+Why these fields:
+- They are broad, face-statement fundamentals
+- They support later construction of:
+  - profitability = operating income / revenue
+  - safety = liabilities / assets
+  - investment = asset growth from consecutive annual total-assets values
+
+Critical performance rules:
+- Do not put new fundamentals fetching on the live rankings request path
+- Do not make app startup wait on these new fields
+- Do not trigger repeated refetches during normal use
+- Do not introduce long loads, random restarts, UI lag, or unstable counts
+- Prefer one cached server-side enrichment step over repeated on-demand calls
+- If bulk or batched retrieval is available, use that instead of many small live calls
+- Refresh only on the existing fundamentals refresh cadence, or by explicit manual refresh if that is cleaner
+- If a symbol has no reliable data, skip it cleanly; never let missing data block the rest of the universe
+
+Implementation preference:
+- Reuse the current fundamentals / quality cache architecture if possible
+- Keep the data model simple and explicit
+- Store raw fields, not many derived ratios yet
+- Add only the minimum derived audit fields needed to verify success
+- Avoid broad refactors
+
+Deliverables for this patch:
+1) New cached raw fields added to the enrichment pipeline:
+   - totalAssets
+   - totalLiabilities
+   - revenue
+   - operatingIncome
+   - priorAnnualTotalAssets if available
+
+2) A small internal audit summary showing:
+   - coverage count / percent for each new field across the universe
+   - how many symbols have enough data for:
+     - profitability later
+     - safety later
+     - investment later
+
+3) A short note on data source / retrieval method chosen and why it was the most performance-safe option
+
+Acceptance criteria:
+- No meaningful slowdown in startup
+- No meaningful slowdown in rankings endpoint
+- No new visible instability in universe counts or quality counts
+- Missing symbols fail gracefully
+- Data coverage is high enough to justify a later quality patch
+
+Important:
+Be deliberate and conservative. This patch should prove that these additional fields can be obtained cheaply and cached safely before we use them in alpha or filters.

@@ -61,7 +61,7 @@ PRICE_CACHE_KEY    = "price_data_v5"
 META_CACHE_KEY     = "meta_data_v2"
 UNIVERSE_CACHE_KEY = "universe_v1"
 NASDAQ_META_KEY    = "nasdaq_meta_v1"
-QUALITY_CACHE_KEY  = "quality_data_v3"   # bumped: now stored in persistent dir
+QUALITY_CACHE_KEY  = "quality_data_v4"   # bumped: now stores raw fundamentals fields
 SEC_CIK_CACHE_KEY  = "sec_cik_map_v1"
 SEC_CIK_CACHE_TTL  = 14 * 24 * 3600   # CIK map changes very rarely
 
@@ -497,6 +497,11 @@ def compute_factors_vectorized(prices: pd.DataFrame,
     meta_gm        = []
     meta_om        = []
     meta_de        = []
+    meta_total_assets       = []
+    meta_prior_total_assets = []
+    meta_total_liabilities  = []
+    meta_revenue            = []
+    meta_op_income          = []
     struct_excl    = []
 
     for t in tickers:
@@ -510,6 +515,11 @@ def compute_factors_vectorized(prices: pd.DataFrame,
         meta_gm.append(m.get("gross_margin"))
         meta_om.append(m.get("op_margin"))
         meta_de.append(m.get("de_ratio"))
+        meta_total_assets.append(m.get("total_assets"))
+        meta_prior_total_assets.append(m.get("prior_total_assets"))
+        meta_total_liabilities.append(m.get("total_liabilities"))
+        meta_revenue.append(m.get("revenue"))
+        meta_op_income.append(m.get("op_income"))
         struct_excl.append(classify_ticker(t, m))
 
         if not np.isfinite(adv.get(t, np.nan)) or adv.get(t, 0) == 0:
@@ -539,6 +549,11 @@ def compute_factors_vectorized(prices: pd.DataFrame,
         "_gross_margin": meta_gm,
         "_op_margin":    meta_om,
         "_de_ratio":     meta_de,
+        "total_assets":       meta_total_assets,
+        "prior_total_assets": meta_prior_total_assets,
+        "total_liabilities":  meta_total_liabilities,
+        "revenue":            meta_revenue,
+        "op_income":          meta_op_income,
         "structure_exclusion": struct_excl,
     })
 
@@ -903,6 +918,33 @@ def apply_universe_filters(df: pd.DataFrame,
         if col in result.columns:
             qual_field_missing[label] = round(float(result[col].isna().mean()) * 100, 1)
 
+    # Raw fundamentals coverage (for internal audit; used by future 3-pillar quality)
+    _raw_fund_cols = {
+        "totalAssets":      "total_assets",
+        "priorTotalAssets": "prior_total_assets",
+        "totalLiabilities": "total_liabilities",
+        "revenue":          "revenue",
+        "opIncome":         "op_income",
+    }
+    raw_fund_coverage: dict = {}
+    for label, col in _raw_fund_cols.items():
+        if col in result.columns:
+            n_present = int(result[col].notna().sum())
+            raw_fund_coverage[label] = {
+                "count": n_present,
+                "pct":   round(100 * n_present / len(result), 1) if len(result) else 0,
+            }
+
+    # Readiness counts for future 3-pillar construction
+    has_assets   = result["total_assets"].notna()   if "total_assets"      in result.columns else pd.Series(False, index=result.index)
+    has_liab     = result["total_liabilities"].notna() if "total_liabilities" in result.columns else pd.Series(False, index=result.index)
+    has_rev      = result["revenue"].notna()         if "revenue"           in result.columns else pd.Series(False, index=result.index)
+    has_op       = result["op_income"].notna()       if "op_income"         in result.columns else pd.Series(False, index=result.index)
+    has_prior_a  = result["prior_total_assets"].notna() if "prior_total_assets" in result.columns else pd.Series(False, index=result.index)
+    profitability_ready = int((has_op & has_rev).sum())
+    safety_ready        = int((has_liab & has_assets).sum())
+    investment_ready    = int((has_prior_a & has_assets).sum())
+
     audit = {
         "preFilterCount":  n_in,
         "postFilterCount": len(result),
@@ -912,6 +954,12 @@ def apply_universe_filters(df: pd.DataFrame,
         "qualityPct":      round(100 * qual_with / qual_total, 1) if qual_total else 0,
         "qualityInputDist":        qual_input_dist,
         "qualityFieldMissingRates": qual_field_missing,
+        "rawFundCoverage":          raw_fund_coverage,
+        "pillarReadiness": {
+            "profitability": profitability_ready,
+            "safety":        safety_ready,
+            "investment":    investment_ready,
+        },
         "activeFilters":   [],
     }
     audit["activeFilters"].append(f"price>=${min_price}")
@@ -991,6 +1039,32 @@ def _print_audit_summary(price_data: pd.DataFrame, meta_data: dict,
     if "alpha_formula" in factors_post.columns:
         st_only = (factors_post["alpha_formula"] == "S+T").sum()
         lines.append(f"    {'alpha_st_only (no Q)':<30}: {st_only:>6}")
+
+    lines.append("")
+    lines.append("  RAW FUNDAMENTALS COVERAGE (factors_post):")
+    n_post = len(factors_post)
+    for col, label in [
+        ("total_assets",       "total_assets"),
+        ("prior_total_assets", "prior_total_assets"),
+        ("total_liabilities",  "total_liabilities"),
+        ("revenue",            "revenue"),
+        ("op_income",          "op_income"),
+    ]:
+        if col in factors_post.columns:
+            n = int(factors_post[col].notna().sum())
+            pct = round(100 * n / n_post, 1) if n_post else 0
+            lines.append(f"    {label:<30}: {n:>6}  ({pct}%)")
+
+    lines.append("")
+    lines.append("  3-PILLAR READINESS (factors_post):")
+    has_a  = factors_post["total_assets"].notna()         if "total_assets"      in factors_post.columns else pd.Series(False)
+    has_l  = factors_post["total_liabilities"].notna()    if "total_liabilities" in factors_post.columns else pd.Series(False)
+    has_r  = factors_post["revenue"].notna()              if "revenue"           in factors_post.columns else pd.Series(False)
+    has_op = factors_post["op_income"].notna()            if "op_income"         in factors_post.columns else pd.Series(False)
+    has_pa = factors_post["prior_total_assets"].notna()   if "prior_total_assets" in factors_post.columns else pd.Series(False)
+    lines.append(f"    {'profitability (opInc+rev)':<30}: {int((has_op & has_r).sum()):>6}")
+    lines.append(f"    {'safety (liab+assets)':<30}: {int((has_l & has_a).sum()):>6}")
+    lines.append(f"    {'investment (assets+prior)':<30}: {int((has_pa & has_a).sum()):>6}")
 
     lines.append("")
     lines.append("  TIMINGS:")
@@ -1242,6 +1316,36 @@ def _latest_annual_value(facts: dict, concept: str, taxonomy: str = "us-gaap") -
         return None
 
 
+def _latest_two_annual_values(facts: dict, concept: str, taxonomy: str = "us-gaap") -> tuple:
+    """Return (latest, prior) annual values for a concept, newest first.
+
+    Picks the two most recent distinct fiscal-year-end entries from 10-K/10-K/A
+    filings. Used for computing YoY asset growth later.
+    Returns (None, None) if fewer than one annual filing exists.
+    """
+    try:
+        units = facts.get(taxonomy, {}).get(concept, {}).get("units", {})
+        entries = units.get("USD") or units.get("USD/shares") or units.get("pure", [])
+        annuals = [e for e in entries if e.get("form") in ("10-K", "10-K/A")]
+        if not annuals:
+            return None, None
+        annuals.sort(key=lambda e: e.get("end", ""), reverse=True)
+        seen_years: list = []
+        vals: list = []
+        for e in annuals:
+            yr = e.get("end", "")[:4]
+            if yr not in seen_years:
+                seen_years.append(yr)
+                vals.append(e.get("val"))
+            if len(vals) == 2:
+                break
+        latest = vals[0] if len(vals) > 0 else None
+        prior  = vals[1] if len(vals) > 1 else None
+        return latest, prior
+    except Exception:
+        return None, None
+
+
 def _fetch_one_quality_edgar(ticker: str, cik: int, max_retries: int = 3) -> tuple:
     import requests
     try:
@@ -1273,10 +1377,12 @@ def _fetch_one_quality_edgar(ticker: str, cik: int, max_retries: int = 3) -> tup
             or _latest_annual_value(facts, "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")
             or _latest_annual_value(facts, "Equity", "ifrs-full")
         )
-        assets = (
-            _latest_annual_value(facts, "Assets")
-            or _latest_annual_value(facts, "Assets", "ifrs-full")
-        )
+
+        # Fetch two consecutive annual asset values (latest + prior year) for growth later
+        assets, prior_assets = _latest_two_annual_values(facts, "Assets")
+        if assets is None:
+            assets, prior_assets = _latest_two_annual_values(facts, "Assets", "ifrs-full")
+
         revenue = (
             _latest_annual_value(facts, "RevenueFromContractWithCustomerExcludingAssessedTax")
             or _latest_annual_value(facts, "Revenues")
@@ -1303,6 +1409,8 @@ def _fetch_one_quality_edgar(ticker: str, cik: int, max_retries: int = 3) -> tup
         )
 
         result = {}
+
+        # Derived ratios (existing quality factor inputs — unchanged)
         if net_income is not None and equity and equity != 0:
             result["roe"] = net_income / equity
         if net_income is not None and assets and assets != 0:
@@ -1316,13 +1424,28 @@ def _fetch_one_quality_edgar(ticker: str, cik: int, max_retries: int = 3) -> tup
             if debt_val is not None:
                 result["de_ratio"] = (debt_val / equity) * 100
 
+        # Raw fundamentals — stored for future 3-pillar quality construction
+        if assets is not None:
+            result["total_assets"] = assets
+        if prior_assets is not None:
+            result["prior_total_assets"] = prior_assets
+        if total_liab is not None:
+            result["total_liabilities"] = total_liab
+        if revenue is not None:
+            result["revenue"] = revenue
+        if op_income is not None:
+            result["op_income"] = op_income
+
         ok = any(v is not None for v in result.values())
         return ticker, result, ok
     except Exception:
         return ticker, {}, False
 
 
-_QUALITY_MERGE_FIELDS = ("roe", "roa", "gross_margin", "op_margin", "de_ratio")
+_QUALITY_MERGE_FIELDS = (
+    "roe", "roa", "gross_margin", "op_margin", "de_ratio",
+    "total_assets", "prior_total_assets", "total_liabilities", "revenue", "op_income",
+)
 
 
 def _merge_quality_into_meta(quality_dict: dict, tickers: list):
@@ -1365,11 +1488,32 @@ def _background_quality_enrichment(tickers: list):
     if quality_cached and isinstance(quality_cached, dict):
         quality_store = dict(quality_cached)
 
+    # One-time migration: seed v4 from v3 so derived ratios survive the cache-key bump.
+    # Tickers seeded this way will still be re-fetched (below) to add the new raw fields.
+    _PREV_QUALITY_KEY = "quality_data_v3"
+    _DERIVED_FIELDS   = ("roe", "roa", "gross_margin", "op_margin", "de_ratio")
+    if not quality_store:
+        v3_cached = cache.get(_PREV_QUALITY_KEY)
+        if v3_cached and isinstance(v3_cached, dict):
+            for t, vals in v3_cached.items():
+                if vals.get("_no_data"):
+                    quality_store[t] = {"_no_data": True}
+                else:
+                    entry = {k: vals[k] for k in _DERIVED_FIELDS if vals.get(k) is not None}
+                    if entry:
+                        quality_store[t] = entry
+            logger.info(
+                f"Migrated quality_data_v3 → v4: {len(quality_store)} entries seeded "
+                "(raw fundamentals will be populated by background fetch)"
+            )
+
+    _RAW_FUND_FIELDS = ("total_assets", "total_liabilities", "revenue", "op_income")
+
     def _real_quality_count():
         return sum(
             1 for t in tickers
             if t in quality_store and not quality_store[t].get("_no_data")
-            and any(quality_store[t].get(f) is not None for f in _QUALITY_MERGE_FIELDS)
+            and any(quality_store[t].get(f) is not None for f in _DERIVED_FIELDS)
         )
 
     cached_real = _real_quality_count()
@@ -1386,11 +1530,17 @@ def _background_quality_enrichment(tickers: list):
         with _status_lock:
             _status["quality_coverage"] = f"{cached_real}/{len(tickers)}"
 
+    # Re-fetch tickers that are missing derived ratios OR missing the new raw fields.
+    # This makes bumping the cache key a targeted top-up rather than a full cold start.
     tickers_needing_fetch = []
     for t in tickers:
         if t in quality_store:
             vals = quality_store[t]
-            if vals.get("_no_data") or any(vals.get(f) is not None for f in _QUALITY_MERGE_FIELDS):
+            if vals.get("_no_data"):
+                continue
+            has_derived = any(vals.get(f) is not None for f in _DERIVED_FIELDS)
+            has_raw     = any(vals.get(f) is not None for f in _RAW_FUND_FIELDS)
+            if has_derived and has_raw:
                 continue
         tickers_needing_fetch.append(t)
 
@@ -1515,6 +1665,11 @@ def _build_essential_meta(tickers: list) -> dict:
             "gross_margin": None,
             "op_margin":  None,
             "de_ratio":   None,
+            "total_assets":       None,
+            "prior_total_assets": None,
+            "total_liabilities":  None,
+            "revenue":            None,
+            "op_income":          None,
             "quote_type": "ETF" if nd.get("is_etf") else "",
             "exchange":   nd.get("exchange", ""),
         }
