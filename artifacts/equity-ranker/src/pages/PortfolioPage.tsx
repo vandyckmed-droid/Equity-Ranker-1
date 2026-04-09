@@ -238,6 +238,15 @@ export default function PortfolioPage() {
     return Math.max(...riskData.holdings.map((h) => h.baseWeight));
   }, [riskData]);
 
+  // Average alpha of basket holdings (simple mean)
+  const avgAlpha = useMemo(() => {
+    if (basket.length === 0 || rankedStocks.length === 0) return null;
+    const alphaMap = new Map(rankedStocks.map((s) => [s.ticker, s.alpha ?? null]));
+    const vals = basket.map((t) => alphaMap.get(t) ?? null).filter((v): v is number => v != null);
+    if (vals.length === 0) return null;
+    return vals.reduce((a, b) => a + b, 0) / vals.length;
+  }, [basket, rankedStocks]);
+
   // Weight map for basket table
   const weightMap = useMemo(() => {
     if (!riskData) return {} as Record<string, number>;
@@ -573,26 +582,22 @@ export default function PortfolioPage() {
               )}
             </div>
 
-            {/* ── B. Key metrics — 3×3 grid ─────────────────────────────── */}
-            <div className="grid grid-cols-3 gap-px bg-border rounded-lg overflow-hidden border border-border">
+            {/* ── B. Key metrics — 2×4 grid ─────────────────────────────── */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-border rounded-lg overflow-hidden border border-border">
               <MetricCell label="Method" value={METHOD_LABELS[riskData.method] ?? riskData.method} small />
               <MetricCell label="Base Vol" value={formatPercent(riskData.basePortVol, 1)} />
               <MetricCell label="Target Vol" value={formatPercent(VOL_TARGET, 0)} dim />
-
               <MetricCell label="Scale" value={`×${formatNumber(riskData.volTargetMultiplier, 2)}`}
                 dim={riskData.volTargetMultiplier >= 0.999} />
-              <MetricCell label="Invested"
-                value={formatPercent(riskData.grossExposure, 1)}
-                highlight={riskData.sgovWeight < 0.005} />
-              <MetricCell label="Cash / SGOV"
-                value={riskData.sgovWeight > 0.005 ? formatPercent(riskData.sgovWeight, 1) : "—"}
-                dim={riskData.sgovWeight < 0.005} />
 
               <MetricCell label="Names" value={String(riskData.numHoldings)} />
               <MetricCell label="Max Wt" value={formatPercent(maxPosition, 1)}
                 warn={maxPosition >= 0.149} />
               <MetricCell label="Avg Corr" value={formatNumber(riskData.avgCorrelation, 2)}
                 warn={riskData.avgCorrelation > 0.55} />
+              <MetricCell label="Avg Alpha"
+                value={avgAlpha != null ? (avgAlpha > 0 ? "+" : "") + formatNumber(avgAlpha, 2) : "—"}
+                highlight={avgAlpha != null && avgAlpha > 0} />
             </div>
 
             {/* ── C. Risk Contribution chart ────────────────────────────── */}
