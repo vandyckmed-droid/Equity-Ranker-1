@@ -192,6 +192,9 @@ export default function PortfolioPage() {
           holdings: basket.map((ticker) => ({ ticker, weight: 1 })),
           lookback: LOOKBACK,
           weightingMethod,
+          clusterN:        mainControls.clusterN,
+          clusterK:        mainControls.clusterK,
+          clusterLookback: mainControls.clusterLookback,
         },
       });
     }, 300);

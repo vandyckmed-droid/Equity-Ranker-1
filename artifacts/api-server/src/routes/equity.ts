@@ -156,6 +156,9 @@ router.post("/portfolio/risk", async (req, res): Promise<void> => {
       holdings: body.holdings,
       lookback: body.lookback ?? 252,
       weighting_method: body.weightingMethod ?? "equal",
+      cluster_n:        body.clusterN        ?? 100,
+      cluster_k:        body.clusterK        ?? 10,
+      cluster_lookback: body.clusterLookback ?? 252,
     };
 
     const [status, data] = await proxyRequest(`${EQUITY_ENGINE_URL}/portfolio-risk`, {

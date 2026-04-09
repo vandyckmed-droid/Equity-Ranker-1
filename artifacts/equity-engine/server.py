@@ -263,6 +263,9 @@ class PortfolioRiskRequest(BaseModel):
     holdings: List[PortfolioHolding]
     lookback: int = 252
     weighting_method: str = "equal"  # "equal", "inverse_vol", "min_var"
+    cluster_n: int = 100
+    cluster_k: int = 10
+    cluster_lookback: int = 252
 
 
 class CorrSeedRequest(BaseModel):
@@ -624,7 +627,9 @@ def portfolio_risk(body: PortfolioRiskRequest):
     # Pre-fetch ranked data — needed for signal-based methods + cluster labels
     _rp = {"vol_adjust": True, "use_tstats": False,
            "w6": 0.5, "w12": 0.5, "vol_floor": 0.05,
-           "winsor_p": 2.0, "cluster_n": 100, "cluster_k": 10, "cluster_lookback": 252}
+           "winsor_p": 2.0,
+           "cluster_n": body.cluster_n, "cluster_k": body.cluster_k,
+           "cluster_lookback": body.cluster_lookback}
     _ranked = eng.get_ranked_data(_rp)
     cluster_map: dict = {}
     signal_map:  dict = {}

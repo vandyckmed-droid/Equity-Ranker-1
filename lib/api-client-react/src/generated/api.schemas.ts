@@ -148,6 +148,12 @@ export interface PortfolioRiskRequest {
   /** Days of history for covariance (60, 126, or 252) */
   lookback: number;
   weightingMethod: PortfolioRiskRequestWeightingMethod;
+  /** Top N stocks to cluster (matches Filters → Top N to Group) */
+  clusterN?: number;
+  /** Number of clusters K (matches Filters → Number of Groups K) */
+  clusterK?: number;
+  /** Lookback days for correlation clustering */
+  clusterLookback?: number;
 }
 
 export interface PortfolioHoldingRisk {
