@@ -239,13 +239,17 @@ export default function MainPage() {
     const s = loadControlsFromStorage();
     return s?.sortDir === "asc" ? "asc" : "desc";
   });
+  const [alphaMode, setAlphaMode] = useState<'z' | 'pct'>(() => {
+    const s = loadControlsFromStorage();
+    return s?.alphaMode === 'pct' ? 'pct' : 'z';
+  });
 
   // Persist controls to localStorage whenever they change
   useEffect(() => {
     try {
-      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, localW6, localW12, mcapFilter, sortField, sortDir }));
+      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, localW6, localW12, mcapFilter, sortField, sortDir, alphaMode }));
     } catch {}
-  }, [serverParams, localW6, localW12, mcapFilter, sortField, sortDir]);
+  }, [serverParams, localW6, localW12, mcapFilter, sortField, sortDir, alphaMode]);
 
   const params: GetRankingsParams = useMemo(() => {
     const p: GetRankingsParams = {
@@ -522,7 +526,9 @@ export default function MainPage() {
       case "alpha":
         return (
           <TableHead key={colId} className="text-right bg-emerald-950/20 font-bold cursor-pointer hover:text-foreground" onClick={() => handleSort("alpha")}>
-            <div className="flex items-center justify-end text-emerald-500">Alpha {getSortIcon("alpha")}</div>
+            <div className="flex items-center justify-end gap-1 text-emerald-500">
+              {alphaMode === 'pct' ? 'Pctl' : 'Alpha'} {getSortIcon("alpha")}
+            </div>
           </TableHead>
         );
       case "cluster":
@@ -579,7 +585,9 @@ export default function MainPage() {
         return (
           <TableCell key={colId} className="text-right font-bold bg-emerald-950/10"
             style={{ color: getAlphaColor(alphaP ?? 0.5) }}>
-            {formatNumber(stock.alpha)}
+            {alphaMode === 'pct'
+              ? (stock.percentile != null ? stock.percentile.toFixed(1) + "%" : "—")
+              : formatNumber(stock.alpha)}
           </TableCell>
         );
       case "cluster":
@@ -691,6 +699,19 @@ export default function MainPage() {
                 }}
               >
                 <span>Group</span>
+              </Button>
+              {/* Alpha display mode toggle */}
+              <Button
+                variant={alphaMode === 'pct' ? "secondary" : "ghost"}
+                size="sm"
+                className={cn(
+                  "h-7 px-2 text-xs font-mono tracking-tight",
+                  alphaMode === 'pct' ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                )}
+                onClick={() => setAlphaMode(prev => prev === 'z' ? 'pct' : 'z')}
+                title="Toggle alpha display: z-score ↔ percentile"
+              >
+                α·{alphaMode === 'z' ? 'Z' : '%'}
               </Button>
               <Button
                 variant={controlsOpen ? "secondary" : "ghost"}
@@ -1071,7 +1092,9 @@ export default function MainPage() {
                               className="font-bold tabular-nums text-[17px] shrink-0 tracking-tight"
                               style={{ color: getAlphaColor(alphaPercentileMap.get(stock.ticker) ?? 0.5) }}
                             >
-                              {stock.alpha != null ? (stock.alpha > 0 ? "+" : "") + stock.alpha.toFixed(2) : "—"}
+                              {alphaMode === 'pct'
+                                ? (stock.percentile != null ? stock.percentile.toFixed(1) + "%" : "—")
+                                : (stock.alpha != null ? (stock.alpha > 0 ? "+" : "") + stock.alpha.toFixed(2) : "—")}
                             </span>
                           </div>
 
