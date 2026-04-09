@@ -116,9 +116,30 @@ function buildNarrative(
 export default function PortfolioPage() {
   const { basket, addToBasket, removeFromBasket, clearBasket, seedBasket, allStocks, rankedStocks, setRankedStocks } = usePortfolio();
 
-  const { data: autoFetchData } = useGetRankings(undefined, {
-    query: { enabled: basket.length > 0 && rankedStocks.length === 0, staleTime: 5 * 60 * 1000 },
-  });
+  // Read the same cluster + factor settings persisted by MainPage — no hook needed
+  const mainControls = (() => {
+    try {
+      const raw = localStorage.getItem("qt:controls-v3");
+      if (raw) {
+        const p = JSON.parse(raw);
+        return {
+          w6:             typeof p.localW6          === "number" ? p.localW6          : 0.5,
+          w12:            typeof p.localW12         === "number" ? p.localW12         : 0.5,
+          volFloor:       typeof p.volFloor         === "number" ? p.volFloor         : 0.05,
+          winsorP:        typeof p.winsorP          === "number" ? p.winsorP          : 2,
+          clusterN:       typeof p.clusterN         === "number" ? p.clusterN         : 100,
+          clusterK:       typeof p.clusterK         === "number" ? p.clusterK         : 10,
+          clusterLookback:typeof p.clusterLookback  === "number" ? p.clusterLookback  : 252,
+        };
+      }
+    } catch {}
+    return { w6: 0.5, w12: 0.5, volFloor: 0.05, winsorP: 2, clusterN: 100, clusterK: 10, clusterLookback: 252 };
+  })();
+
+  const { data: autoFetchData } = useGetRankings(
+    { volAdjust: true, useTstats: false, ...mainControls },
+    { query: { enabled: basket.length > 0 && rankedStocks.length === 0, staleTime: 5 * 60 * 1000 } },
+  );
   useEffect(() => {
     if (autoFetchData?.stocks && rankedStocks.length === 0) {
       const sorted = [...autoFetchData.stocks].sort((a, b) => (b.alpha ?? 0) - (a.alpha ?? 0));
@@ -396,7 +417,7 @@ export default function PortfolioPage() {
             </div>
             <p className="text-[11px] text-muted-foreground/70 leading-snug text-left -mt-1">
               {seedMode === "alpha" && "Top N names by composite alpha score."}
-              {seedMode === "group" && "Round-robin across groups: picks the best name from each group, then second-best, until full."}
+              {seedMode === "group" && `Round-robin across ${mainControls.clusterK} groups (top ${mainControls.clusterN} stocks): picks the best name from each group, then second-best, until full.`}
               {seedMode === "corr" && "Greedy selection: adds each candidate only if its max pairwise correlation to current basket is ≤ threshold."}
             </p>
             {seedMode === "corr" && (
