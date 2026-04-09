@@ -900,6 +900,69 @@ def portfolio_risk(body: PortfolioRiskRequest):
     }
 
 
+class PortfolioHistoryRequest(BaseModel):
+    holdings: List[PortfolioHolding]
+    lookback: int = 252
+
+
+@app.post("/portfolio-history")
+def portfolio_history(body: PortfolioHistoryRequest):
+    """
+    Compute a weighted-return equity curve for the current basket.
+    Uses existing adjusted-close price data — static weights (not a true backtest).
+    """
+    import engine as eng
+
+    if not body.holdings:
+        raise HTTPException(status_code=400, detail="No holdings provided")
+
+    status = eng.get_status()
+    if status["status"] != "ready":
+        raise HTTPException(status_code=503, detail="Data not ready")
+
+    price_data = eng.get_price_data()
+    if price_data is None:
+        raise HTTPException(status_code=503, detail="Price data not available")
+
+    valid = [(h.ticker, h.weight) for h in body.holdings if h.ticker in price_data.columns]
+    if not valid:
+        raise HTTPException(status_code=400, detail="No valid tickers in price data")
+
+    tickers = [t for t, _ in valid]
+    raw_w = np.array([w for _, w in valid], dtype=float)
+    raw_w /= raw_w.sum()
+
+    prices = price_data[tickers].tail(body.lookback + 1)
+    rets = prices.pct_change().iloc[1:].fillna(0.0)
+
+    if len(rets) < 10:
+        raise HTTPException(status_code=400, detail="Insufficient price history")
+
+    port_rets = (rets.values * raw_w).sum(axis=1)
+
+    nav = 100.0 * np.cumprod(1.0 + port_rets)
+    nav = np.insert(nav, 0, 100.0)
+
+    running_peak = np.maximum.accumulate(nav)
+    drawdown_pct = (nav / running_peak - 1.0) * 100.0
+
+    date_strs = [d.strftime("%Y-%m-%d") for d in prices.index]
+
+    total_return = float(nav[-1] - 100.0)
+    max_drawdown = float(drawdown_pct.min())
+    ann_vol = float(np.std(port_rets) * np.sqrt(252) * 100.0)
+
+    return {
+        "dates": date_strs,
+        "nav": [round(float(v), 4) for v in nav],
+        "drawdown": [round(float(v), 4) for v in drawdown_pct],
+        "totalReturn": round(total_return, 2),
+        "maxDrawdown": round(max_drawdown, 2),
+        "annualizedVol": round(ann_vol, 2),
+        "numDays": len(port_rets),
+    }
+
+
 @app.post("/portfolio-corr-seed")
 def portfolio_corr_seed(body: CorrSeedRequest):
     """

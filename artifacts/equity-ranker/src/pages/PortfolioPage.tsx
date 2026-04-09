@@ -3,10 +3,12 @@ import { Link } from "wouter";
 import {
   useComputePortfolioRisk,
   useComputeCorrSeed,
+  useComputePortfolioHistory,
   useGetRankings,
   PortfolioRiskRequestWeightingMethod,
   type Stock,
 } from "@workspace/api-client-react";
+import PortfolioHistoryCard from "@/components/PortfolioHistoryCard";
 import { usePortfolio } from "@/hooks/use-portfolio";
 import { formatNumber, formatPercent, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -156,6 +158,8 @@ export default function PortfolioPage() {
 
   const computeRisk = useComputePortfolioRisk();
   const corrSeed = useComputeCorrSeed();
+  const computeHistory = useComputePortfolioHistory();
+  const histKeyRef = useRef("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const triggerCompute = useCallback(() => {
@@ -275,6 +279,20 @@ export default function PortfolioPage() {
       .map(([c, v]) => ({ cluster: Number(c), ...v }))
       .sort((a, b) => b.weight - a.weight);
     return { numGroups: breakdown.length, breakdown };
+  }, [riskData]);
+
+  // Trigger history compute whenever holdings/weights change
+  useEffect(() => {
+    if (!riskData || riskData.holdings.length === 0) return;
+    const key = riskData.holdings.map((h) => `${h.ticker}:${h.baseWeight.toFixed(5)}`).join(",");
+    if (key === histKeyRef.current) return;
+    histKeyRef.current = key;
+    computeHistory.mutate({
+      data: {
+        holdings: riskData.holdings.map((h) => ({ ticker: h.ticker, weight: h.baseWeight })),
+        lookback: 252,
+      },
+    });
   }, [riskData]);
 
   // Diversify suggestions
@@ -599,7 +617,13 @@ export default function PortfolioPage() {
             {/* ── F. Constituent table ──────────────────────────────────── */}
             <ConstituentTable holdings={riskData.holdings} scale={riskData.volTargetMultiplier} />
 
-            {/* ── G. Diversify Suggestions ─────────────────────────────── */}
+            {/* ── G. Historical Performance ─────────────────────────────── */}
+            <PortfolioHistoryCard
+              histData={computeHistory.data ?? null}
+              isLoading={computeHistory.isPending}
+            />
+
+            {/* ── H. Diversify Suggestions ─────────────────────────────── */}
             {diversifySuggestions.length > 0 && (
               <DiversifyCard
                 suggestions={diversifySuggestions}

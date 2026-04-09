@@ -210,6 +210,25 @@ router.post("/portfolio/risk", async (req, res): Promise<void> => {
   }
 });
 
+router.post("/portfolio/history", async (req, res): Promise<void> => {
+  try {
+    const body = req.body as Record<string, unknown>;
+    const mapped = {
+      holdings: body.holdings,
+      lookback: body.lookback ?? 252,
+    };
+    const [status, data] = await proxyRequest(`${EQUITY_ENGINE_URL}/portfolio-history`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(mapped),
+    });
+    res.status(status).json(data);
+  } catch (err) {
+    req.log.error({ err }, "Error computing portfolio history");
+    res.status(500).json({ error: "Failed to compute portfolio history" });
+  }
+});
+
 router.post("/portfolio/corr-seed", async (req, res): Promise<void> => {
   try {
     const body = req.body as Record<string, unknown>;

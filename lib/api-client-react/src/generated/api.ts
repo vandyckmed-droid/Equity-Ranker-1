@@ -22,6 +22,8 @@ import type {
   DataStatus,
   GetRankingsParams,
   HealthStatus,
+  PortfolioHistoryRequest,
+  PortfolioHistoryResponse,
   PortfolioRiskRequest,
   PortfolioRiskResponse,
   RankingsResponse,
@@ -469,6 +471,35 @@ export const computeCorrSeed = async (
     method: "POST",
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(corrSeedRequest),
+  });
+};
+
+export const computePortfolioHistory = async (
+  request: PortfolioHistoryRequest,
+  options?: RequestInit,
+): Promise<PortfolioHistoryResponse> => {
+  return customFetch<PortfolioHistoryResponse>("/api/portfolio/history", {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(request),
+  });
+};
+
+export const useComputePortfolioHistory = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    PortfolioHistoryResponse,
+    TError,
+    { data: PortfolioHistoryRequest },
+    TContext
+  >;
+}): UseMutationResult<PortfolioHistoryResponse, TError, { data: PortfolioHistoryRequest }, TContext> => {
+  return useMutation({
+    mutationFn: ({ data }) => computePortfolioHistory(data),
+    ...options?.mutation,
   });
 };
 

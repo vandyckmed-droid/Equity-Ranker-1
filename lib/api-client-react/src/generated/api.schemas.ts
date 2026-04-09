@@ -268,6 +268,21 @@ export interface PortfolioRiskResponse {
   numHoldings: number;
 }
 
+export interface PortfolioHistoryRequest {
+  holdings: PortfolioHolding[];
+  lookback?: number;
+}
+
+export interface PortfolioHistoryResponse {
+  dates: string[];
+  nav: number[];
+  drawdown: number[];
+  totalReturn: number;
+  maxDrawdown: number;
+  annualizedVol: number;
+  numDays: number;
+}
+
 export interface CorrSeedRequest {
   /** Candidate tickers in alpha-rank order (best first) */
   tickers: string[];
