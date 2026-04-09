@@ -1,15 +1,15 @@
 """
 Equity Ranking Engine — Performance Edition
 =============================================
-Fetches real market data from Yahoo Finance, computes momentum and quality
-factors using a 3-sleeve alpha model, and provides portfolio risk metrics.
+Fetches real market data from Yahoo Finance, computes momentum factors
+using a 2-sleeve alpha model (S + T), and provides portfolio risk metrics.
 
 Architecture
 ------------
 - Async price downloader via PriceDataAdapter (aiohttp, 50 concurrent connections)
 - Vectorized factor computation (numpy matrix ops, no per-ticker loops)
 - Three-layer cache: factors → rankings → clustering
-- Two-stage startup: Stage 1 (prices+essential meta) → usable; Stage 2 (quality enrichment) → background
+- Single-stage startup: prices + essential meta → engine usable
 - Per-phase timing instrumentation
 
 Universe construction
@@ -21,14 +21,11 @@ At cold start, the live universe is built dynamically from the NASDAQ screener A
   4. classify_ticker(): excludes ETFs, funds, OTC, partnerships, SPACs at meta-fetch time.
   5. Price/ADV/cap filters: price >= $5, 63-day median ADV >= $10M, market cap >= $1B.
 
-Quality sleeve
---------------
-Three buckets, each winsorized then z-scored cross-sectionally:
-  Profitability : mean(z_roe, z_roa)
-  Margin        : mean(z_gross_margin, z_op_margin)
-  Leverage      : -z(de_ratio)
-Minimum coverage: profitability bucket must exist AND at least one of margin/leverage.
-No imputation for missing descriptors; missing quality → alpha renormalized to S+T only.
+Alpha model
+-----------
+alpha = (wS × sSleeve + wT × tSleeve) / (wS + wT)
+  S sleeve: 50% z(s6) + 50% z(s12)   — Sharpe-adjusted momentum
+  T sleeve: 50% z(t6) + 50% z(t12)   — OLS t-stat trend
 """
 
 import os
@@ -56,14 +53,10 @@ CACHE_DIR          = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".
 PRICE_CACHE_TTL    = 8  * 3600
 META_CACHE_TTL     = 48 * 3600
 UNIVERSE_CACHE_TTL = 24 * 3600
-QUALITY_CACHE_TTL  = 7  * 24 * 3600   # 10-K filings are annual — 7-day cache is safe
 PRICE_CACHE_KEY    = "price_data_v5"
 META_CACHE_KEY     = "meta_data_v2"
 UNIVERSE_CACHE_KEY = "universe_v1"
 NASDAQ_META_KEY    = "nasdaq_meta_v1"
-QUALITY_CACHE_KEY  = "quality_data_v4"   # bumped: now stores raw fundamentals fields
-SEC_CIK_CACHE_KEY  = "sec_cik_map_v1"
-SEC_CIK_CACHE_TTL  = 14 * 24 * 3600   # CIK map changes very rarely
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 cache = diskcache.Cache(CACHE_DIR)
@@ -75,8 +68,6 @@ _status = {
     "total": 0,
     "loaded": 0,
     "cached_at": None,
-    "enrichment": "pending",
-    "quality_coverage": "",
     "timings": {},
 }
 _status_lock = threading.Lock()
@@ -293,7 +284,6 @@ _dollar_volume: Optional[pd.DataFrame] = None
 _meta_data:     Optional[dict]         = None
 _audit_printed  = False
 
-_quality_epoch  = 0
 _factor_cache   = None
 _factor_key     = None
 _factor_audit   = None
@@ -488,21 +478,11 @@ def compute_factors_vectorized(prices: pd.DataFrame,
     else:
         adv = pd.Series(np.nan, index=tickers)
 
-    meta_names     = []
-    meta_sectors   = []
+    meta_names      = []
+    meta_sectors    = []
     meta_industries = []
-    meta_mcaps     = []
-    meta_roes      = []
-    meta_roas      = []
-    meta_gm        = []
-    meta_om        = []
-    meta_de        = []
-    meta_total_assets       = []
-    meta_prior_total_assets = []
-    meta_total_liabilities  = []
-    meta_revenue            = []
-    meta_op_income          = []
-    struct_excl    = []
+    meta_mcaps      = []
+    struct_excl     = []
 
     for t in tickers:
         m = meta.get(t, {})
@@ -510,16 +490,6 @@ def compute_factors_vectorized(prices: pd.DataFrame,
         meta_sectors.append(m.get("sector"))
         meta_industries.append(m.get("industry"))
         meta_mcaps.append(m.get("market_cap"))
-        meta_roes.append(m.get("roe"))
-        meta_roas.append(m.get("roa"))
-        meta_gm.append(m.get("gross_margin"))
-        meta_om.append(m.get("op_margin"))
-        meta_de.append(m.get("de_ratio"))
-        meta_total_assets.append(m.get("total_assets"))
-        meta_prior_total_assets.append(m.get("prior_total_assets"))
-        meta_total_liabilities.append(m.get("total_liabilities"))
-        meta_revenue.append(m.get("revenue"))
-        meta_op_income.append(m.get("op_income"))
         struct_excl.append(classify_ticker(t, m))
 
         if not np.isfinite(adv.get(t, np.nan)) or adv.get(t, 0) == 0:
@@ -528,32 +498,22 @@ def compute_factors_vectorized(prices: pd.DataFrame,
                 adv[t] = price_last[t] * avg_vol
 
     df = pd.DataFrame({
-        "ticker":    tickers,
-        "name":      meta_names,
-        "sector":    meta_sectors,
-        "industry":  meta_industries,
-        "price":     price_last.values,
-        "market_cap": meta_mcaps,
-        "adv":       adv.values,
-        "r1":        r1,
-        "m6":        m6.values,
-        "m12":       m12.values,
-        "sigma6":    sigma6.values,
-        "sigma12":   sigma12.values,
-        "s6":        s6.values,
-        "s12":       s12.values,
-        "tstat6":    tstat6.values,
-        "tstat12":   tstat12.values,
-        "_roe":      meta_roes,
-        "_roa":      meta_roas,
-        "_gross_margin": meta_gm,
-        "_op_margin":    meta_om,
-        "_de_ratio":     meta_de,
-        "total_assets":       meta_total_assets,
-        "prior_total_assets": meta_prior_total_assets,
-        "total_liabilities":  meta_total_liabilities,
-        "revenue":            meta_revenue,
-        "op_income":          meta_op_income,
+        "ticker":          tickers,
+        "name":            meta_names,
+        "sector":          meta_sectors,
+        "industry":        meta_industries,
+        "price":           price_last.values,
+        "market_cap":      meta_mcaps,
+        "adv":             adv.values,
+        "r1":              r1,
+        "m6":              m6.values,
+        "m12":             m12.values,
+        "sigma6":          sigma6.values,
+        "sigma12":         sigma12.values,
+        "s6":              s6.values,
+        "s12":             s12.values,
+        "tstat6":          tstat6.values,
+        "tstat12":         tstat12.values,
         "structure_exclusion": struct_excl,
     })
 
@@ -562,94 +522,6 @@ def compute_factors_vectorized(prices: pd.DataFrame,
 
     if df.empty:
         return df
-
-    z_roe   = std_cs(df["_roe"],          winsor_p)
-    z_roa   = std_cs(df["_roa"],          winsor_p)
-    z_gross = std_cs(df["_gross_margin"], winsor_p)
-    z_op    = std_cs(df["_op_margin"],    winsor_p)
-    z_de    = std_cs(df["_de_ratio"],     winsor_p)
-
-    # Store individual quality z-scores and raw values for per-stock audit
-    df["z_roe"]       = z_roe
-    df["z_roa"]       = z_roa
-    df["z_gross"]     = z_gross
-    df["z_op"]        = z_op
-    df["z_inv_lev"]   = -z_de          # InvLev = E/D → z(InvLev) = −z(D/E)
-    df["roe"]         = df["_roe"]
-    df["roa"]         = df["_roa"]
-    df["gross_margin"] = df["_gross_margin"]
-    df["op_margin"]   = df["_op_margin"]
-    df["de_ratio"]    = df["_de_ratio"]
-
-    # Count of non-null individual quality inputs (0-5)
-    df["quality_input_count"] = (
-        df["_roe"].notna().astype(int) +
-        df["_roa"].notna().astype(int) +
-        df["_gross_margin"].notna().astype(int) +
-        df["_op_margin"].notna().astype(int) +
-        df["_de_ratio"].notna().astype(int)
-    )
-
-    prof_frame   = pd.DataFrame({"z_roe": z_roe,   "z_roa": z_roa})
-    margin_frame = pd.DataFrame({"z_gross": z_gross, "z_op": z_op})
-
-    df["_prof_bucket"]     = prof_frame.mean(axis=1, skipna=True)
-    df["_margin_bucket"]   = margin_frame.mean(axis=1, skipna=True)
-    df["_leverage_bucket"] = -z_de
-
-    df["has_profitability_bucket"] = df["_prof_bucket"].notna()
-    df["has_margin_bucket"]        = df["_margin_bucket"].notna()
-    df["has_leverage_bucket"]      = df["_leverage_bucket"].notna()
-    df["quality_bucket_count"] = (
-        df["has_profitability_bucket"].astype(int) +
-        df["has_margin_bucket"].astype(int) +
-        df["has_leverage_bucket"].astype(int)
-    )
-
-    quality_ok = (
-        df["has_profitability_bucket"] &
-        (df["has_margin_bucket"] | df["has_leverage_bucket"])
-    )
-    qual_frame = pd.DataFrame({
-        "prof":   df["_prof_bucket"],
-        "margin": df["_margin_bucket"],
-        "lev":    df["_leverage_bucket"],
-    })
-    df["quality"] = qual_frame.mean(axis=1, skipna=True)
-    df.loc[~quality_ok, "quality"] = np.nan
-
-    def _quality_reason(row) -> Optional[str]:
-        if pd.notna(row["quality"]):
-            return None
-        if not row["has_profitability_bucket"] and not row["has_margin_bucket"]:
-            return "missing_profitability_and_margin"
-        if not row["has_profitability_bucket"] and not row["has_leverage_bucket"]:
-            return "missing_profitability_and_leverage"
-        if not row["has_profitability_bucket"]:
-            return "missing_profitability"
-        return "insufficient_quality_inputs"
-
-    df["quality_missing_reason"] = df.apply(_quality_reason, axis=1)
-
-    # ── 3-pillar derived values ────────────────────────────────────────────────
-    df["profitability_ratio"] = np.where(
-        df["op_income"].notna() & df["revenue"].notna() & (df["revenue"] != 0),
-        df["op_income"] / df["revenue"],
-        np.nan,
-    )
-    df["safety_ratio"] = np.where(
-        df["total_liabilities"].notna() & df["total_assets"].notna() & (df["total_assets"] != 0),
-        df["total_liabilities"] / df["total_assets"],
-        np.nan,
-    )
-    df["investment_growth"] = np.where(
-        df["total_assets"].notna() & df["prior_total_assets"].notna() & (df["prior_total_assets"] != 0),
-        df["total_assets"] / df["prior_total_assets"] - 1,
-        np.nan,
-    )
-    df["has_profitability_data"] = df["profitability_ratio"].notna()
-    df["has_safety_data"]        = df["safety_ratio"].notna()
-    df["has_investment_data"]    = df["investment_growth"].notna()
 
     elapsed = time.time() - t0
     _timings["compute_factors"] = round(elapsed, 3)
@@ -666,18 +538,14 @@ def compute_factors_vectorized(prices: pd.DataFrame,
 
 def compute_rankings(df: pd.DataFrame,
                      vol_adjust: bool = True,
-                     use_quality: bool = True,
                      use_tstats: bool = False,
-                     w6: float = 0.4,
-                     w12: float = 0.4,
-                     w_quality: float = 0.2,
+                     w6: float = 0.5,
+                     w12: float = 0.5,
                      winsor_p: float = 2.0,
-                     vol_floor: float = 0.05,
-                     use_profitability_data: bool = False,
-                     use_safety_data: bool = False,
-                     use_investment_data: bool = False) -> pd.DataFrame:
+                     vol_floor: float = 0.05) -> pd.DataFrame:
     """
-    Cross-sectionally standardize factors and compute sleeve-based alpha scores.
+    Cross-sectionally standardize S and T factors, compute 2-sleeve alpha.
+    alpha = (wS × sSleeve + wT × tSleeve) / (wS + wT)
     Clustering is handled separately by compute_clustering().
     """
     if df.empty:
@@ -698,72 +566,20 @@ def compute_rankings(df: pd.DataFrame,
     d["zT6"]  = std_factor(d["tstat6"])
     d["zT12"] = std_factor(d["tstat12"])
 
-    # ── Quality score: new 3-pillar system overrides old sleeve when any toggle on ──
-    any_pillar = use_profitability_data or use_safety_data or use_investment_data
-    if any_pillar:
-        pillar_parts: dict = {}
-        if use_profitability_data and "profitability_ratio" in d.columns:
-            pillar_parts["zP"] = std_factor(d["profitability_ratio"])         # higher = better
-        if use_safety_data and "safety_ratio" in d.columns:
-            pillar_parts["zSa"] = -std_factor(d["safety_ratio"])              # lower liab/assets = better
-        if use_investment_data and "investment_growth" in d.columns:
-            pillar_parts["zI"] = -std_factor(d["investment_growth"])          # lower asset growth = better
-        if pillar_parts:
-            pillar_df = pd.DataFrame(pillar_parts, index=d.index)
-            d["quality"] = pillar_df.mean(axis=1, skipna=False)               # NaN if any selected pillar missing
-            # Store per-pillar z-scores for audit transparency
-            d["z_profitability"] = pillar_parts.get("zP")
-            d["z_safety"]        = pillar_parts.get("zSa")
-            d["z_investment"]    = pillar_parts.get("zI")
-        else:
-            d["quality"] = np.nan
-        effective_use_quality = True
-        # Build label for alpha_formula
-        _lbl_parts = []
-        if use_profitability_data: _lbl_parts.append("P")
-        if use_safety_data:        _lbl_parts.append("Sa")
-        if use_investment_data:    _lbl_parts.append("I")
-        _q_label = "+".join(_lbl_parts)
-    else:
-        effective_use_quality = use_quality
-        _q_label = ""
-
-    d["zQ"] = std_factor(d["quality"]) if effective_use_quality else pd.Series(0.0, index=d.index)
-
-    d["zM6"]      = d["zS6"]
-    d["zM12"]     = d["zS12"]
-    d["zQuality"] = d["zQ"]
-
     d["sSleeve"] = 0.5 * d["zS6"].fillna(0) + 0.5 * d["zS12"].fillna(0)
     d["tSleeve"] = 0.5 * d["zT6"].fillna(0) + 0.5 * d["zT12"].fillna(0)
-    d["qSleeve"] = d["zQ"].fillna(0)
 
-    has_quality = d["quality"].notna() & effective_use_quality
-    d["quality_missing"] = ~has_quality
+    wS      = w6
+    wT      = w12
+    total_w = (wS + wT) or 1.0
 
-    wS = w6
-    wT = w12
-    wQ = w_quality if effective_use_quality else 0.0
-
-    total_w_full = wS + wT + wQ if (wS + wT + wQ) > 0 else 1.0
-    total_w_no_q = wS + wT      if (wS + wT)      > 0 else 1.0
-
-    S = d["sSleeve"]
-    T = d["tSleeve"]
-    Q = d["qSleeve"]
-
-    alpha_with_q    = (wS * S + wT * T + wQ * Q) / total_w_full
-    alpha_without_q = (wS * S + wT * T)           / total_w_no_q
-
-    d["alpha"] = np.where(has_quality, alpha_with_q, alpha_without_q)
-    _formula_with_q = f"S+T+Q({_q_label})" if _q_label else "S+T+Q"
-    d["alpha_formula"] = np.where(has_quality, _formula_with_q, "S+T")
+    d["alpha"]        = (wS * d["sSleeve"] + wT * d["tSleeve"]) / total_w
+    d["alpha_formula"] = "S+T"
 
     d = d.sort_values("alpha", ascending=False)
     d["rank"]       = np.arange(1, len(d) + 1)
     d["percentile"] = 100.0 * (1 - (d["rank"] - 1) / len(d))
-
-    d["cluster"] = None
+    d["cluster"]    = None
 
     return d
 
@@ -841,43 +657,11 @@ def compute_clustering(d: pd.DataFrame,
 
 # ─── Universe filtering ───────────────────────────────────────────────────────
 
-def _get_sec_cik_map() -> dict:
-    cached = cache.get(SEC_CIK_CACHE_KEY)
-    if cached and isinstance(cached, dict):
-        return cached
-    try:
-        import requests
-        resp = requests.get(
-            "https://www.sec.gov/files/company_tickers.json",
-            headers={"User-Agent": "QuantTerminal/1.0 admin@example.com"},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        raw = resp.json()
-        ticker_to_cik = {}
-        for entry in raw.values():
-            ticker = entry.get("ticker", "").upper()
-            cik = entry.get("cik_str")
-            if ticker and cik:
-                ticker_to_cik[ticker] = cik
-        cache.set(SEC_CIK_CACHE_KEY, ticker_to_cik, expire=SEC_CIK_CACHE_TTL)
-        logger.info(f"SEC CIK map loaded: {len(ticker_to_cik)} tickers")
-        return ticker_to_cik
-    except Exception as e:
-        logger.warning(f"Failed to load SEC CIK map: {e}")
-        return {}
-
-
 def apply_universe_filters(df: pd.DataFrame,
-                           min_price:               float = 5.0,
-                           min_adv:                 float = 1e7,
-                           min_market_cap:          float = 1e9,
-                           sec_filer_only:          bool  = False,
-                           exclude_sectors:         list  = None,
-                           require_quality:         bool  = False,
-                           use_profitability_data:  bool  = False,
-                           use_safety_data:         bool  = False,
-                           use_investment_data:     bool  = False) -> tuple:
+                           min_price:       float = 5.0,
+                           min_adv:         float = 1e7,
+                           min_market_cap:  float = 1e9,
+                           exclude_sectors: list  = None) -> tuple:
     n_in = len(df)
     mask = pd.Series(True, index=df.index)
     audit_exclusions = {}
@@ -912,19 +696,6 @@ def apply_universe_filters(df: pd.DataFrame,
             logger.info(f"Universe exclusion [market_cap_below_floor]: {cap_fail.sum()} tickers")
         mask &= ~cap_fail
 
-    if sec_filer_only and "ticker" in df.columns:
-        cik_map = _get_sec_cik_map()
-        if cik_map:
-            is_sec = df["ticker"].isin(cik_map)
-            non_sec = (~is_sec) & mask
-            if non_sec.any():
-                audit_exclusions["non_sec_filer"] = int(non_sec.sum())
-                logger.info(f"Universe exclusion [non_sec_filer]: {non_sec.sum()} tickers")
-            mask &= is_sec
-        else:
-            logger.warning("SEC CIK map unavailable — secFilerOnly filter skipped")
-            audit_exclusions["sec_filer_unavailable"] = 0
-
     if exclude_sectors and "sector" in df.columns:
         excl_set = {s.strip() for s in exclude_sectors}
         sector_hit = df["sector"].isin(excl_set) & mask
@@ -936,34 +707,6 @@ def apply_universe_filters(df: pd.DataFrame,
             logger.info(f"Universe exclusion [sector]: {sector_hit.sum()} tickers ({', '.join(excl_set)})")
         mask &= ~df["sector"].isin(excl_set)
 
-    if require_quality and "quality" in df.columns:
-        no_quality = df["quality"].isna() & mask
-        if no_quality.any():
-            audit_exclusions["missing_quality"] = int(no_quality.sum())
-            logger.info(f"Universe exclusion [missing_quality]: {no_quality.sum()} tickers")
-        mask &= df["quality"].notna()
-
-    if use_profitability_data and "has_profitability_data" in df.columns:
-        fail = (~df["has_profitability_data"]) & mask
-        if fail.any():
-            audit_exclusions["missing_profitability_data"] = int(fail.sum())
-            logger.info(f"Universe exclusion [missing_profitability_data]: {fail.sum()} tickers")
-        mask &= df["has_profitability_data"]
-
-    if use_safety_data and "has_safety_data" in df.columns:
-        fail = (~df["has_safety_data"]) & mask
-        if fail.any():
-            audit_exclusions["missing_safety_data"] = int(fail.sum())
-            logger.info(f"Universe exclusion [missing_safety_data]: {fail.sum()} tickers")
-        mask &= df["has_safety_data"]
-
-    if use_investment_data and "has_investment_data" in df.columns:
-        fail = (~df["has_investment_data"]) & mask
-        if fail.any():
-            audit_exclusions["missing_investment_data"] = int(fail.sum())
-            logger.info(f"Universe exclusion [missing_investment_data]: {fail.sum()} tickers")
-        mask &= df["has_investment_data"]
-
     result = df[mask].copy()
     logger.info(f"Universe filters: {n_in} candidates → {len(result)} qualifying stocks")
 
@@ -973,90 +716,23 @@ def apply_universe_filters(df: pd.DataFrame,
             if s:
                 sector_counts[s] = int(cnt)
 
-    qual_with = int(result["quality"].notna().sum()) if "quality" in result.columns else 0
-    qual_total = len(result)
-
-    # Quality input-count distribution (0–5 individual inputs)
-    if "quality_input_count" in result.columns:
-        qic = result["quality_input_count"]
-        qual_input_dist = {str(i): int((qic == i).sum()) for i in range(6)}
-    else:
-        qual_input_dist = {}
-
-    # Per-field missing rates (% of stocks missing each quality input)
-    _field_cols = {
-        "roe":         "roe",
-        "roa":         "roa",
-        "grossMargin": "gross_margin",
-        "opMargin":    "op_margin",
-        "deRatio":     "de_ratio",
-    }
-    qual_field_missing: dict = {}
-    for label, col in _field_cols.items():
-        if col in result.columns:
-            qual_field_missing[label] = round(float(result[col].isna().mean()) * 100, 1)
-
-    # Raw fundamentals coverage (for internal audit; used by future 3-pillar quality)
-    _raw_fund_cols = {
-        "totalAssets":      "total_assets",
-        "priorTotalAssets": "prior_total_assets",
-        "totalLiabilities": "total_liabilities",
-        "revenue":          "revenue",
-        "opIncome":         "op_income",
-    }
-    raw_fund_coverage: dict = {}
-    for label, col in _raw_fund_cols.items():
-        if col in result.columns:
-            n_present = int(result[col].notna().sum())
-            raw_fund_coverage[label] = {
-                "count": n_present,
-                "pct":   round(100 * n_present / len(result), 1) if len(result) else 0,
-            }
-
-    # Readiness counts for future 3-pillar construction
-    has_assets   = result["total_assets"].notna()   if "total_assets"      in result.columns else pd.Series(False, index=result.index)
-    has_liab     = result["total_liabilities"].notna() if "total_liabilities" in result.columns else pd.Series(False, index=result.index)
-    has_rev      = result["revenue"].notna()         if "revenue"           in result.columns else pd.Series(False, index=result.index)
-    has_op       = result["op_income"].notna()       if "op_income"         in result.columns else pd.Series(False, index=result.index)
-    has_prior_a  = result["prior_total_assets"].notna() if "prior_total_assets" in result.columns else pd.Series(False, index=result.index)
-    profitability_ready = int((has_op & has_rev).sum())
-    safety_ready        = int((has_liab & has_assets).sum())
-    investment_ready    = int((has_prior_a & has_assets).sum())
+    active_filters = [
+        f"price>=${min_price}",
+        f"adv>=${min_adv/1e6:.0f}M",
+        f"mcap>=${min_market_cap/1e9:.0f}B",
+        "history>=252d",
+        "common_stock_only",
+    ]
+    if exclude_sectors:
+        active_filters.append(f"exclude_sectors:{','.join(exclude_sectors)}")
 
     audit = {
         "preFilterCount":  n_in,
         "postFilterCount": len(result),
         "exclusions":      audit_exclusions,
         "sectorBreakdown": sector_counts,
-        "qualityCoverage": f"{qual_with}/{qual_total}",
-        "qualityPct":      round(100 * qual_with / qual_total, 1) if qual_total else 0,
-        "qualityInputDist":        qual_input_dist,
-        "qualityFieldMissingRates": qual_field_missing,
-        "rawFundCoverage":          raw_fund_coverage,
-        "pillarReadiness": {
-            "profitability": profitability_ready,
-            "safety":        safety_ready,
-            "investment":    investment_ready,
-        },
-        "activeFilters":   [],
+        "activeFilters":   active_filters,
     }
-    audit["activeFilters"].append(f"price>=${min_price}")
-    audit["activeFilters"].append(f"adv>=${min_adv/1e6:.0f}M")
-    audit["activeFilters"].append(f"mcap>=${min_market_cap/1e9:.0f}B")
-    audit["activeFilters"].append("history>=252d")
-    audit["activeFilters"].append("common_stock_only")
-    if sec_filer_only:
-        audit["activeFilters"].append("sec_filer_only")
-    if exclude_sectors:
-        audit["activeFilters"].append(f"exclude_sectors:{','.join(exclude_sectors)}")
-    if require_quality:
-        audit["activeFilters"].append("require_quality")
-    if use_profitability_data:
-        audit["activeFilters"].append("require_profitability_data")
-    if use_safety_data:
-        audit["activeFilters"].append("require_safety_data")
-    if use_investment_data:
-        audit["activeFilters"].append("require_investment_data")
 
     return result, audit
 
@@ -1116,51 +792,10 @@ def _print_audit_summary(price_data: pd.DataFrame, meta_data: dict,
         lines.append(f"    {'missing_quote_type':<30}: {miss_quote_type:>6}")
     lines.append("")
 
-    lines.append("  QUALITY & ALPHA (factors_post):")
-    if "quality" in factors_post.columns:
-        miss_qual = factors_post["quality"].isna().sum()
-        lines.append(f"    {'missing_quality':<30}: {miss_qual:>6}")
-    if "alpha_formula" in factors_post.columns:
-        st_only = (factors_post["alpha_formula"] == "S+T").sum()
-        lines.append(f"    {'alpha_st_only (no Q)':<30}: {st_only:>6}")
-
-    lines.append("")
-    lines.append("  RAW FUNDAMENTALS COVERAGE (factors_post):")
-    n_post = len(factors_post)
-    for col, label in [
-        ("total_assets",       "total_assets"),
-        ("prior_total_assets", "prior_total_assets"),
-        ("total_liabilities",  "total_liabilities"),
-        ("revenue",            "revenue"),
-        ("op_income",          "op_income"),
-    ]:
-        if col in factors_post.columns:
-            n = int(factors_post[col].notna().sum())
-            pct = round(100 * n / n_post, 1) if n_post else 0
-            lines.append(f"    {label:<30}: {n:>6}  ({pct}%)")
-
-    lines.append("")
-    lines.append("  3-PILLAR READINESS (factors_post):")
-    has_a  = factors_post["total_assets"].notna()         if "total_assets"      in factors_post.columns else pd.Series(False)
-    has_l  = factors_post["total_liabilities"].notna()    if "total_liabilities" in factors_post.columns else pd.Series(False)
-    has_r  = factors_post["revenue"].notna()              if "revenue"           in factors_post.columns else pd.Series(False)
-    has_op = factors_post["op_income"].notna()            if "op_income"         in factors_post.columns else pd.Series(False)
-    has_pa = factors_post["prior_total_assets"].notna()   if "prior_total_assets" in factors_post.columns else pd.Series(False)
-    lines.append(f"    {'profitability (opInc+rev)':<30}: {int((has_op & has_r).sum()):>6}")
-    lines.append(f"    {'safety (liab+assets)':<30}: {int((has_l & has_a).sum()):>6}")
-    lines.append(f"    {'investment (assets+prior)':<30}: {int((has_pa & has_a).sum()):>6}")
-
-    lines.append("")
     lines.append("  TIMINGS:")
     for k, v in _timings.items():
         lines.append(f"    {k:<30}: {v:>8.3f}s")
 
-    enrich = _status.get("enrichment", "unknown")
-    qcov = _status.get("quality_coverage", "")
-    lines.append("")
-    lines.append(f"  ENRICHMENT STATUS: {enrich}")
-    if qcov:
-        lines.append(f"  QUALITY COVERAGE:  {qcov}")
     lines.append("═" * 60)
 
     for line in lines:
@@ -1179,39 +814,23 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
         return None, {}
 
     t0 = time.time()
-    vol_floor = params.get("vol_floor", 0.05)
-    winsor_p  = params.get("winsor_p", 2.0)
-    w6        = params.get("w6", 0.4)
-    w12       = params.get("w12", 0.4)
-    w_quality = params.get("w_quality", 0.2)
-    use_quality = params.get("use_quality", True)
-    use_tstats  = params.get("use_tstats", False)
-    vol_adjust  = params.get("vol_adjust", True)
-    cluster_n   = params.get("cluster_n", 100)
-    cluster_k   = params.get("cluster_k", 10)
+    vol_floor        = params.get("vol_floor", 0.05)
+    winsor_p         = params.get("winsor_p", 2.0)
+    w6               = params.get("w6", 0.5)
+    w12              = params.get("w12", 0.5)
+    use_tstats       = params.get("use_tstats", False)
+    vol_adjust       = params.get("vol_adjust", True)
+    cluster_n        = params.get("cluster_n", 100)
+    cluster_k        = params.get("cluster_k", 10)
     cluster_lookback = params.get("cluster_lookback", 252)
-
-    sec_filer_only         = params.get("sec_filer_only", False)
-    exclude_sectors        = params.get("exclude_sectors", [])
-    require_quality        = params.get("require_quality", False)
-    use_profitability_data = params.get("use_profitability_data", False)
-    use_safety_data        = params.get("use_safety_data", False)
-    use_investment_data    = params.get("use_investment_data", False)
+    exclude_sectors  = params.get("exclude_sectors", [])
 
     fk = json.dumps({"vol_floor": vol_floor, "winsor_p": winsor_p,
-                      "qe": _quality_epoch,
-                      "sec": sec_filer_only,
-                      "xs": sorted(exclude_sectors) if exclude_sectors else [],
-                      "rq": require_quality,
-                      "up": use_profitability_data,
-                      "us": use_safety_data,
-                      "ui": use_investment_data}, sort_keys=True)
-    rk = json.dumps({"fk": fk, "w6": w6, "w12": w12, "wq": w_quality,
-                      "uq": use_quality, "ut": use_tstats, "va": vol_adjust,
-                      "wp": winsor_p,
-                      "upd": use_profitability_data,
-                      "usd": use_safety_data,
-                      "uid": use_investment_data}, sort_keys=True)
+                      "xs": sorted(exclude_sectors) if exclude_sectors else []},
+                     sort_keys=True)
+    rk = json.dumps({"fk": fk, "w6": w6, "w12": w12,
+                      "ut": use_tstats, "va": vol_adjust,
+                      "wp": winsor_p}, sort_keys=True)
     ck = json.dumps({"rk": rk, "cn": cluster_n, "ck": cluster_k,
                       "cl": cluster_lookback}, sort_keys=True)
 
@@ -1236,12 +855,7 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
             factors_pre = factors_raw.copy()
             factors_filtered, audit = apply_universe_filters(
                 factors_raw,
-                sec_filer_only=sec_filer_only,
                 exclude_sectors=exclude_sectors,
-                require_quality=require_quality,
-                use_profitability_data=use_profitability_data,
-                use_safety_data=use_safety_data,
-                use_investment_data=use_investment_data,
             )
 
             if not _audit_printed:
@@ -1267,13 +881,9 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
             ranked = compute_rankings(
                 factors_filtered,
                 vol_adjust=vol_adjust,
-                use_quality=use_quality,
                 use_tstats=use_tstats,
-                w6=w6, w12=w12, w_quality=w_quality,
+                w6=w6, w12=w12,
                 winsor_p=winsor_p, vol_floor=vol_floor,
-                use_profitability_data=use_profitability_data,
-                use_safety_data=use_safety_data,
-                use_investment_data=use_investment_data,
             )
             _ranking_cache = ranked
             _ranking_key = rk
@@ -1398,345 +1008,6 @@ def _yf_load_data_batch(tickers: list, batch_size: int = 100) -> tuple:
     return all_close, all_dollar_vol, failed
 
 
-# ─── Quality metadata enrichment ──────────────────────────────────────────────
-
-SEC_EDGAR_UA = "QuantTerminal/1.0 admin@example.com"
-
-def _latest_annual_value(facts: dict, concept: str, taxonomy: str = "us-gaap") -> float | None:
-    try:
-        units = facts.get(taxonomy, {}).get(concept, {}).get("units", {})
-        entries = units.get("USD") or units.get("USD/shares") or units.get("pure", [])
-        annuals = [e for e in entries if e.get("form") in ("10-K", "10-K/A")]
-        if not annuals:
-            return None
-        annuals.sort(key=lambda e: e.get("end", ""), reverse=True)
-        return annuals[0].get("val")
-    except Exception:
-        return None
-
-
-def _latest_two_annual_values(facts: dict, concept: str, taxonomy: str = "us-gaap") -> tuple:
-    """Return (latest, prior) annual values for a concept, newest first.
-
-    Picks the two most recent distinct fiscal-year-end entries from 10-K/10-K/A
-    filings. Used for computing YoY asset growth later.
-    Returns (None, None) if fewer than one annual filing exists.
-    """
-    try:
-        units = facts.get(taxonomy, {}).get(concept, {}).get("units", {})
-        entries = units.get("USD") or units.get("USD/shares") or units.get("pure", [])
-        annuals = [e for e in entries if e.get("form") in ("10-K", "10-K/A")]
-        if not annuals:
-            return None, None
-        annuals.sort(key=lambda e: e.get("end", ""), reverse=True)
-        seen_years: list = []
-        vals: list = []
-        for e in annuals:
-            yr = e.get("end", "")[:4]
-            if yr not in seen_years:
-                seen_years.append(yr)
-                vals.append(e.get("val"))
-            if len(vals) == 2:
-                break
-        latest = vals[0] if len(vals) > 0 else None
-        prior  = vals[1] if len(vals) > 1 else None
-        return latest, prior
-    except Exception:
-        return None, None
-
-
-def _fetch_one_quality_edgar(ticker: str, cik: int, max_retries: int = 3) -> tuple:
-    import requests
-    try:
-        cik_padded = str(cik).zfill(10)
-        url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik_padded}.json"
-
-        for attempt in range(max_retries):
-            resp = requests.get(url, headers={"User-Agent": SEC_EDGAR_UA}, timeout=12)
-            if resp.status_code == 404:
-                return ticker, {}, False
-            if resp.status_code == 429 or resp.status_code >= 500:
-                wait = float(resp.headers.get("Retry-After", 2 + 3 ** attempt))
-                time.sleep(min(wait, 30))
-                continue
-            resp.raise_for_status()
-            break
-        else:
-            return ticker, {}, False
-
-        facts = resp.json().get("facts", {})
-
-        net_income = (
-            _latest_annual_value(facts, "NetIncomeLoss")
-            or _latest_annual_value(facts, "ProfitLoss")
-            or _latest_annual_value(facts, "ProfitLoss", "ifrs-full")
-        )
-        equity = (
-            _latest_annual_value(facts, "StockholdersEquity")
-            or _latest_annual_value(facts, "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")
-            or _latest_annual_value(facts, "Equity", "ifrs-full")
-        )
-
-        # Fetch two consecutive annual asset values (latest + prior year) for growth later
-        assets, prior_assets = _latest_two_annual_values(facts, "Assets")
-        if assets is None:
-            assets, prior_assets = _latest_two_annual_values(facts, "Assets", "ifrs-full")
-
-        revenue = (
-            _latest_annual_value(facts, "RevenueFromContractWithCustomerExcludingAssessedTax")
-            or _latest_annual_value(facts, "Revenues")
-            or _latest_annual_value(facts, "SalesRevenueNet")
-            or _latest_annual_value(facts, "RevenueFromContractWithCustomerIncludingAssessedTax")
-            or _latest_annual_value(facts, "Revenue", "ifrs-full")
-        )
-        gross_profit = (
-            _latest_annual_value(facts, "GrossProfit")
-            or _latest_annual_value(facts, "GrossProfit", "ifrs-full")
-        )
-        op_income = (
-            _latest_annual_value(facts, "OperatingIncomeLoss")
-            or _latest_annual_value(facts, "ProfitLossFromOperatingActivities", "ifrs-full")
-        )
-        total_liab = (
-            _latest_annual_value(facts, "Liabilities")
-            or _latest_annual_value(facts, "Liabilities", "ifrs-full")
-        )
-        long_term_debt = (
-            _latest_annual_value(facts, "LongTermDebt")
-            or _latest_annual_value(facts, "LongTermDebtNoncurrent")
-            or _latest_annual_value(facts, "NoncurrentLiabilities", "ifrs-full")
-        )
-
-        result = {}
-
-        # Derived ratios (existing quality factor inputs — unchanged)
-        if net_income is not None and equity and equity != 0:
-            result["roe"] = net_income / equity
-        if net_income is not None and assets and assets != 0:
-            result["roa"] = net_income / assets
-        if gross_profit is not None and revenue and revenue != 0:
-            result["gross_margin"] = gross_profit / revenue
-        if op_income is not None and revenue and revenue != 0:
-            result["op_margin"] = op_income / revenue
-        if equity and equity != 0:
-            debt_val = long_term_debt if long_term_debt is not None else (total_liab if total_liab is not None else None)
-            if debt_val is not None:
-                result["de_ratio"] = (debt_val / equity) * 100
-
-        # Raw fundamentals — stored for future 3-pillar quality construction
-        if assets is not None:
-            result["total_assets"] = assets
-        if prior_assets is not None:
-            result["prior_total_assets"] = prior_assets
-        if total_liab is not None:
-            result["total_liabilities"] = total_liab
-        if revenue is not None:
-            result["revenue"] = revenue
-        if op_income is not None:
-            result["op_income"] = op_income
-
-        ok = any(v is not None for v in result.values())
-        return ticker, result, ok
-    except Exception:
-        return ticker, {}, False
-
-
-_QUALITY_MERGE_FIELDS = (
-    "roe", "roa", "gross_margin", "op_margin", "de_ratio",
-    "total_assets", "prior_total_assets", "total_liabilities", "revenue", "op_income",
-)
-
-
-def _merge_quality_into_meta(quality_dict: dict, tickers: list):
-    """Merge quality fields into _meta_data for tickers present in both."""
-    merged = 0
-    for t in tickers:
-        if t in quality_dict and t in _meta_data:
-            vals = quality_dict[t]
-            if vals.get("_no_data"):
-                continue
-            for k in _QUALITY_MERGE_FIELDS:
-                v = vals.get(k)
-                if v is not None:
-                    _meta_data[t][k] = v
-            merged += 1
-    return merged
-
-
-def _background_quality_enrichment(tickers: list):
-    """
-    Stage 2: Snapshot-first quality enrichment.
-
-    Strategy:
-      1. ALWAYS merge whatever is in the quality cache (no coverage threshold)
-      2. Identify tickers still missing quality data
-      3. Incrementally fetch ONLY the missing tickers from SEC EDGAR
-      4. Merge new results into the existing cache (never shrink)
-      5. Re-save META_CACHE_KEY with enriched _meta_data
-    """
-    global _meta_data, _quality_epoch, _factor_cache, _factor_key, _factor_audit, _audit_printed
-
-    t0 = time.time()
-
-    with _status_lock:
-        _status["enrichment"] = "loading"
-        _status["quality_coverage"] = f"0/{len(tickers)}"
-
-    quality_store = {}
-    quality_cached = cache.get(QUALITY_CACHE_KEY)
-    if quality_cached and isinstance(quality_cached, dict):
-        quality_store = dict(quality_cached)
-
-    # One-time migration: seed v4 from v3 so derived ratios survive the cache-key bump.
-    # Tickers seeded this way will still be re-fetched (below) to add the new raw fields.
-    _PREV_QUALITY_KEY = "quality_data_v3"
-    _DERIVED_FIELDS   = ("roe", "roa", "gross_margin", "op_margin", "de_ratio")
-    if not quality_store:
-        v3_cached = cache.get(_PREV_QUALITY_KEY)
-        if v3_cached and isinstance(v3_cached, dict):
-            for t, vals in v3_cached.items():
-                if vals.get("_no_data"):
-                    quality_store[t] = {"_no_data": True}
-                else:
-                    entry = {k: vals[k] for k in _DERIVED_FIELDS if vals.get(k) is not None}
-                    if entry:
-                        quality_store[t] = entry
-            logger.info(
-                f"Migrated quality_data_v3 → v4: {len(quality_store)} entries seeded "
-                "(raw fundamentals will be populated by background fetch)"
-            )
-
-    _RAW_FUND_FIELDS = ("total_assets", "total_liabilities", "revenue", "op_income")
-
-    def _real_quality_count():
-        return sum(
-            1 for t in tickers
-            if t in quality_store and not quality_store[t].get("_no_data")
-            and any(quality_store[t].get(f) is not None for f in _DERIVED_FIELDS)
-        )
-
-    cached_real = _real_quality_count()
-
-    if cached_real > 0:
-        logger.info(f"Quality cache restored: {cached_real}/{len(tickers)} tickers with data")
-        _merge_quality_into_meta(quality_store, tickers)
-        with _cache_lock:
-            _quality_epoch += 1
-            _factor_cache = None
-            _factor_key = None
-            _factor_audit = None
-            _audit_printed = False
-        with _status_lock:
-            _status["quality_coverage"] = f"{cached_real}/{len(tickers)}"
-
-    # Re-fetch tickers that are missing derived ratios OR missing the new raw fields.
-    # This makes bumping the cache key a targeted top-up rather than a full cold start.
-    tickers_needing_fetch = []
-    for t in tickers:
-        if t in quality_store:
-            vals = quality_store[t]
-            if vals.get("_no_data"):
-                continue
-            has_derived = any(vals.get(f) is not None for f in _DERIVED_FIELDS)
-            has_raw     = any(vals.get(f) is not None for f in _RAW_FUND_FIELDS)
-            if has_derived and has_raw:
-                continue
-        tickers_needing_fetch.append(t)
-
-    if not tickers_needing_fetch:
-        logger.info(f"Quality enrichment: all {cached_real}/{len(tickers)} from cache, no fetch needed")
-        try:
-            cache.set(META_CACHE_KEY, _meta_data, expire=META_CACHE_TTL)
-        except Exception as e:
-            logger.warning(f"Meta cache write failed: {e}")
-        with _status_lock:
-            _status["enrichment"] = "complete"
-            _status["quality_coverage"] = f"{cached_real}/{len(tickers)}"
-        _timings["quality_enrichment"] = round(time.time() - t0, 3)
-        return
-
-    logger.info(f"Quality enrichment: {cached_real} from cache, {len(tickers_needing_fetch)} need fetch")
-
-    cik_map = _get_sec_cik_map()
-    tickers_with_cik = [(t, cik_map[t]) for t in tickers_needing_fetch if t in cik_map]
-    logger.info(f"Quality fetch: {len(tickers_with_cik)}/{len(tickers_needing_fetch)} have CIK mapping")
-
-    import requests as _req
-    for wait_attempt in range(6):
-        try:
-            test_resp = _req.get(
-                "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-                headers={"User-Agent": SEC_EDGAR_UA}, timeout=10)
-            if test_resp.status_code != 429:
-                break
-        except Exception:
-            pass
-        pause = 30 * (wait_attempt + 1)
-        logger.info(f"SEC EDGAR rate-limited, waiting {pause}s before enrichment (attempt {wait_attempt+1}/6)")
-        time.sleep(pause)
-
-    done = 0
-    failed = 0
-    fresh_count = 0
-
-    batch_size = 5
-    for bi in range(0, len(tickers_with_cik), batch_size):
-        batch = tickers_with_cik[bi:bi + batch_size]
-        with concurrent.futures.ThreadPoolExecutor(max_workers=batch_size) as executor:
-            futures = {executor.submit(_fetch_one_quality_edgar, t, cik): t for t, cik in batch}
-            for future in concurrent.futures.as_completed(futures):
-                ticker, result, ok = future.result()
-                done += 1
-                if ok and any(v is not None for v in result.values()):
-                    quality_store[ticker] = result
-                    fresh_count += 1
-                    if ticker in _meta_data:
-                        for k, v in result.items():
-                            if v is not None:
-                                _meta_data[ticker][k] = v
-                else:
-                    failed += 1
-                    quality_store[ticker] = {"_no_data": True}
-
-        if done % 100 < batch_size:
-            real_count = _real_quality_count()
-            with _status_lock:
-                _status["quality_coverage"] = f"{real_count}/{len(tickers)}"
-            logger.info(f"Quality enrichment: {done}/{len(tickers_with_cik)} done, {real_count} with real data")
-        time.sleep(1.2)
-
-    real_count = _real_quality_count()
-
-    try:
-        cache.set(QUALITY_CACHE_KEY, quality_store, expire=QUALITY_CACHE_TTL)
-    except Exception as e:
-        logger.warning(f"Quality cache write failed: {e}")
-
-    try:
-        cache.set(META_CACHE_KEY, _meta_data, expire=META_CACHE_TTL)
-    except Exception as e:
-        logger.warning(f"Meta cache write failed after quality enrichment: {e}")
-
-    with _cache_lock:
-        _quality_epoch += 1
-        _factor_cache = None
-        _factor_key = None
-        _factor_audit = None
-        _audit_printed = False
-
-    elapsed = time.time() - t0
-    _timings["quality_enrichment"] = round(elapsed, 3)
-
-    with _status_lock:
-        _status["enrichment"] = "complete"
-        _status["quality_coverage"] = f"{real_count}/{len(tickers)}"
-
-    logger.info(
-        f"Quality enrichment complete: {real_count}/{len(tickers)} with data "
-        f"({cached_real} cached + {fresh_count} fresh, {failed} no-data), {elapsed:.1f}s"
-    )
-
-
 # ─── Essential metadata (NASDAQ screener + batch quotes) ─────────────────────
 
 def _build_essential_meta(tickers: list) -> dict:
@@ -1758,17 +1029,7 @@ def _build_essential_meta(tickers: list) -> dict:
             "industry":   nd.get("industry"),
             "market_cap": nd.get("market_cap"),
             "price":      None,
-            "avg_volume":  None,
-            "roe":        None,
-            "roa":        None,
-            "gross_margin": None,
-            "op_margin":  None,
-            "de_ratio":   None,
-            "total_assets":       None,
-            "prior_total_assets": None,
-            "total_liabilities":  None,
-            "revenue":            None,
-            "op_income":          None,
+            "avg_volume": None,
             "quote_type": "ETF" if nd.get("is_etf") else "",
             "exchange":   nd.get("exchange", ""),
         }
@@ -1877,15 +1138,11 @@ def _load_full_meta_yf(tickers: list) -> dict:
     return meta
 
 
-# ─── Initial data load (two-stage) ──────────────────────────────────────────
+# ─── Initial data load ───────────────────────────────────────────────────────
 
 def initial_data_load():
-    """
-    Two-stage background data load:
-      Stage 1: Universe + prices + essential metadata → engine usable (status=ready)
-      Stage 2: Quality enrichment in background → factor cache invalidated on completion
-    """
-    global _price_data, _meta_data, _dollar_volume, _quality_epoch
+    """Load universe, prices, and essential metadata. Engine becomes usable when complete."""
+    global _price_data, _meta_data, _dollar_volume
 
     t_start = time.time()
 
@@ -1922,8 +1179,6 @@ def initial_data_load():
             update_status("ready",
                           f"Ready. {n} stocks loaded from cache.",
                           progress=1.0, total=n, loaded=n)
-
-            _start_quality_enrichment(list(_price_data.columns))
             return
         except Exception as e:
             logger.error(f"Cache restore failed: {e}; falling back to full download")
@@ -2016,15 +1271,6 @@ def initial_data_load():
                   f"Ready. {len(valid_cols)} stocks loaded.",
                   progress=1.0, total=len(valid_cols), loaded=len(valid_cols))
     logger.info(f"Stage 1 complete in {_timings['total_stage1']:.1f}s — engine usable")
-
-    _start_quality_enrichment(valid_cols)
-
-
-def _start_quality_enrichment(tickers: list):
-    """Start Stage 2 quality enrichment in a separate daemon thread."""
-    t = threading.Thread(target=_background_quality_enrichment, args=(tickers,), daemon=True)
-    t.start()
-    logger.info(f"Stage 2 quality enrichment started for {len(tickers)} tickers")
 
 
 def start_background_load():

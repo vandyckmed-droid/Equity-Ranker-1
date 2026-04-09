@@ -18,15 +18,6 @@ export const DataStatusStatus = {
   error: "error",
 } as const;
 
-export type DataStatusEnrichment =
-  (typeof DataStatusEnrichment)[keyof typeof DataStatusEnrichment];
-
-export const DataStatusEnrichment = {
-  pending: "pending",
-  loading: "loading",
-  complete: "complete",
-} as const;
-
 export type DataStatusTimings = { [key: string]: number };
 
 export interface DataStatus {
@@ -40,9 +31,6 @@ export interface DataStatus {
   loaded?: number | null;
   /** @nullable */
   cachedAt?: string | null;
-  enrichment?: DataStatusEnrichment;
-  qualityCoverage?: string;
-  qualityEpoch?: number;
   timings?: DataStatusTimings;
 }
 
@@ -78,14 +66,6 @@ export interface Stock {
   /** @nullable */
   tstat12?: number | null;
   /** @nullable */
-  quality?: number | null;
-  /** @nullable */
-  zM6?: number | null;
-  /** @nullable */
-  zM12?: number | null;
-  /** @nullable */
-  zQuality?: number | null;
-  /** @nullable */
   zS6?: number | null;
   /** @nullable */
   zS12?: number | null;
@@ -94,13 +74,9 @@ export interface Stock {
   /** @nullable */
   zT12?: number | null;
   /** @nullable */
-  zQ?: number | null;
-  /** @nullable */
   sSleeve?: number | null;
   /** @nullable */
   tSleeve?: number | null;
-  /** @nullable */
-  qSleeve?: number | null;
   /** @nullable */
   alpha?: number | null;
   /** @nullable */
@@ -110,73 +86,19 @@ export interface Stock {
   /** @nullable */
   cluster?: number | null;
   /** @nullable */
-  roe?: number | null;
-  /** @nullable */
-  roa?: number | null;
-  /** @nullable */
-  grossMargin?: number | null;
-  /** @nullable */
-  opMargin?: number | null;
-  /** @nullable */
-  deRatio?: number | null;
-  /** @nullable */
-  zRoe?: number | null;
-  /** @nullable */
-  zRoa?: number | null;
-  /** @nullable */
-  zGross?: number | null;
-  /** @nullable */
-  zOp?: number | null;
-  /** @nullable */
-  zInvLev?: number | null;
-  /** @nullable */
-  qualityMissing?: boolean | null;
-  /** @nullable */
-  qualityMissingReason?: string | null;
-  /** @nullable */
-  hasProfitabilityBucket?: boolean | null;
-  /** @nullable */
-  hasMarginBucket?: boolean | null;
-  /** @nullable */
-  hasLeverageBucket?: boolean | null;
-  /** @nullable */
-  qualityBucketCount?: number | null;
-  /** @nullable - count of non-null individual quality inputs (0-5: ROE, ROA, GrossM, OpM, D/E) */
-  qualityInputCount?: number | null;
-  /** @nullable */
-  profitabilityRatio?: number | null;
-  /** @nullable */
-  safetyRatio?: number | null;
-  /** @nullable */
-  investmentGrowth?: number | null;
-  /** @nullable */
-  hasProfitabilityData?: boolean | null;
-  /** @nullable */
-  hasSafetyData?: boolean | null;
-  /** @nullable */
-  hasInvestmentData?: boolean | null;
-  /** @nullable - z-score for profitability pillar (populated when pillar toggle is on) */
-  zProfitability?: number | null;
-  /** @nullable - z-score for safety pillar (populated when pillar toggle is on) */
-  zSafety?: number | null;
-  /** @nullable - z-score for investment pillar (populated when pillar toggle is on) */
-  zInvestment?: number | null;
+  alphaFormula?: string | null;
 }
 
 export type UniverseAuditExclusions = { [key: string]: number };
 export type UniverseAuditSectorBreakdown = { [key: string]: number };
-export type QualityInputDist = { [inputCount: string]: number };
-export type QualityFieldMissingRates = { [field: string]: number };
 
 export interface UniverseAudit {
+  /** Total candidates entering the filter pipeline */
   preFilterCount?: number;
+  /** Stocks passing all filters */
   postFilterCount?: number;
   exclusions?: UniverseAuditExclusions;
   sectorBreakdown?: UniverseAuditSectorBreakdown;
-  qualityCoverage?: string;
-  qualityPct?: number;
-  qualityInputDist?: QualityInputDist;
-  qualityFieldMissingRates?: QualityFieldMissingRates;
   activeFilters?: string[];
 }
 
@@ -194,11 +116,9 @@ export interface UniverseFilters {
   minAdv?: number;
   minMarketCap?: number;
   volAdjust?: boolean;
-  useQuality?: boolean;
   useTstats?: boolean;
   w6?: number;
   w12?: number;
-  wQuality?: number;
   volFloor?: number;
   winsorP?: number;
   clusterN?: number;
@@ -333,25 +253,17 @@ export type GetRankingsParams = {
    */
   volAdjust?: boolean;
   /**
-   * Include quality factor in alpha
-   */
-  useQuality?: boolean;
-  /**
-   * Include OLS t-stats
+   * Include OLS t-stats in the T sleeve
    */
   useTstats?: boolean;
   /**
-   * Weight on 6-month momentum (default 0.4)
+   * Weight on S sleeve / 6-month momentum (default 0.5)
    */
   w6?: number;
   /**
-   * Weight on 12-month momentum (default 0.4)
+   * Weight on T sleeve / 12-month momentum (default 0.5)
    */
   w12?: number;
-  /**
-   * Weight on quality factor (default 0.2)
-   */
-  wQuality?: number;
   /**
    * Volatility floor (default 0.05)
    */
@@ -373,27 +285,7 @@ export type GetRankingsParams = {
    */
   clusterLookback?: number;
   /**
-   * Only include SEC-filing companies (default false)
-   */
-  secFilerOnly?: boolean;
-  /**
    * Comma-separated list of sectors to exclude
    */
   excludeSectors?: string;
-  /**
-   * Only include stocks with quality coverage (default false)
-   */
-  requireQuality?: boolean;
-  /**
-   * Require profitability data (op_income + revenue) — narrows universe and adds profitability pillar to quality
-   */
-  useProfitabilityData?: boolean;
-  /**
-   * Require safety data (total_liabilities + total_assets) — narrows universe and adds safety pillar to quality
-   */
-  useSafetyData?: boolean;
-  /**
-   * Require investment data (total_assets + prior_total_assets) — narrows universe and adds investment pillar to quality
-   */
-  useInvestmentData?: boolean;
 };

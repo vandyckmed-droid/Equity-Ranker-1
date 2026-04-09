@@ -40,9 +40,6 @@ def get_status():
         "total": status["total"],
         "loaded": status["loaded"],
         "cached_at": status.get("cached_at"),
-        "enrichment": status.get("enrichment", "pending"),
-        "qualityCoverage": status.get("quality_coverage", ""),
-        "qualityEpoch": engine._quality_epoch,
         "timings": status.get("timings", {}),
     }
 
@@ -50,22 +47,15 @@ def get_status():
 @app.get("/rankings")
 def get_rankings(
     vol_adjust: bool = Query(True),
-    use_quality: bool = Query(True),
     use_tstats: bool = Query(False),
-    w6: float = Query(0.4),
-    w12: float = Query(0.4),
-    w_quality: float = Query(0.2),
+    w6: float = Query(0.5),
+    w12: float = Query(0.5),
     vol_floor: float = Query(0.05),
     winsor_p: float = Query(2.0),
     cluster_n: int = Query(100),
     cluster_k: int = Query(10),
     cluster_lookback: int = Query(252),
-    sec_filer_only: bool = Query(False),
     exclude_sectors: Optional[str] = Query(None),
-    require_quality: bool = Query(False),
-    use_profitability_data: bool = Query(False),
-    use_safety_data: bool = Query(False),
-    use_investment_data: bool = Query(False),
 ):
     status = engine.get_status()
     if status["status"] == "loading":
@@ -80,22 +70,15 @@ def get_rankings(
 
     params = {
         "vol_adjust": vol_adjust,
-        "use_quality": use_quality,
         "use_tstats": use_tstats,
         "w6": w6,
         "w12": w12,
-        "w_quality": w_quality,
         "vol_floor": vol_floor,
         "winsor_p": winsor_p,
         "cluster_n": cluster_n,
         "cluster_k": cluster_k,
         "cluster_lookback": cluster_lookback,
-        "sec_filer_only": sec_filer_only,
         "exclude_sectors": sectors_list,
-        "require_quality": require_quality,
-        "use_profitability_data": use_profitability_data,
-        "use_safety_data": use_safety_data,
-        "use_investment_data": use_investment_data,
     }
 
     result = engine.get_ranked_data(params)
@@ -131,70 +114,33 @@ def get_rankings(
     stocks = []
     for _, row in df.iterrows():
         stocks.append({
-            "ticker": row["ticker"],
-            "name": row.get("name") or row["ticker"],
-            "sector": safe(row.get("sector")),
-            "industry": safe(row.get("industry")),
-            "price": safe(row.get("price")),
+            "ticker":    row["ticker"],
+            "name":      row.get("name") or row["ticker"],
+            "sector":    safe(row.get("sector")),
+            "industry":  safe(row.get("industry")),
+            "price":     safe(row.get("price")),
             "marketCap": safe(row.get("market_cap")),
-            "adv": safe(row.get("adv")),
-            "r1": safe(row.get("r1")),
-            "m6": safe(row.get("m6")),
-            "m12": safe(row.get("m12")),
-            "sigma6": safe(row.get("sigma6")),
-            "sigma12": safe(row.get("sigma12")),
-            "s6": safe(row.get("s6")),
-            "s12": safe(row.get("s12")),
-            "tstat6": safe(row.get("tstat6")),
-            "tstat12": safe(row.get("tstat12")),
-            "quality": safe(row.get("quality")),
-            "zM6": safe(row.get("zM6")),
-            "zM12": safe(row.get("zM12")),
-            "zQuality": safe(row.get("zQuality")),
-            "zS6": safe(row.get("zS6")),
-            "zS12": safe(row.get("zS12")),
-            "zT6": safe(row.get("zT6")),
-            "zT12": safe(row.get("zT12")),
-            "zQ": safe(row.get("zQ")),
-            "sSleeve": safe(row.get("sSleeve")),
-            "tSleeve": safe(row.get("tSleeve")),
-            "qSleeve": safe(row.get("qSleeve")),
-            "alpha": safe(row.get("alpha")),
-            "rank": safe(row.get("rank")),
-            "percentile": safe(row.get("percentile")),
-            "cluster": safe(row.get("cluster")),
-            # Quality component raw values
-            "roe":          safe(row.get("roe")),
-            "roa":          safe(row.get("roa")),
-            "grossMargin":  safe(row.get("gross_margin")),
-            "opMargin":     safe(row.get("op_margin")),
-            "deRatio":      safe(row.get("de_ratio")),
-            # Quality component z-scores
-            "zRoe":         safe(row.get("z_roe")),
-            "zRoa":         safe(row.get("z_roa")),
-            "zGross":       safe(row.get("z_gross")),
-            "zOp":          safe(row.get("z_op")),
-            "zInvLev":      safe(row.get("z_inv_lev")),
-            # Quality audit fields
-            "qualityMissing":          safe_bool(row.get("quality_missing")),
-            "alphaFormula":            safe_str(row.get("alpha_formula"), "S+T+Q"),
-            "hasProfitabilityBucket":  safe_bool(row.get("has_profitability_bucket")),
-            "hasMarginBucket":         safe_bool(row.get("has_margin_bucket")),
-            "hasLeverageBucket":       safe_bool(row.get("has_leverage_bucket")),
-            "qualityBucketCount":      safe(row.get("quality_bucket_count")),
-            "qualityInputCount":       safe(row.get("quality_input_count")),
-            "qualityMissingReason":    safe_str(row.get("quality_missing_reason")),
-            # 3-pillar progressive quality fields
-            "profitabilityRatio":  safe(row.get("profitability_ratio")),
-            "safetyRatio":         safe(row.get("safety_ratio")),
-            "investmentGrowth":    safe(row.get("investment_growth")),
-            "hasProfitabilityData": safe_bool(row.get("has_profitability_data")),
-            "hasSafetyData":        safe_bool(row.get("has_safety_data")),
-            "hasInvestmentData":    safe_bool(row.get("has_investment_data")),
-            # Per-pillar z-scores (only populated when that pillar toggle is on)
-            "zProfitability":       safe(row.get("z_profitability")),
-            "zSafety":              safe(row.get("z_safety")),
-            "zInvestment":          safe(row.get("z_investment")),
+            "adv":       safe(row.get("adv")),
+            "r1":        safe(row.get("r1")),
+            "m6":        safe(row.get("m6")),
+            "m12":       safe(row.get("m12")),
+            "sigma6":    safe(row.get("sigma6")),
+            "sigma12":   safe(row.get("sigma12")),
+            "s6":        safe(row.get("s6")),
+            "s12":       safe(row.get("s12")),
+            "tstat6":    safe(row.get("tstat6")),
+            "tstat12":   safe(row.get("tstat12")),
+            "zS6":       safe(row.get("zS6")),
+            "zS12":      safe(row.get("zS12")),
+            "zT6":       safe(row.get("zT6")),
+            "zT12":      safe(row.get("zT12")),
+            "sSleeve":      safe(row.get("sSleeve")),
+            "tSleeve":      safe(row.get("tSleeve")),
+            "alpha":        safe(row.get("alpha")),
+            "rank":         safe(row.get("rank")),
+            "percentile":   safe(row.get("percentile")),
+            "cluster":      safe(row.get("cluster")),
+            "alphaFormula": safe_str(row.get("alpha_formula"), "S+T"),
         })
 
     cluster_vals = [s["cluster"] for s in stocks if s["cluster"] is not None]
@@ -214,11 +160,9 @@ class UniverseFiltersBody(BaseModel):
     min_adv: float = 1e7
     min_market_cap: float = 1e9
     vol_adjust: bool = True
-    use_quality: bool = True
     use_tstats: bool = False
-    w6: float = 0.4
-    w12: float = 0.4
-    w_quality: float = 0.2
+    w6: float = 0.5
+    w12: float = 0.5
     vol_floor: float = 0.05
     winsor_p: float = 2.0
     cluster_n: int = 100
@@ -269,59 +213,33 @@ def universe_filters(body: UniverseFiltersBody):
     stocks = []
     for _, row in filtered.iterrows():
         stocks.append({
-            "ticker": row["ticker"],
-            "name": row.get("name") or row["ticker"],
-            "sector": safe(row.get("sector")),
-            "industry": safe(row.get("industry")),
-            "price": safe(row.get("price")),
-            "marketCap": safe(row.get("market_cap")),
-            "adv": safe(row.get("adv")),
-            "r1": safe(row.get("r1")),
-            "m6": safe(row.get("m6")),
-            "m12": safe(row.get("m12")),
-            "sigma6": safe(row.get("sigma6")),
-            "sigma12": safe(row.get("sigma12")),
-            "s6": safe(row.get("s6")),
-            "s12": safe(row.get("s12")),
-            "tstat6": safe(row.get("tstat6")),
-            "tstat12": safe(row.get("tstat12")),
-            "quality": safe(row.get("quality")),
-            "zM6": safe(row.get("zM6")),
-            "zM12": safe(row.get("zM12")),
-            "zQuality": safe(row.get("zQuality")),
-            "zS6": safe(row.get("zS6")),
-            "zS12": safe(row.get("zS12")),
-            "zT6": safe(row.get("zT6")),
-            "zT12": safe(row.get("zT12")),
-            "zQ": safe(row.get("zQ")),
-            "sSleeve": safe(row.get("sSleeve")),
-            "tSleeve": safe(row.get("tSleeve")),
-            "qSleeve": safe(row.get("qSleeve")),
-            "alpha": safe(row.get("alpha")),
-            "rank": safe(row.get("rank")),
-            "percentile": safe(row.get("percentile")),
-            "cluster": safe(row.get("cluster")),
-            # Quality component raw values
-            "roe":          safe(row.get("roe")),
-            "roa":          safe(row.get("roa")),
-            "grossMargin":  safe(row.get("gross_margin")),
-            "opMargin":     safe(row.get("op_margin")),
-            "deRatio":      safe(row.get("de_ratio")),
-            # Quality component z-scores
-            "zRoe":         safe(row.get("z_roe")),
-            "zRoa":         safe(row.get("z_roa")),
-            "zGross":       safe(row.get("z_gross")),
-            "zOp":          safe(row.get("z_op")),
-            "zInvLev":      safe(row.get("z_inv_lev")),
-            # Quality audit fields
-            "qualityMissing":          safe_bool(row.get("quality_missing")),
-            "alphaFormula":            safe_str(row.get("alpha_formula"), "S+T+Q"),
-            "hasProfitabilityBucket":  safe_bool(row.get("has_profitability_bucket")),
-            "hasMarginBucket":         safe_bool(row.get("has_margin_bucket")),
-            "hasLeverageBucket":       safe_bool(row.get("has_leverage_bucket")),
-            "qualityBucketCount":      safe(row.get("quality_bucket_count")),
-            "qualityInputCount":       safe(row.get("quality_input_count")),
-            "qualityMissingReason":    safe_str(row.get("quality_missing_reason")),
+            "ticker":       row["ticker"],
+            "name":         row.get("name") or row["ticker"],
+            "sector":       safe(row.get("sector")),
+            "industry":     safe(row.get("industry")),
+            "price":        safe(row.get("price")),
+            "marketCap":    safe(row.get("market_cap")),
+            "adv":          safe(row.get("adv")),
+            "r1":           safe(row.get("r1")),
+            "m6":           safe(row.get("m6")),
+            "m12":          safe(row.get("m12")),
+            "sigma6":       safe(row.get("sigma6")),
+            "sigma12":      safe(row.get("sigma12")),
+            "s6":           safe(row.get("s6")),
+            "s12":          safe(row.get("s12")),
+            "tstat6":       safe(row.get("tstat6")),
+            "tstat12":      safe(row.get("tstat12")),
+            "zS6":          safe(row.get("zS6")),
+            "zS12":         safe(row.get("zS12")),
+            "zT6":          safe(row.get("zT6")),
+            "zT12":         safe(row.get("zT12")),
+            "sSleeve":      safe(row.get("sSleeve")),
+            "tSleeve":      safe(row.get("tSleeve")),
+            "alpha":        safe(row.get("alpha")),
+            "rank":         safe(row.get("rank")),
+            "percentile":   safe(row.get("percentile")),
+            "cluster":      safe(row.get("cluster")),
+            "alphaFormula": safe_str(row.get("alpha_formula"), "S+T"),
         })
 
     cluster_count = len(set(s["cluster"] for s in stocks if s["cluster"] is not None))
@@ -704,8 +622,8 @@ def portfolio_risk(body: PortfolioRiskRequest):
     vols_ann   = np.maximum(np.sqrt(np.diag(cov_ann)), 0.05)
 
     # Pre-fetch ranked data — needed for signal-based methods + cluster labels
-    _rp = {"vol_adjust": True, "use_quality": True, "use_tstats": False,
-           "w6": 0.4, "w12": 0.4, "w_quality": 0.2, "vol_floor": 0.05,
+    _rp = {"vol_adjust": True, "use_tstats": False,
+           "w6": 0.5, "w12": 0.5, "vol_floor": 0.05,
            "winsor_p": 2.0, "cluster_n": 100, "cluster_k": 10, "cluster_lookback": 252}
     _ranked = eng.get_ranked_data(_rp)
     cluster_map: dict = {}

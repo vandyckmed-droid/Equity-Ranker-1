@@ -2,8 +2,7 @@ import { useState, useCallback } from "react";
 
 export const ALL_COLUMN_IDS = [
   "rank", "name", "sector", "price", "marketCap", "adv",
-  "momentum6", "momentum12", "quality",
-  "profitability", "safety", "investment",
+  "momentum6", "momentum12",
   "vol12", "alpha", "cluster",
 ] as const;
 
@@ -18,10 +17,6 @@ export const COLUMN_LABELS: Record<ColumnId, string> = {
   adv: "ADV",
   momentum6: "M6 / S6",
   momentum12: "M12 / S12",
-  quality: "Quality",
-  profitability: "Prof",
-  safety: "Safety",
-  investment: "Invest",
   vol12: "Vol (12m)",
   alpha: "Alpha",
   cluster: "Group",
@@ -29,10 +24,10 @@ export const COLUMN_LABELS: Record<ColumnId, string> = {
 
 export const DEFAULT_VISIBLE: ColumnId[] = [
   "rank", "name", "sector", "price", "marketCap",
-  "momentum6", "momentum12", "quality", "vol12", "alpha", "cluster",
+  "momentum6", "momentum12", "vol12", "alpha", "cluster",
 ];
 
-const STORAGE_KEY = "qt:colConfig";
+const STORAGE_KEY = "qt:colConfig-v2";
 
 interface ColConfig {
   visible: ColumnId[];

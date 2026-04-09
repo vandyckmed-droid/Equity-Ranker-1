@@ -49,8 +49,6 @@ import {
   X,
 } from "lucide-react";
 
-import { QualityAuditBadge } from "@/components/QualityAuditBadge";
-
 type SortField = keyof Stock;
 type SortDirection = "asc" | "desc";
 
@@ -168,22 +166,12 @@ export default function MainPage() {
       refetchInterval: (query) => {
         const d = query.state.data;
         if (!d || d.status !== "ready") return 5000;
-        if (d.enrichment !== "complete") return 8000;
         return false;
       },
     },
   });
 
   const isReady = statusData?.status === "ready";
-  const qualityEpoch = statusData?.qualityEpoch ?? 0;
-
-  const prevEpochRef = useRef(qualityEpoch);
-  useEffect(() => {
-    if (qualityEpoch > 0 && qualityEpoch !== prevEpochRef.current && prevEpochRef.current > 0) {
-      queryClient.invalidateQueries({ queryKey: ["/api/equity/rankings"] });
-    }
-    prevEpochRef.current = qualityEpoch;
-  }, [qualityEpoch, queryClient]);
 
   // Factor controls — split into server-bound (debounced) and local (instant) params
   const [controlsOpen, setControlsOpen] = useState(false);
@@ -198,7 +186,7 @@ export default function MainPage() {
     movedTimerRef.current = setTimeout(() => setRecentlyMoved(null), 600);
   }, [moveColumn]);
 
-  const CONTROLS_KEY = "qt:controls-v2";
+  const CONTROLS_KEY = "qt:controls-v3";
 
   const loadControlsFromStorage = () => {
     try {
@@ -217,12 +205,7 @@ export default function MainPage() {
       clusterN: saved?.clusterN ?? 100,
       clusterK: saved?.clusterK ?? 10,
       clusterLookback: saved?.clusterLookback ?? 252,
-      secFilerOnly: saved?.secFilerOnly ?? false,
       excludeSectors: (saved?.excludeSectors ?? "") as string,
-      requireQuality: saved?.requireQuality ?? false,
-      useProfitabilityData: saved?.useProfitabilityData ?? false,
-      useSafetyData: saved?.useSafetyData ?? false,
-      useInvestmentData: saved?.useInvestmentData ?? false,
     };
   });
   const [debouncedServerParams, setDebouncedServerParams] = useState(serverParams);
@@ -235,15 +218,11 @@ export default function MainPage() {
   // Local params: handled client-side (instant, no API call)
   const [localW6, setLocalW6] = useState(() => {
     const saved = loadControlsFromStorage();
-    return saved?.localW6 ?? 0.4;
+    return saved?.localW6 ?? 0.5;
   });
   const [localW12, setLocalW12] = useState(() => {
     const saved = loadControlsFromStorage();
-    return saved?.localW12 ?? 0.4;
-  });
-  const [localWQ, setLocalWQ] = useState(() => {
-    const saved = loadControlsFromStorage();
-    return saved?.localWQ ?? 0.1;
+    return saved?.localW12 ?? 0.5;
   });
   const [mcapFilter, setMcapFilter] = useState<McapFilter>(() => {
     const saved = loadControlsFromStorage();
@@ -268,31 +247,23 @@ export default function MainPage() {
   // Persist controls to localStorage whenever they change
   useEffect(() => {
     try {
-      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, localW6, localW12, localWQ, mcapFilter, showZScores, sortField, sortDir }));
+      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, localW6, localW12, mcapFilter, showZScores, sortField, sortDir }));
     } catch {}
-  }, [serverParams, localW6, localW12, localWQ, mcapFilter, showZScores, sortField, sortDir]);
+  }, [serverParams, localW6, localW12, mcapFilter, showZScores, sortField, sortDir]);
 
-  // Unified params object for backward compat (e.g. localStorage, cache key)
   const params: GetRankingsParams = useMemo(() => {
     const p: GetRankingsParams = {
       volAdjust: true,
-      useQuality: true,
       useTstats: false,
-      w6: 0.4,
-      w12: 0.4,
-      wQuality: 0.1,
+      w6: 0.5,
+      w12: 0.5,
       volFloor: debouncedServerParams.volFloor,
       winsorP: debouncedServerParams.winsorP,
       clusterN: debouncedServerParams.clusterN,
       clusterK: debouncedServerParams.clusterK,
       clusterLookback: debouncedServerParams.clusterLookback,
     };
-    if (debouncedServerParams.secFilerOnly) p.secFilerOnly = true;
     if (debouncedServerParams.excludeSectors) p.excludeSectors = debouncedServerParams.excludeSectors;
-    if (debouncedServerParams.requireQuality) p.requireQuality = true;
-    if (debouncedServerParams.useProfitabilityData) p.useProfitabilityData = true;
-    if (debouncedServerParams.useSafetyData) p.useSafetyData = true;
-    if (debouncedServerParams.useInvestmentData) p.useInvestmentData = true;
     return p;
   }, [debouncedServerParams]);
 
@@ -371,16 +342,11 @@ export default function MainPage() {
     if (stocks.length > 0) {
       // Inline alpha rerank (mirrors clientAlphaStocks) — seeds the portfolio context
       // with the current ranked+filtered universe without a forward ref to the useMemo below.
-      const wS = localW6, wT = localW12, wQ = localWQ;
+      const wS = localW6, wT = localW12;
+      const totalW = (wS + wT) || 1;
       const reranked = stocks
         .map((s) => {
-          const hasQ = !(s as any).qualityMissing && wQ > 0;
-          const totalW = hasQ ? wS + wT + wQ : wS + wT;
-          const alpha = totalW === 0
-            ? 0
-            : hasQ
-              ? (wS * ((s as any).sSleeve ?? 0) + wT * ((s as any).tSleeve ?? 0) + wQ * ((s as any).qSleeve ?? 0)) / totalW
-              : (wS * ((s as any).sSleeve ?? 0) + wT * ((s as any).tSleeve ?? 0)) / totalW;
+          const alpha = (wS * ((s as any).sSleeve ?? 0) + wT * ((s as any).tSleeve ?? 0)) / totalW;
           return { ...s, alpha };
         })
         .sort((a, b) => (b.alpha ?? 0) - (a.alpha ?? 0));
@@ -391,7 +357,7 @@ export default function MainPage() {
           : reranked
       );
     }
-  }, [stocks, localW6, localW12, localWQ, mcapFilter, setAllStocks, setRankedStocks]);
+  }, [stocks, localW6, localW12, mcapFilter, setAllStocks, setRankedStocks]);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -399,15 +365,10 @@ export default function MainPage() {
     if (!stocks.length) return stocks;
     const wS = localW6;
     const wT = localW12;
-    const wQ = localWQ;
+    const totalW = (wS + wT) || 1;
 
     const reranked = stocks.map((s: Stock) => {
-      const hasQ = !(s as any).qualityMissing && wQ > 0;
-      const totalW = hasQ ? (wS + wT + wQ) : (wS + wT);
-      if (totalW === 0) return { ...s, alpha: 0 };
-      const alpha = hasQ
-        ? (wS * ((s as any).sSleeve ?? 0) + wT * ((s as any).tSleeve ?? 0) + wQ * ((s as any).qSleeve ?? 0)) / totalW
-        : (wS * ((s as any).sSleeve ?? 0) + wT * ((s as any).tSleeve ?? 0)) / totalW;
+      const alpha = (wS * ((s as any).sSleeve ?? 0) + wT * ((s as any).tSleeve ?? 0)) / totalW;
       return { ...s, alpha };
     });
 
@@ -417,7 +378,7 @@ export default function MainPage() {
       rank: i + 1,
       percentile: 100 * (1 - i / reranked.length),
     }));
-  }, [stocks, localW6, localW12, localWQ]);
+  }, [stocks, localW6, localW12]);
 
   // Filtering and Sorting
   const processedStocks = useMemo(() => {
@@ -589,46 +550,6 @@ export default function MainPage() {
           </TableHead>
         );
       }
-      case "quality": {
-        const sf = showZScores ? "zQ" : "quality";
-        return (
-          <TableHead key={colId} className="text-right bg-purple-950/20 cursor-pointer hover:text-foreground" onClick={() => handleSort(sf)}>
-            <div className="flex items-center justify-end" title="Quality Composite">
-              {showZScores ? "z(Qual)" : "Qual"} {getSortIcon(sf)}
-            </div>
-          </TableHead>
-        );
-      }
-      case "profitability": {
-        const sf: SortField = showZScores ? "zProfitability" : "profitabilityRatio";
-        return (
-          <TableHead key={colId} className="text-right bg-purple-950/10 cursor-pointer hover:text-foreground" onClick={() => handleSort(sf)}>
-            <div className="flex items-center justify-end" title="Profitability: op. income ÷ revenue · ↑ higher = better">
-              {showZScores ? "z(Prof)" : "Prof%"} {getSortIcon(sf)}
-            </div>
-          </TableHead>
-        );
-      }
-      case "safety": {
-        const sf: SortField = showZScores ? "zSafety" : "safetyRatio";
-        return (
-          <TableHead key={colId} className="text-right bg-purple-950/10 cursor-pointer hover:text-foreground" onClick={() => handleSort(sf)}>
-            <div className="flex items-center justify-end" title="Safety: liabilities ÷ assets · ↓ lower = better">
-              {showZScores ? "z(Safe)" : "Safe"} {getSortIcon(sf)}
-            </div>
-          </TableHead>
-        );
-      }
-      case "investment": {
-        const sf: SortField = showZScores ? "zInvestment" : "investmentGrowth";
-        return (
-          <TableHead key={colId} className="text-right bg-purple-950/10 cursor-pointer hover:text-foreground" onClick={() => handleSort(sf)}>
-            <div className="flex items-center justify-end" title="Investment: asset growth YoY · ↓ lower = better">
-              {showZScores ? "z(Inv)" : "Inv%"} {getSortIcon(sf)}
-            </div>
-          </TableHead>
-        );
-      }
       case "vol12":
         return (
           <TableHead key={colId} className="text-right cursor-pointer hover:text-foreground" onClick={() => handleSort("sigma12")}>
@@ -695,44 +616,6 @@ export default function MainPage() {
           </TableCell>
         );
       }
-      case "quality": {
-        const val = showZScores ? stock.zQ : stock.quality;
-        return (
-          <TableCell key={colId} className={cn("text-right bg-purple-950/10", val! > 0 ? "text-positive" : "text-negative")}>
-            {formatNumber(val)}
-          </TableCell>
-        );
-      }
-      case "profitability": {
-        const val = showZScores ? stock.zProfitability : stock.profitabilityRatio;
-        return (
-          <TableCell key={colId} className={cn("text-right bg-purple-950/5",
-            val == null ? "text-muted-foreground/40"
-            : val > 0 ? "text-positive" : "text-negative")}>
-            {val == null ? "—" : showZScores ? formatNumber(val) : formatPercent(val)}
-          </TableCell>
-        );
-      }
-      case "safety": {
-        const val = showZScores ? stock.zSafety : stock.safetyRatio;
-        return (
-          <TableCell key={colId} className={cn("text-right bg-purple-950/5",
-            val == null ? "text-muted-foreground/40"
-            : showZScores ? (val > 0 ? "text-positive" : "text-negative") : "text-muted-foreground")}>
-            {val == null ? "—" : showZScores ? formatNumber(val) : formatNumber(val)}
-          </TableCell>
-        );
-      }
-      case "investment": {
-        const val = showZScores ? stock.zInvestment : stock.investmentGrowth;
-        return (
-          <TableCell key={colId} className={cn("text-right bg-purple-950/5",
-            val == null ? "text-muted-foreground/40"
-            : showZScores ? (val > 0 ? "text-positive" : "text-negative") : "text-muted-foreground")}>
-            {val == null ? "—" : showZScores ? formatNumber(val) : formatPercent(val)}
-          </TableCell>
-        );
-      }
       case "vol12":
         return <TableCell key={colId} className="text-right text-muted-foreground">{formatPercent(stock.sigma12)}</TableCell>;
       case "alpha":
@@ -758,14 +641,9 @@ export default function MainPage() {
   // ─── Main render ──────────────────────────────────────────────────────────
   // Active filter chips — computed inline (O(5), no useMemo needed)
   const activeFilterChips: string[] = [];
-  if (serverParams.secFilerOnly) activeFilterChips.push("SEC Only");
   if (serverParams.excludeSectors.includes("Finance")) activeFilterChips.push("No Fin");
-  if (serverParams.requireQuality) activeFilterChips.push("Quality");
   if (mcapFilter === "no_small") activeFilterChips.push("≥$2B");
   if (mcapFilter === "large_only") activeFilterChips.push("≥$10B");
-  if (serverParams.useProfitabilityData) activeFilterChips.push("Profitability");
-  if (serverParams.useSafetyData) activeFilterChips.push("Safety");
-  if (serverParams.useInvestmentData) activeFilterChips.push("Investment");
 
   // Suggested % for top-25: alpha/vol normalized weights (no hook — plain IIFE)
   const suggestedWeights: Map<string, number> = (() => {
@@ -890,16 +768,8 @@ export default function MainPage() {
               )}
               {" "}eq
             </span>
-            {/* Quality coverage – interactive audit badge */}
-            <QualityAuditBadge audit={audit} pillarState={{
-              profitability: serverParams.useProfitabilityData,
-              safety: serverParams.useSafetyData,
-              investment: serverParams.useInvestmentData,
-            }} />
             {/* Active filter chips */}
-            {activeFilterChips
-              .filter(chip => chip !== "Quality")
-              .map(chip => (
+            {activeFilterChips.map(chip => (
               <span key={chip} className="inline-flex items-center h-5 rounded-full px-2 text-[11px] bg-primary/10 border border-primary/20 whitespace-nowrap shrink-0 text-primary">
                 {chip}
               </span>
@@ -1007,72 +877,6 @@ export default function MainPage() {
                 <p className="text-[10px] text-muted-foreground pt-1 border-t border-border/40">
                   {audit.postFilterCount ?? "—"} / {audit.preFilterCount ?? "—"} stocks pass base filters
                 </p>
-              )}
-            </div>
-
-            {/* Quality Factor — unified section */}
-            <div className="space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Quality Factor</h3>
-
-              {/* Q weight slider */}
-              <div className="space-y-1.5">
-                <Label className="text-xs">Q Sleeve weight — wQ ({formatNumber(localWQ * 100, 0)}%)</Label>
-                <Slider value={[localWQ * 100]} min={0} max={100} step={5}
-                  onValueChange={(v) => setLocalWQ(v[0] / 100)} />
-              </div>
-
-              {/* Data-existence pillar toggles */}
-              <div className="space-y-1">
-                <p className="text-[10px] text-muted-foreground/70 leading-relaxed pb-0.5">
-                  Enabling a pillar requires that data to be present (not a score threshold) — narrows the universe and adds that pillar to the Q sleeve.
-                </p>
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
-                    <div>
-                      <Label htmlFor="useProfData" className="text-xs cursor-pointer">Profitability</Label>
-                      <p className="text-[10px] text-muted-foreground">op. income ÷ revenue · ↑ higher = better</p>
-                    </div>
-                    <Switch id="useProfData" checked={serverParams.useProfitabilityData}
-                      onCheckedChange={(v) => handleServerParamChange("useProfitabilityData", v)} />
-                  </div>
-                  <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
-                    <div>
-                      <Label htmlFor="useSafetyData" className="text-xs cursor-pointer">Safety</Label>
-                      <p className="text-[10px] text-muted-foreground">liabilities ÷ assets · ↓ lower = better</p>
-                    </div>
-                    <Switch id="useSafetyData" checked={serverParams.useSafetyData}
-                      onCheckedChange={(v) => handleServerParamChange("useSafetyData", v)} />
-                  </div>
-                  <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
-                    <div>
-                      <Label htmlFor="useInvData" className="text-xs cursor-pointer">Investment</Label>
-                      <p className="text-[10px] text-muted-foreground">asset growth YoY · ↓ lower = better</p>
-                    </div>
-                    <Switch id="useInvData" checked={serverParams.useInvestmentData}
-                      onCheckedChange={(v) => handleServerParamChange("useInvestmentData", v)} />
-                  </div>
-                </div>
-              </div>
-
-              {/* Legacy quality toggle */}
-              <div className="flex items-center justify-between bg-muted/30 px-3 py-2 rounded-md border border-border/30">
-                <div>
-                  <Label htmlFor="reqQual" className="text-xs cursor-pointer text-muted-foreground">Legacy quality filter</Label>
-                  <p className="text-[10px] text-muted-foreground/60">Require old EDGAR factor buckets (ROE/ROA/margins)</p>
-                </div>
-                <Switch id="reqQual" checked={serverParams.requireQuality}
-                  onCheckedChange={(v) => handleServerParamChange("requireQuality", v)} />
-              </div>
-
-              {/* Coverage stats */}
-              {audit && (
-                <div className="text-[10px] text-muted-foreground space-y-0.5 pt-1 border-t border-border/40">
-                  {(serverParams.useProfitabilityData || serverParams.useSafetyData || serverParams.useInvestmentData) ? (
-                    <p>{audit.postFilterCount ?? "—"} stocks qualify for all active pillars</p>
-                  ) : (
-                    <p>Legacy Q coverage: {audit.qualityCoverage ?? "—"} ({audit.qualityPct ?? 0}%)</p>
-                  )}
-                </div>
               )}
             </div>
 
@@ -1442,138 +1246,6 @@ export default function MainPage() {
                           <TableRow key={`${stock.ticker}-audit`} className="bg-muted/20 border-b-border/20">
                             <TableCell colSpan={activeColumns.length + 2} className="px-3 py-2.5">
                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-x-6 gap-y-3 text-[10px] font-mono">
-
-                                {/* ── Quality Audit (pillar-aware) ── */}
-                                {(() => {
-                                  const anyPillar = serverParams.useProfitabilityData || serverParams.useSafetyData || serverParams.useInvestmentData;
-                                  const wQ = localWQ;
-                                  const wS = localW6;
-                                  const wT = localW12;
-                                  const totalW = (stock as any).qualityMissing ? (wS + wT) : (wS + wT + wQ);
-                                  const qContrib = !(stock as any).qualityMissing && stock.qSleeve != null
-                                    ? (wQ * stock.qSleeve) / (totalW || 1)
-                                    : null;
-
-                                  if (anyPillar) {
-                                    // ── Pillar mode: show new 3-pillar quality data ──
-                                    const activePillars: { label: string; sign: string; raw: number | null | undefined; z: number | null | undefined; fmt: (v: number | null | undefined) => string; active: boolean }[] = [
-                                      { label: "Profit",  sign: "↑",  raw: stock.profitabilityRatio, z: stock.zProfitability, fmt: fmtPct, active: serverParams.useProfitabilityData },
-                                      { label: "Safety",  sign: "↓",  raw: stock.safetyRatio,        z: stock.zSafety,        fmt: fmtR,   active: serverParams.useSafetyData },
-                                      { label: "Invest",  sign: "↓",  raw: stock.investmentGrowth,   z: stock.zInvestment,    fmt: fmtPct, active: serverParams.useInvestmentData },
-                                    ].filter(p => p.active);
-
-                                    const activeCount = activePillars.length;
-                                    const pillarLabel = [
-                                      serverParams.useProfitabilityData && "P",
-                                      serverParams.useSafetyData && "Sa",
-                                      serverParams.useInvestmentData && "I",
-                                    ].filter(Boolean).join("+");
-
-                                    return (
-                                      <div className="sm:col-span-2 lg:col-span-2 space-y-1">
-                                        <div className="flex items-center gap-2 mb-2">
-                                          <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold">Quality Audit</p>
-                                          <span className="text-[8.5px] font-bold font-sans px-1.5 py-px rounded-full border text-blue-400 bg-blue-500/10 border-blue-500/25">
-                                            Q:{pillarLabel} · {activeCount} pillar{activeCount !== 1 ? "s" : ""}
-                                          </span>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-                                          {activePillars.map(({ label, sign, raw, z, fmt }) => {
-                                            const avail = raw != null;
-                                            return (
-                                              <React.Fragment key={label}>
-                                                <div className="flex items-center gap-1">
-                                                  <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", avail ? "bg-blue-500/70" : "bg-muted/30")} />
-                                                  <span className="text-muted-foreground/80 w-10 shrink-0">{label}</span>
-                                                  <span className="text-muted-foreground/50 text-[8px] shrink-0">{sign}</span>
-                                                  <span className={avail ? "text-foreground" : "text-muted-foreground/30 italic text-[8.5px]"}>
-                                                    {avail ? fmt(raw) : "miss"}
-                                                  </span>
-                                                </div>
-                                                <div className={cn("text-right pr-1", avail && z != null ? zCol(z) : "text-muted-foreground/30")}>
-                                                  {avail && z != null ? `z ${fmtZ(z)}` : "—"}
-                                                </div>
-                                              </React.Fragment>
-                                            );
-                                          })}
-                                        </div>
-                                        <div className="text-[8.5px] text-muted-foreground/50 font-sans pt-0.5">
-                                          Q sleeve = equal-weight avg z-score · {activeCount} pillar{activeCount !== 1 ? "s" : ""}
-                                        </div>
-                                        <div className="flex items-center gap-2 pt-1 border-t border-border/20">
-                                          <span className="text-muted-foreground">Q sleeve</span>
-                                          <span className={cn("font-semibold", zCol(stock.qSleeve))}>{fmtZ(stock.qSleeve)}</span>
-                                          {qContrib != null ? (
-                                            <span className={cn("font-mono ml-auto", qContrib > 0 ? "text-emerald-400" : qContrib < 0 ? "text-rose-400" : "text-foreground")}>
-                                              {qContrib >= 0 ? "+" : ""}{qContrib.toFixed(4)} α
-                                            </span>
-                                          ) : (
-                                            <span className="text-amber-400/70 text-[8.5px] font-sans ml-auto">S+T only</span>
-                                          )}
-                                        </div>
-                                      </div>
-                                    );
-                                  }
-
-                                  // ── Legacy mode: show old ROE/ROA/margins quality data ──
-                                  const ic = (stock as any).qualityInputCount as number | null ?? 0;
-                                  const confLabel = ic >= 5 ? "High" : ic >= 3 ? "Medium" : "Low";
-                                  const confCls = ic >= 5
-                                    ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/25"
-                                    : ic >= 3
-                                    ? "text-amber-400 bg-amber-500/10 border-amber-500/25"
-                                    : "text-rose-400 bg-rose-500/10 border-rose-500/25";
-                                  const qualInputs: { label: string; raw: number | null | undefined; z: number | null | undefined; fmt: (v: number | null | undefined) => string }[] = [
-                                    { label: "ROE",    raw: stock.roe,         z: stock.zRoe,    fmt: fmtPct },
-                                    { label: "ROA",    raw: stock.roa,         z: stock.zRoa,    fmt: fmtPct },
-                                    { label: "GrossM", raw: stock.grossMargin, z: stock.zGross,  fmt: fmtPct },
-                                    { label: "OpM",    raw: stock.opMargin,    z: stock.zOp,     fmt: fmtPct },
-                                    { label: "D/E",    raw: stock.deRatio,     z: stock.zInvLev, fmt: fmtR   },
-                                  ];
-                                  return (
-                                    <div className="sm:col-span-2 lg:col-span-2 space-y-1">
-                                      <div className="flex items-center gap-2 mb-2">
-                                        <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold">Quality Audit</p>
-                                        <span className={cn("text-[8.5px] font-bold font-sans px-1.5 py-px rounded-full border", confCls)}>
-                                          {confLabel} · {ic}/5
-                                        </span>
-                                      </div>
-                                      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-                                        {qualInputs.map(({ label, raw, z, fmt }) => {
-                                          const avail = raw != null;
-                                          return (
-                                            <React.Fragment key={label}>
-                                              <div className="flex items-center gap-1">
-                                                <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", avail ? "bg-emerald-500/70" : "bg-muted/30")} />
-                                                <span className="text-muted-foreground/80 w-9 shrink-0">{label}</span>
-                                                <span className={avail ? "text-foreground" : "text-muted-foreground/30 italic text-[8.5px]"}>
-                                                  {avail ? fmt(raw) : "miss"}
-                                                </span>
-                                              </div>
-                                              <div className={cn("text-right pr-1", avail && z != null ? zCol(z) : "text-muted-foreground/30")}>
-                                                {avail && z != null ? `z ${fmtZ(z)}` : "—"}
-                                              </div>
-                                            </React.Fragment>
-                                          );
-                                        })}
-                                      </div>
-                                      <div className="flex items-center gap-2 pt-1.5 border-t border-border/20 mt-1">
-                                        <span className="text-muted-foreground">Q sleeve</span>
-                                        <span className={cn("font-semibold", zCol(stock.qSleeve))}>{fmtZ(stock.qSleeve)}</span>
-                                        {qContrib != null ? (
-                                          <span className={cn("font-mono ml-auto", qContrib > 0 ? "text-emerald-400" : qContrib < 0 ? "text-rose-400" : "text-foreground")}>
-                                            {qContrib >= 0 ? "+" : ""}{qContrib.toFixed(4)} α
-                                          </span>
-                                        ) : (
-                                          <span className="text-amber-400/70 text-[8.5px] font-sans ml-auto">S+T only</span>
-                                        )}
-                                      </div>
-                                      {(stock as any).qualityMissing && (
-                                        <p className="text-amber-400/60 text-[8.5px] font-sans">{(stock as any).qualityMissingReason ?? "quality missing"}</p>
-                                      )}
-                                    </div>
-                                  );
-                                })()}
 
                                 {/* ── Momentum raw ── */}
                                 <div className="space-y-1">

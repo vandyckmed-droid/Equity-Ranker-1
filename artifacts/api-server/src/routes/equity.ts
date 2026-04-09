@@ -1,5 +1,4 @@
 import { Router, type IRouter } from "express";
-import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -44,8 +43,6 @@ router.get("/equity/status", async (req, res): Promise<void> => {
       total: d.total ?? null,
       loaded: d.loaded ?? null,
       cachedAt: d.cached_at ?? d.cachedAt ?? null,
-      enrichment: d.enrichment ?? "pending",
-      qualityCoverage: d.qualityCoverage ?? "",
       timings: d.timings ?? {},
     });
   } catch (err) {
@@ -57,8 +54,6 @@ router.get("/equity/status", async (req, res): Promise<void> => {
       total: null,
       loaded: null,
       cachedAt: null,
-      enrichment: "pending",
-      qualityCoverage: "",
       timings: {},
     });
   }
@@ -69,23 +64,15 @@ router.get("/equity/rankings", async (req, res): Promise<void> => {
     const params = new URLSearchParams();
     for (const [k, v] of Object.entries(req.query)) {
       if (v !== undefined) {
-        // Map camelCase to snake_case query params
         const mappings: Record<string, string> = {
           volAdjust: "vol_adjust",
-          useQuality: "use_quality",
           useTstats: "use_tstats",
-          wQuality: "w_quality",
           volFloor: "vol_floor",
           winsorP: "winsor_p",
           clusterN: "cluster_n",
           clusterK: "cluster_k",
           clusterLookback: "cluster_lookback",
-          secFilerOnly: "sec_filer_only",
           excludeSectors: "exclude_sectors",
-          requireQuality: "require_quality",
-          useProfitabilityData: "use_profitability_data",
-          useSafetyData: "use_safety_data",
-          useInvestmentData: "use_investment_data",
         };
         const key = mappings[k] || k;
         params.set(key, String(v));
@@ -103,7 +90,6 @@ router.get("/equity/rankings", async (req, res): Promise<void> => {
         audit: d.audit || null,
       });
     } else {
-      // Data still loading
       res.status(202).json({
         status: "loading",
         message: (d as Record<string, unknown>).message || "Loading...",
@@ -128,18 +114,15 @@ router.get("/equity/rankings", async (req, res): Promise<void> => {
 
 router.post("/equity/universe-filters", async (req, res): Promise<void> => {
   try {
-    // Map camelCase body keys to snake_case
     const body = req.body as Record<string, unknown>;
     const mapped: Record<string, unknown> = {
       min_price: body.minPrice ?? 5.0,
       min_adv: body.minAdv ?? 1e7,
       min_market_cap: body.minMarketCap ?? 1e9,
       vol_adjust: body.volAdjust ?? true,
-      use_quality: body.useQuality ?? true,
       use_tstats: body.useTstats ?? false,
-      w6: body.w6 ?? 0.4,
-      w12: body.w12 ?? 0.4,
-      w_quality: body.wQuality ?? 0.2,
+      w6: body.w6 ?? 0.5,
+      w12: body.w12 ?? 0.5,
       vol_floor: body.volFloor ?? 0.05,
       winsor_p: body.winsorP ?? 2.0,
       cluster_n: body.clusterN ?? 100,
