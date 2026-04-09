@@ -54,7 +54,13 @@ The application is built as a monorepo using `pnpm workspaces`, targeting Node.j
         *   `/portfolio`: Portfolio & Risk analysis, including holdings basket, weighting modes, and risk metrics.
         *   `/methodology`: Reference for formula details.
     *   **Mobile-first Design**: Compact 2-line stock row layout for small screens.
-    *   **Portfolio Summary**: Consolidated view of portfolio construction, health metrics (Avg Corr, Names at Cap, Groups, Sectors), constituent table with "Group" identifiers, and **Diversify Suggestions** section (auto-suggests high-alpha stocks from underrepresented groups/sectors via deficit scoring, with Group/Sector/Both toggle).
+    *   **Portfolio Summary**: Redesigned with premium analysis panels:
+        *   **Portfolio Intelligence**: Auto-generated plain-English narrative from live metrics (vol scaling, correlation quality, largest risk driver, breadth).
+        *   **9-metric grid (3×3)**: Method, Base Vol, Target Vol, Scale, Invested%, Cash/SGOV%, Names, Max Wt%, Avg Corr — with color signals (amber=warning, green=healthy, dim=inactive).
+        *   **Risk Contribution Chart**: Horizontal bars overlaying risk-contrib vs position weight per holding, flagging amber when risk > 1.4× weight.
+        *   **Sector & Group Exposure**: Full bar charts for all sectors/groups, not capped at top-3.
+        *   **Constituent Table**: Base weight (with mini bar), risk%, individual vol, group ID — sorted by weight.
+        *   **Diversify Suggestions**: Auto-suggests high-alpha stocks from underrepresented groups/sectors via deficit scoring, with Group/Sector/Both toggle.
     *   **Auto-fetch on direct navigation**: PortfolioPage fetches `/api/equity/rankings` automatically when `rankedStocks` is empty (e.g., user lands on /portfolio directly), seeding the in-memory universe needed for Diversify Suggestions.
 
 **Universe & Filtering**:

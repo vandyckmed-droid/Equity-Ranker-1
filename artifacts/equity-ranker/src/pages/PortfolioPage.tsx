@@ -41,10 +41,10 @@ const loadPortfolioPrefs = (): Record<string, unknown> | null => {
 };
 
 const METHODS: { value: string; label: string; desc: string }[] = [
-  { value: "equal",       label: "Equal Weight", desc: "Same weight to every holding — simple and transparent" },
-  { value: "inverse_vol", label: "Inverse Vol",  desc: "Smaller weight to more volatile names — diagonal risk control" },
-  { value: "signal_vol",  label: "Signal / Vol", desc: "Stronger alpha signal + lower vol → more weight" },
-  { value: "risk_parity", label: "Risk Parity",  desc: "Each holding contributes equal portfolio risk (capped ERC via SLSQP)" },
+  { value: "equal",       label: "Equal Weight",  desc: "Same weight to every holding — simple and transparent" },
+  { value: "inverse_vol", label: "Inverse Vol",   desc: "Smaller weight to more volatile names — diagonal risk control" },
+  { value: "signal_vol",  label: "Signal / Vol",  desc: "Stronger alpha signal + lower vol → more weight" },
+  { value: "risk_parity", label: "Risk Parity",   desc: "Each holding contributes equal portfolio risk (capped ERC via SLSQP)" },
 ];
 
 const METHOD_LABELS: Record<string, string> = Object.fromEntries(
@@ -54,10 +54,66 @@ const METHOD_LABELS: Record<string, string> = Object.fromEntries(
 const VOL_TARGET = 0.15;
 const LOOKBACK = 126;
 
+// ── Plain-English portfolio narrative ────────────────────────────────────────
+function buildNarrative(
+  riskData: NonNullable<ReturnType<typeof useComputePortfolioRisk>["data"]>,
+  methodLabel: string,
+  numSectors: number,
+  numGroups: number,
+): string {
+  const n = riskData.numHoldings;
+  const scale = riskData.volTargetMultiplier;
+  const cash = riskData.sgovWeight;
+  const avgCorr = riskData.avgCorrelation;
+  const effN = riskData.effectiveN ?? riskData.numHoldings;
+  const dr = riskData.diversificationRatio ?? 1;
+
+  const sorted = [...riskData.holdings].sort((a, b) => b.riskContrib - a.riskContrib);
+  const topContrib = sorted[0];
+
+  const parts: string[] = [];
+
+  // Core construction
+  const cashLine = cash > 0.005
+    ? ` scaled ×${formatNumber(scale, 2)} → ${formatPercent(cash, 1)} in SGOV`
+    : " fully invested";
+  parts.push(
+    `${n}-name ${methodLabel} portfolio targeting 15% vol.` +
+    ` Base vol ${formatPercent(riskData.basePortVol, 1)},${cashLine}.`
+  );
+
+  // Diversification quality
+  const corrQual = avgCorr < 0.25 ? "low" : avgCorr < 0.45 ? "moderate" : "elevated";
+  parts.push(
+    `Avg pairwise correlation is ${corrQual} (${formatNumber(avgCorr, 2)}),` +
+    ` with ${formatNumber(effN, 1)} effective positions` +
+    (dr > 1.05 ? ` and ${formatNumber(dr, 2)}× diversification benefit.` : ".")
+  );
+
+  // Concentration
+  if (topContrib) {
+    const dominated = topContrib.riskContrib > 0.20;
+    parts.push(
+      `${topContrib.ticker} is the ${dominated ? "dominant" : "largest"} risk driver` +
+      ` at ${formatPercent(topContrib.riskContrib, 1)} of total variance` +
+      ` (${formatPercent(topContrib.baseWeight, 1)} weight).`
+    );
+  }
+
+  // Breadth
+  if (numSectors > 0 || numGroups > 0) {
+    const breadth: string[] = [];
+    if (numSectors > 0) breadth.push(`${numSectors} sector${numSectors > 1 ? "s" : ""}`);
+    if (numGroups > 0) breadth.push(`${numGroups} momentum group${numGroups > 1 ? "s" : ""}`);
+    parts.push(`Coverage spans ${breadth.join(" and ")}.`);
+  }
+
+  return parts.join(" ");
+}
+
 export default function PortfolioPage() {
   const { basket, addToBasket, removeFromBasket, clearBasket, seedBasket, allStocks, rankedStocks, setRankedStocks } = usePortfolio();
 
-  // Auto-fetch universe when navigating directly to /portfolio (rankedStocks empty until MainPage loads)
   const { data: autoFetchData } = useGetRankings(undefined, {
     query: { enabled: basket.length > 0 && rankedStocks.length === 0, staleTime: 5 * 60 * 1000 },
   });
@@ -126,29 +182,21 @@ export default function PortfolioPage() {
   const handleSeed = () => {
     const n = parseInt(seedCount);
     if (isNaN(n) || n <= 0) return;
-
-    // Source is always the current ranked universe from MainPage (alpha-sorted, mcap-filtered)
     const universe: Stock[] = rankedStocks.length > 0 ? rankedStocks : allStocks;
 
     if (seedMode === "alpha") {
-      // ── Mode 1: Pure alpha rank — top N by composite score ─────────────────
       seedBasket(universe.slice(0, n).map((s) => s.ticker));
       setWeightingMethod("equal");
-
     } else if (seedMode === "group") {
-      // ── Mode 2: Group-balanced — round-robin across cluster groups ──────────
-      // universe is already sorted best-alpha-first within each group.
       const byGroup = new Map<number, Stock[]>();
       for (const s of universe) {
-        const key = s.cluster ?? -1;   // -1 = unclustered (ranks > cluster_n)
+        const key = s.cluster ?? -1;
         if (!byGroup.has(key)) byGroup.set(key, []);
         byGroup.get(key)!.push(s);
       }
-      // Numbered groups first (ascending), unclustered (-1) last
       const groups = [...byGroup.entries()]
         .sort(([a], [b]) => (a === -1 ? 1 : b === -1 ? -1 : a - b))
         .map(([, stocks]) => stocks);
-
       const selected: string[] = [];
       let round = 0;
       outer: while (selected.length < n) {
@@ -165,19 +213,12 @@ export default function PortfolioPage() {
       }
       seedBasket(selected);
       setWeightingMethod("equal");
-
     } else {
-      // ── Mode 3: Correlation-constrained — greedy server-side selection ──────
       const parsedCorr = parseFloat(maxCorr);
       const threshold = isNaN(parsedCorr) ? 0.7 : Math.min(0.99, Math.max(0.10, parsedCorr));
       corrSeed.mutate(
         { data: { tickers: universe.map((s) => s.ticker), n, maxCorr: threshold, lookback: LOOKBACK } },
-        {
-          onSuccess: (data) => {
-            seedBasket(data.tickers);
-            setWeightingMethod("equal");
-          },
-        }
+        { onSuccess: (data) => { seedBasket(data.tickers); setWeightingMethod("equal"); } }
       );
     }
   };
@@ -187,15 +228,22 @@ export default function PortfolioPage() {
   const hasError = computeRisk.isError;
   const isEngineDown = hasError && (computeRisk.error as { status?: number })?.status === 503;
 
+  // Max base weight across holdings
+  const maxPosition = useMemo(() => {
+    if (!riskData || riskData.holdings.length === 0) return 0;
+    return Math.max(...riskData.holdings.map((h) => h.baseWeight));
+  }, [riskData]);
+
+  // Weight map for basket table
   const weightMap = useMemo(() => {
     if (!riskData) return {} as Record<string, number>;
     return Object.fromEntries(riskData.holdings.map((h) => [h.ticker, h.baseWeight]));
   }, [riskData]);
 
-  // Sector breakdown — filter out unmapped tickers; only trust if >50% weight is resolved
+  // Sector breakdown
   const sectorStats = useMemo(() => {
-    const empty = { valid: false, numSectors: 0, breakdown: [] as { sector: string; weight: number; count: number }[], topSector: "", topWeight: 0 };
-    if (!riskData || riskData.holdings.length === 0) return empty;
+    if (!riskData || riskData.holdings.length === 0)
+      return { valid: false, numSectors: 0, breakdown: [] as { sector: string; weight: number; count: number }[] };
     const sectorMap = Object.fromEntries(allStocks.map((s) => [s.ticker, s.sector ?? ""]));
     const agg: Record<string, { weight: number; count: number }> = {};
     for (const h of riskData.holdings) {
@@ -209,15 +257,13 @@ export default function PortfolioPage() {
       .map(([sector, v]) => ({ sector, ...v }))
       .sort((a, b) => b.weight - a.weight);
     const mappedWeight = breakdown.reduce((s, r) => s + r.weight, 0);
-    const valid = mappedWeight > 0.5;
-    return { valid, numSectors: breakdown.length, breakdown, topSector: breakdown[0]?.sector ?? "", topWeight: breakdown[0]?.weight ?? 0 };
+    return { valid: mappedWeight > 0.5, numSectors: breakdown.length, breakdown };
   }, [riskData, allStocks]);
 
-  // Group (cluster) breakdown
+  // Group breakdown
   const groupStats = useMemo(() => {
-    if (!riskData || riskData.holdings.length === 0) {
-      return { numGroups: 0, breakdown: [] as { cluster: number; weight: number; count: number }[], topGroup: null as number | null, topWeight: 0 };
-    }
+    if (!riskData || riskData.holdings.length === 0)
+      return { numGroups: 0, breakdown: [] as { cluster: number; weight: number; count: number }[] };
     const agg: Record<number, { weight: number; count: number }> = {};
     for (const h of riskData.holdings) {
       if (h.cluster == null) continue;
@@ -228,22 +274,16 @@ export default function PortfolioPage() {
     const breakdown = Object.entries(agg)
       .map(([c, v]) => ({ cluster: Number(c), ...v }))
       .sort((a, b) => b.weight - a.weight);
-    return { numGroups: breakdown.length, breakdown, topGroup: breakdown[0]?.cluster ?? null, topWeight: breakdown[0]?.weight ?? 0 };
+    return { numGroups: breakdown.length, breakdown };
   }, [riskData]);
 
-  const maxPosition = useMemo(() => {
-    if (!riskData || riskData.holdings.length === 0) return 0;
-    return Math.max(...riskData.holdings.map((h) => h.baseWeight));
-  }, [riskData]);
-
-  // ── Diversify suggestions ────────────────────────────────────────────────
+  // Diversify suggestions
   const diversifySuggestions = useMemo((): DiversifySuggestion[] => {
     if (basket.length === 0 || rankedStocks.length === 0) return [];
     const n = basket.length;
     const bSet = new Set(basket);
     const stockMap = new Map(rankedStocks.map((s) => [s.ticker, s]));
 
-    // Group (cluster) analysis
     const uGroupCounts = new Map<number, number>();
     for (const s of rankedStocks) {
       const g = s.cluster ?? -1;
@@ -261,7 +301,6 @@ export default function PortfolioPage() {
       if (d > 0) groupDeficits.set(g, d);
     }
 
-    // Sector analysis
     const uSectorCounts = new Map<string, number>();
     for (const s of rankedStocks) {
       const sec = s.sector ?? "Unknown";
@@ -279,7 +318,6 @@ export default function PortfolioPage() {
       if (d > 0) sectorDeficits.set(sec, d);
     }
 
-    // Score every candidate (rankedStocks is alpha-sorted)
     const result: DiversifySuggestion[] = [];
     for (const s of rankedStocks) {
       if (bSet.has(s.ticker)) continue;
@@ -290,11 +328,8 @@ export default function PortfolioPage() {
       const deficit = Math.max(gd, sd);
       if (deficit === 0) continue;
       result.push({
-        ticker: s.ticker,
-        name: s.name ?? "",
-        alpha: s.alpha ?? 0,
-        sector: sec,
-        group: g,
+        ticker: s.ticker, name: s.name ?? "", alpha: s.alpha ?? 0,
+        sector: sec, group: g,
         groupShare: (bGroupCounts.get(g) ?? 0) / n,
         sectorShare: (bSectorCounts.get(sec) ?? 0) / n,
         deficit,
@@ -305,6 +340,7 @@ export default function PortfolioPage() {
     return result.slice(0, 10);
   }, [basket, rankedStocks, suggestMode]);
 
+  // ── Empty state ────────────────────────────────────────────────────────────
   if (basket.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center min-h-full p-4 text-center">
@@ -317,77 +353,43 @@ export default function PortfolioPage() {
             Add equities from the universe rankings to construct a basket. Weights are automated by the selected method.
           </p>
           <div className="pt-2 flex flex-col gap-3">
-            <Link href="/">
-              <Button className="w-full">Go to Rankings</Button>
-            </Link>
+            <Link href="/"><Button className="w-full">Go to Rankings</Button></Link>
             <div className="flex items-center gap-2 text-sm text-muted-foreground px-2">
               <span className="h-px bg-border flex-1"></span>
               <span>OR</span>
               <span className="h-px bg-border flex-1"></span>
             </div>
-
-            {/* ── Seed mode selector ─────────────────────────────────── */}
             <div className="flex gap-1">
               {(["alpha", "group", "corr"] as const).map((m) => (
-                <Button
-                  key={m}
-                  variant={seedMode === m ? "secondary" : "outline"}
-                  size="sm"
-                  className="flex-1 h-7 text-xs"
-                  onClick={() => setSeedMode(m)}
-                >
+                <Button key={m} variant={seedMode === m ? "secondary" : "outline"} size="sm"
+                  className="flex-1 h-7 text-xs" onClick={() => setSeedMode(m)}>
                   {m === "alpha" ? "Alpha" : m === "group" ? "Group" : "Corr"}
                 </Button>
               ))}
             </div>
-
-            {/* ── Mode description ───────────────────────────────────── */}
             <p className="text-[11px] text-muted-foreground/70 leading-snug text-left -mt-1">
               {seedMode === "alpha" && "Top N names by composite alpha score."}
               {seedMode === "group" && "Round-robin across groups: picks the best name from each group, then second-best, until full."}
               {seedMode === "corr" && "Greedy selection: adds each candidate only if its max pairwise correlation to current basket is ≤ threshold."}
             </p>
-
-            {/* ── Corr threshold (corr mode only) ────────────────────── */}
             {seedMode === "corr" && (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground shrink-0">Max r</span>
-                <Input
-                  type="number"
-                  value={maxCorr}
-                  onChange={(e) => setMaxCorr(e.target.value)}
-                  className="w-20 text-center h-7 text-xs"
-                  min="0.10"
-                  max="0.99"
-                  step="0.05"
-                />
+                <Input type="number" value={maxCorr} onChange={(e) => setMaxCorr(e.target.value)}
+                  className="w-20 text-center h-7 text-xs" min="0.10" max="0.99" step="0.05" />
                 <span className="text-[11px] text-muted-foreground/50">abs. Pearson</span>
               </div>
             )}
-
-            {/* ── N input + seed button ──────────────────────────────── */}
             <div className="flex gap-2">
-              <Input
-                type="number"
-                value={seedCount}
-                onChange={(e) => setSeedCount(e.target.value)}
-                className="w-20 text-center"
-                min="1"
-                max="60"
-              />
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={handleSeed}
-                disabled={allStocks.length === 0 || corrSeed.isPending}
-              >
+              <Input type="number" value={seedCount} onChange={(e) => setSeedCount(e.target.value)}
+                className="w-20 text-center" min="1" max="60" />
+              <Button variant="outline" className="flex-1" onClick={handleSeed}
+                disabled={allStocks.length === 0 || corrSeed.isPending}>
                 {corrSeed.isPending && seedMode === "corr"
                   ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Seeding…</>
-                  : "Seed Top N"
-                }
+                  : "Seed Top N"}
               </Button>
             </div>
-
             {allStocks.length === 0 && (
               <p className="text-xs text-amber-500/80 flex items-center justify-center gap-1">
                 <Info className="w-3 h-3" /> Rankings not loaded yet
@@ -404,132 +406,129 @@ export default function PortfolioPage() {
     );
   }
 
+  // ── Main layout ────────────────────────────────────────────────────────────
   return (
     <div className="p-3 md:p-4 max-w-7xl mx-auto flex gap-4 md:gap-6 flex-col lg:flex-row lg:h-full lg:overflow-hidden">
 
-      {/* LEFT PANEL: Basket & Method */}
-      <div className="w-full lg:w-[360px] flex flex-col gap-3 flex-shrink-0 lg:h-full lg:overflow-hidden">
+      {/* ── LEFT: Basket + method ────────────────────────────────────────── */}
+      <div className="w-full lg:w-[320px] flex flex-col gap-3 flex-shrink-0 lg:h-full lg:overflow-hidden">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-lg md:text-xl font-bold tracking-tight text-foreground">Portfolio Basket</h1>
-            <p className="text-[11px] text-muted-foreground/70 mt-0.5">Manually selected · weights automated</p>
+            <h1 className="text-base font-bold tracking-tight text-foreground">Basket</h1>
+            <p className="text-[11px] text-muted-foreground/60 mt-0.5">{basket.length} holding{basket.length !== 1 ? "s" : ""} · weights automated</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={clearBasket} className="text-muted-foreground hover:text-destructive">
-            Clear All
+          <Button variant="ghost" size="sm" onClick={clearBasket}
+            className="text-[11px] text-muted-foreground/60 hover:text-destructive h-7 px-2">
+            Clear all
           </Button>
         </div>
 
         <Card className="lg:flex-1 flex flex-col lg:overflow-hidden bg-card border-border min-h-0">
-          <CardHeader className="p-4 pb-3 border-b border-border/50 bg-muted/20">
-            <Select
-              value={weightingMethod}
-              onValueChange={(v) => setWeightingMethod(v as PortfolioRiskRequestWeightingMethod)}
-            >
-              <SelectTrigger className="w-full text-sm h-9">
+          {/* Method selector */}
+          <div className="p-3 border-b border-border/50">
+            <Select value={weightingMethod}
+              onValueChange={(v) => setWeightingMethod(v as PortfolioRiskRequestWeightingMethod)}>
+              <SelectTrigger className="w-full text-sm h-8">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {METHODS.map((m) => (
-                  <SelectItem key={m.value} value={m.value}>
-                    {m.label}
-                  </SelectItem>
+                  <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-[11px] text-muted-foreground/70 mt-1.5 leading-snug">
+            <p className="text-[10px] text-muted-foreground/60 mt-1.5 leading-snug">
               {METHODS.find((m) => m.value === weightingMethod)?.desc}
             </p>
-          </CardHeader>
+          </div>
 
-          <div className="overflow-auto flex-1 p-0">
-            <Table className="table-compact">
-              <TableHeader className="sticky top-0 bg-card z-10">
-                <TableRow>
-                  <TableHead className="w-20">Ticker</TableHead>
-                  <TableHead className="text-right">Base Wt%</TableHead>
-                  <TableHead className="w-10"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+          {/* Holdings table */}
+          <div className="overflow-auto flex-1 min-h-0">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-card z-10 border-b border-border/40">
+                <tr>
+                  <th className="text-left px-3 py-2 text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider">Ticker</th>
+                  <th className="text-right px-3 py-2 text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider">Wt%</th>
+                  <th className="w-8"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/20">
                 {basket.map((ticker) => {
                   const fw = weightMap[ticker];
+                  const pct = fw !== undefined ? fw : 0;
+                  const isHigh = pct > 0.18;
                   return (
-                    <TableRow key={ticker} className="hover:bg-muted/50 group">
-                      <TableCell className="font-bold text-foreground">{ticker}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">
+                    <tr key={ticker} className="group hover:bg-muted/30 transition-colors">
+                      <td className="px-3 py-2.5">
+                        <div className="font-bold text-foreground tracking-tight">{ticker}</div>
+                        {/* Mini weight bar */}
+                        {fw !== undefined && !isComputing && (
+                          <div className="mt-1 h-0.5 w-full bg-muted rounded-full overflow-hidden">
+                            <div
+                              className={cn("h-full rounded-full transition-all", isHigh ? "bg-amber-400/60" : "bg-primary/50")}
+                              style={{ width: `${Math.min(pct * 100 / 20 * 100, 100)}%` }}
+                            />
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono">
                         {isComputing ? (
-                          <span className="text-muted-foreground/40">—</span>
+                          <span className="text-muted-foreground/30">—</span>
                         ) : fw !== undefined ? (
-                          <span className={cn(fw > 0.20 ? "text-amber-400" : "text-primary")}>
+                          <span className={cn("font-semibold", isHigh ? "text-amber-400" : "text-primary")}>
                             {formatPercent(fw, 1)}
                           </span>
                         ) : (
-                          <span className="text-muted-foreground/40">—</span>
+                          <span className="text-muted-foreground/30">—</span>
                         )}
-                      </TableCell>
-                      <TableCell className="p-0 text-center">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 rounded-sm text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                      </td>
+                      <td className="pr-2 text-center">
+                        <button
                           onClick={() => removeFromBasket(ticker)}
+                          className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/30 hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
                         >
                           <Trash2 className="w-3 h-3" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
+                        </button>
+                      </td>
+                    </tr>
                   );
                 })}
-              </TableBody>
-            </Table>
+              </tbody>
+            </table>
           </div>
 
-          <div className="px-4 py-3 border-t border-border/50 bg-muted/10">
-            <AuditLine
-              riskData={riskData}
-              isComputing={isComputing}
-              hasError={hasError}
-              isEngineDown={isEngineDown}
-              requestedMethod={weightingMethod}
-            />
+          {/* Status footer */}
+          <div className="px-3 py-2.5 border-t border-border/40 bg-muted/10">
+            <StatusLine riskData={riskData} isComputing={isComputing}
+              hasError={hasError} isEngineDown={isEngineDown} requestedMethod={weightingMethod} />
           </div>
         </Card>
       </div>
 
-      {/* RIGHT PANEL: Risk Metrics */}
+      {/* ── RIGHT: Analysis ─────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col gap-3 lg:overflow-hidden lg:h-full">
-        <h2 className="text-base font-semibold text-muted-foreground hidden lg:block">Risk Analysis</h2>
 
+        {/* Error states */}
         {hasError && !riskData ? (
-          <div className="flex-1 flex items-center justify-center border border-dashed rounded-xl bg-card/20 min-h-[120px] lg:min-h-0 border-destructive/30">
+          <div className="flex-1 flex items-center justify-center border border-dashed rounded-xl bg-card/20 min-h-[140px] lg:min-h-0 border-destructive/30">
             <div className="flex flex-col items-center gap-3 p-6 text-center">
               {isEngineDown ? (
                 <>
                   <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                   <p className="text-sm text-muted-foreground">Engine is starting up — data loads in a few seconds.</p>
-                  <button
-                    onClick={triggerCompute}
-                    className="text-xs text-primary underline underline-offset-2 hover:opacity-80"
-                  >
-                    Retry now
-                  </button>
+                  <button onClick={triggerCompute} className="text-xs text-primary underline underline-offset-2 hover:opacity-80">Retry now</button>
                 </>
               ) : (
                 <>
                   <AlertTriangle className="w-6 h-6 text-destructive/70" />
                   <p className="text-sm text-destructive">Failed to compute risk.</p>
-                  <button
-                    onClick={triggerCompute}
-                    className="text-xs text-primary underline underline-offset-2 hover:opacity-80"
-                  >
-                    Retry
-                  </button>
+                  <button onClick={triggerCompute} className="text-xs text-primary underline underline-offset-2 hover:opacity-80">Retry</button>
                 </>
               )}
             </div>
           </div>
         ) : !riskData ? (
-          <div className="flex-1 flex items-center justify-center border border-border border-dashed rounded-xl bg-card/20 text-muted-foreground min-h-[120px] lg:min-h-0">
+          <div className="flex-1 flex items-center justify-center border border-border border-dashed rounded-xl bg-card/20 text-muted-foreground min-h-[140px] lg:min-h-0">
             {isComputing ? (
               <div className="flex flex-col items-center gap-3 p-6 text-center">
                 <Loader2 className="w-7 h-7 animate-spin text-primary" />
@@ -540,118 +539,67 @@ export default function PortfolioPage() {
             )}
           </div>
         ) : (
-          <div className="lg:flex-1 lg:overflow-auto space-y-3 lg:pr-2 pb-[max(env(safe-area-inset-bottom,0px),1.5rem)]">
+          <div className="lg:flex-1 lg:overflow-auto space-y-3 lg:pr-1 pb-[max(env(safe-area-inset-bottom,0px),1.5rem)]">
 
-            {/* ── A. Construction strip ─────────────────────────────────── */}
+            {/* ── A. Portfolio Intelligence ─────────────────────────────── */}
             <div className="bg-card border border-border rounded-lg px-4 py-3">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Construction</p>
-              <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[12px]">
-                <Stat label="Method" value={METHOD_LABELS[riskData.method] ?? riskData.method} />
-                <Stat label="Port Vol" value={formatPercent(riskData.portfolioVol, 1)} highlight />
-                <Stat label="Target" value={formatPercent(VOL_TARGET, 0)} />
-                <Stat label="Scale" value={`×${formatNumber(riskData.volTargetMultiplier, 2)}`} />
-                <Stat label="Max pos" value={formatPercent(maxPosition, 1)} />
-                <Stat label="Names" value={String(riskData.numHoldings)} />
-              </div>
-            </div>
-
-            {/* ── B. Health metrics grid ────────────────────────────────── */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <KpiCard label="Avg Corr" value={formatNumber(riskData.avgCorrelation, 2)} />
-              <KpiCard
-                label="Names at Cap"
-                value={String((riskData.namesCapped ?? []).length)}
-                sub={(riskData.namesCapped ?? []).length > 0 ? "at 15% limit" : "none at cap"}
-              />
-              <KpiCard
-                label="Groups"
-                value={String(groupStats.numGroups)}
-                sub={groupStats.topGroup != null ? `top: G${groupStats.topGroup} ${formatPercent(groupStats.topWeight, 0)}` : undefined}
-              />
-              {sectorStats.valid ? (
-                <KpiCard
-                  label="Sectors"
-                  value={String(sectorStats.numSectors)}
-                  sub={sectorStats.topSector ? `top: ${sectorStats.topSector.slice(0, 14)}` : undefined}
-                />
-              ) : (
-                <KpiCard label="Sectors" value="—" sub="data pending" muted />
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold mb-1.5">Portfolio Intelligence</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {buildNarrative(riskData, METHOD_LABELS[riskData.method] ?? riskData.method, sectorStats.numSectors, groupStats.numGroups)}
+              </p>
+              {riskData.fallback && (
+                <p className="mt-2 text-[10px] text-amber-400/80 flex items-center gap-1.5">
+                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  {riskData.fallback}
+                </p>
               )}
             </div>
 
-            {/* ── C. Group exposure ─────────────────────────────────────── */}
-            {groupStats.breakdown.length > 0 && (
-              <BreakdownCard
-                title="Group Exposure"
-                description="Base weight by momentum / quality group · top 3 shown"
-                rows={groupStats.breakdown.slice(0, 3)}
-                otherWeight={groupStats.breakdown.slice(3).reduce((s, r) => s + r.weight, 0)}
-                otherCount={groupStats.breakdown.slice(3).reduce((s, r) => s + r.count, 0)}
-                labelFn={(r) => `G${(r as { cluster: number }).cluster}`}
-                maxWeight={groupStats.breakdown[0]?.weight ?? 1}
-              />
-            )}
+            {/* ── B. Key metrics — 3×3 grid ─────────────────────────────── */}
+            <div className="grid grid-cols-3 gap-px bg-border rounded-lg overflow-hidden border border-border">
+              <MetricCell label="Method" value={METHOD_LABELS[riskData.method] ?? riskData.method} small />
+              <MetricCell label="Base Vol" value={formatPercent(riskData.basePortVol, 1)} />
+              <MetricCell label="Target Vol" value={formatPercent(VOL_TARGET, 0)} dim />
 
-            {/* ── D. Sector concentration (only if mapped) ──────────────── */}
+              <MetricCell label="Scale" value={`×${formatNumber(riskData.volTargetMultiplier, 2)}`}
+                dim={riskData.volTargetMultiplier >= 0.999} />
+              <MetricCell label="Invested"
+                value={formatPercent(riskData.grossExposure, 1)}
+                highlight={riskData.sgovWeight < 0.005} />
+              <MetricCell label="Cash / SGOV"
+                value={riskData.sgovWeight > 0.005 ? formatPercent(riskData.sgovWeight, 1) : "—"}
+                dim={riskData.sgovWeight < 0.005} />
+
+              <MetricCell label="Names" value={String(riskData.numHoldings)} />
+              <MetricCell label="Max Wt" value={formatPercent(maxPosition, 1)}
+                warn={maxPosition >= 0.149} />
+              <MetricCell label="Avg Corr" value={formatNumber(riskData.avgCorrelation, 2)}
+                warn={riskData.avgCorrelation > 0.55} />
+            </div>
+
+            {/* ── C. Risk Contribution chart ────────────────────────────── */}
+            <RiskContribChart holdings={riskData.holdings} />
+
+            {/* ── D. Sector exposure ────────────────────────────────────── */}
             {sectorStats.valid && sectorStats.breakdown.length > 0 && (
-              <BreakdownCard
-                title="Sector Concentration"
-                description="Base weight allocated per sector · top 3 shown"
-                rows={sectorStats.breakdown.slice(0, 3)}
-                otherWeight={sectorStats.breakdown.slice(3).reduce((s, r) => s + r.weight, 0)}
-                otherCount={sectorStats.breakdown.slice(3).reduce((s, r) => s + r.count, 0)}
-                labelFn={(r) => r.sector}
-                maxWeight={sectorStats.breakdown[0]?.weight ?? 1}
+              <ExposureCard
+                title="Sector Exposure"
+                rows={sectorStats.breakdown.map(r => ({ label: r.sector, weight: r.weight, count: r.count }))}
               />
             )}
 
-            {/* ── E. Constituent table ──────────────────────────────────── */}
-            <Card className="bg-card border-border">
-              <CardHeader className="p-4">
-                <CardTitle className="text-sm">Constituent Weights &amp; Risk</CardTitle>
-                <CardDescription>
-                  Base wt sums to 100% · scaled ×{formatNumber(riskData.volTargetMultiplier, 2)} to {formatPercent(VOL_TARGET, 0)} vol target ·{" "}
-                  {riskData.sgovWeight > 0.001
-                    ? `${formatPercent(riskData.sgovWeight, 1)} in SGOV / cash`
-                    : "fully invested in equity"}{" "}
-                  · no leverage
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-0">
-                <Table className="table-compact">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Ticker</TableHead>
-                      <TableHead className="text-right">Base Wt%</TableHead>
-                      <TableHead className="text-right">Risk%</TableHead>
-                      <TableHead className="text-right">Ann. Vol</TableHead>
-                      <TableHead className="text-center">Grp</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {[...riskData.holdings].sort((a, b) => b.baseWeight - a.baseWeight).map((h) => (
-                      <TableRow key={h.ticker}>
-                        <TableCell className="font-bold">{h.ticker}</TableCell>
-                        <TableCell className="text-right font-mono text-primary">
-                          {formatPercent(h.baseWeight, 1)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-muted-foreground">
-                          {formatPercent(h.riskContrib, 1)}
-                        </TableCell>
-                        <TableCell className="text-right text-muted-foreground">
-                          {formatPercent(h.vol, 1)}
-                        </TableCell>
-                        <TableCell className="text-center text-muted-foreground">
-                          {h.cluster != null ? `G${h.cluster}` : "—"}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+            {/* ── E. Group exposure ─────────────────────────────────────── */}
+            {groupStats.breakdown.length > 0 && (
+              <ExposureCard
+                title="Group Exposure"
+                rows={groupStats.breakdown.map(r => ({ label: `G${r.cluster}`, weight: r.weight, count: r.count }))}
+              />
+            )}
 
-            {/* ── F. Diversify Suggestions ──────────────────────────────── */}
+            {/* ── F. Constituent table ──────────────────────────────────── */}
+            <ConstituentTable holdings={riskData.holdings} scale={riskData.volTargetMultiplier} />
+
+            {/* ── G. Diversify Suggestions ─────────────────────────────── */}
             {diversifySuggestions.length > 0 && (
               <DiversifyCard
                 suggestions={diversifySuggestions}
@@ -670,78 +618,141 @@ export default function PortfolioPage() {
 
 // ── Sub-components ─────────────────────────────────────────────────────────
 
-function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function MetricCell({
+  label, value, small, dim, highlight, warn,
+}: {
+  label: string; value: string; small?: boolean; dim?: boolean; highlight?: boolean; warn?: boolean;
+}) {
   return (
-    <span>
-      <span className="text-muted-foreground">{label} </span>
-      <span className={cn("font-medium", highlight ? "text-primary" : "text-foreground")}>{value}</span>
-    </span>
+    <div className="bg-card px-3 py-2.5 flex flex-col gap-0.5">
+      <span className="text-[9px] uppercase tracking-wider text-muted-foreground/50 font-medium">{label}</span>
+      <span className={cn(
+        "font-bold font-mono leading-tight",
+        small ? "text-sm" : "text-base",
+        dim ? "text-muted-foreground/50" :
+        warn ? "text-amber-400" :
+        highlight ? "text-primary" :
+        "text-foreground"
+      )}>{value}</span>
+    </div>
   );
 }
 
-function KpiCard({ label, value, sub, muted }: { label: string; value: string; sub?: string; muted?: boolean }) {
+function RiskContribChart({
+  holdings,
+}: {
+  holdings: Array<{ ticker: string; riskContrib: number; baseWeight: number; cluster: number | null | undefined }>;
+}) {
+  const sorted = useMemo(
+    () => [...holdings].sort((a, b) => b.riskContrib - a.riskContrib),
+    [holdings]
+  );
+  const maxRC = sorted[0]?.riskContrib ?? 0.01;
+
   return (
-    <Card className="bg-card">
-      <CardHeader className="pb-1 p-3">
-        <CardTitle className="text-[10px] text-muted-foreground uppercase tracking-wider font-normal">{label}</CardTitle>
+    <Card className="bg-card border-border">
+      <CardHeader className="p-4 pb-2">
+        <CardTitle className="text-sm">Risk Contribution by Holding</CardTitle>
+        <CardDescription className="text-[11px]">
+          Share of total portfolio variance · bar = risk%, label = position weight
+        </CardDescription>
       </CardHeader>
-      <CardContent className="p-3 pt-0">
-        <div className={cn("text-xl font-bold font-mono", muted ? "text-muted-foreground/40" : "text-foreground")}>{value}</div>
-        {sub && <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div>}
+      <CardContent className="px-4 pb-4 pt-2 space-y-1.5">
+        {sorted.map((h) => {
+          const rc = h.riskContrib;
+          const bw = h.baseWeight;
+          const isConcentrated = rc > bw * 1.4;
+          const barPct = (rc / maxRC) * 100;
+          const wtPct = (bw / maxRC) * 100;
+
+          return (
+            <div key={h.ticker} className="flex items-center gap-2">
+              <div className="w-12 text-xs font-bold text-foreground/80 shrink-0 font-mono">{h.ticker}</div>
+              <div className="flex-1 relative h-5 flex items-center">
+                {/* Weight ghost bar */}
+                <div
+                  className="absolute h-5 rounded-sm bg-muted/60"
+                  style={{ width: `${Math.min(wtPct, 100)}%` }}
+                />
+                {/* Risk contrib bar */}
+                <div
+                  className={cn(
+                    "absolute h-5 rounded-sm opacity-80 transition-all",
+                    isConcentrated ? "bg-amber-500/70" : "bg-primary/60"
+                  )}
+                  style={{ width: `${Math.min(barPct, 100)}%` }}
+                />
+                <div className="absolute inset-0 flex items-center px-1.5">
+                  <span className={cn("text-[10px] font-bold mix-blend-plus-lighter",
+                    isConcentrated ? "text-amber-200" : "text-primary-foreground/90"
+                  )}>
+                    {formatPercent(rc, 1)}
+                  </span>
+                </div>
+              </div>
+              <div className="w-12 text-right text-[10px] text-muted-foreground/60 shrink-0 font-mono">
+                {formatPercent(bw, 1)}
+              </div>
+            </div>
+          );
+        })}
+        <div className="flex items-center gap-2 pt-1 border-t border-border/30">
+          <div className="w-12" />
+          <div className="flex-1 flex items-center gap-3 text-[9px] text-muted-foreground/50">
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-3 h-2 rounded-sm bg-primary/60 opacity-80" /> risk contrib
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-3 h-2 rounded-sm bg-muted/60" /> position wt
+            </span>
+          </div>
+          <div className="w-12 text-right text-[9px] text-muted-foreground/40">pos wt</div>
+        </div>
       </CardContent>
     </Card>
   );
 }
 
-function BreakdownCard<T extends { weight: number; count: number }>({
+function ExposureCard({
   title,
-  description,
   rows,
-  otherWeight,
-  otherCount,
-  labelFn,
-  maxWeight,
 }: {
   title: string;
-  description: string;
-  rows: T[];
-  otherWeight: number;
-  otherCount: number;
-  labelFn: (row: T) => string;
-  maxWeight: number;
+  rows: { label: string; weight: number; count: number }[];
 }) {
-  const barMax = Math.max(maxWeight, 0.001);
+  const maxW = rows[0]?.weight ?? 0.001;
+  const totalW = rows.reduce((s, r) => s + r.weight, 0);
+
   return (
     <Card className="bg-card border-border">
       <CardHeader className="p-4 pb-2">
         <CardTitle className="text-sm">{title}</CardTitle>
-        <CardDescription className="text-[11px]">{description}</CardDescription>
       </CardHeader>
-      <CardContent className="p-4 pt-0 space-y-2">
+      <CardContent className="px-4 pb-4 pt-1 space-y-2">
         {rows.map((row) => (
-          <div key={labelFn(row)} className="flex items-center gap-3">
-            <div className="w-24 text-xs font-mono text-foreground/80 truncate shrink-0">{labelFn(row)}</div>
-            <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+          <div key={row.label} className="flex items-center gap-2">
+            <div className="w-24 text-xs font-mono text-foreground/70 truncate shrink-0">{row.label}</div>
+            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
               <div
-                className="h-full bg-primary/70 rounded-full transition-all"
-                style={{ width: `${(row.weight / barMax) * 100}%` }}
+                className="h-full bg-primary/60 rounded-full transition-all"
+                style={{ width: `${(row.weight / maxW) * 100}%` }}
               />
             </div>
-            <div className="w-12 text-right text-xs font-mono text-primary">{formatPercent(row.weight, 1)}</div>
-            <div className="w-10 text-right text-[11px] text-muted-foreground">{row.count}n</div>
+            <div className="w-10 text-right text-xs font-mono text-primary">{formatPercent(row.weight, 1)}</div>
+            <div className="w-6 text-right text-[10px] text-muted-foreground/50">{row.count}</div>
           </div>
         ))}
-        {otherWeight > 0.001 && (
-          <div className="flex items-center gap-3">
-            <div className="w-24 text-xs font-mono text-muted-foreground/60 shrink-0">Other</div>
-            <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-              <div
-                className="h-full bg-muted-foreground/30 rounded-full"
-                style={{ width: `${(otherWeight / barMax) * 100}%` }}
-              />
+        {totalW < 0.98 && (
+          <div className="flex items-center gap-2">
+            <div className="w-24 text-xs font-mono text-muted-foreground/40 shrink-0">Unmapped</div>
+            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+              <div className="h-full bg-muted-foreground/20 rounded-full"
+                style={{ width: `${((1 - totalW) / maxW) * 100}%` }} />
             </div>
-            <div className="w-12 text-right text-xs font-mono text-muted-foreground">{formatPercent(otherWeight, 1)}</div>
-            <div className="w-10 text-right text-[11px] text-muted-foreground">{otherCount}n</div>
+            <div className="w-10 text-right text-xs font-mono text-muted-foreground/40">
+              {formatPercent(1 - totalW, 1)}
+            </div>
+            <div className="w-6" />
           </div>
         )}
       </CardContent>
@@ -749,11 +760,121 @@ function BreakdownCard<T extends { weight: number; count: number }>({
   );
 }
 
+function ConstituentTable({
+  holdings,
+  scale,
+}: {
+  holdings: Array<{ ticker: string; baseWeight: number; weight: number; vol: number; riskContrib: number; cluster: number | null | undefined }>;
+  scale: number;
+}) {
+  const sorted = useMemo(() => [...holdings].sort((a, b) => b.baseWeight - a.baseWeight), [holdings]);
+  const maxBW = sorted[0]?.baseWeight ?? 0.01;
+
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader className="p-4 pb-2">
+        <CardTitle className="text-sm">Constituents</CardTitle>
+        <CardDescription className="text-[11px]">
+          Sorted by base weight · scaled ×{formatNumber(scale, 2)} for 15% vol target
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="p-0">
+        <table className="w-full text-xs">
+          <thead className="border-b border-border/40">
+            <tr>
+              <th className="text-left px-4 py-2 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">Ticker</th>
+              <th className="text-right px-3 py-2 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">Wt%</th>
+              <th className="text-right px-3 py-2 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">Risk%</th>
+              <th className="text-right px-3 py-2 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">Vol</th>
+              <th className="text-center px-3 py-2 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">Grp</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/20">
+            {sorted.map((h) => {
+              const bw = h.baseWeight;
+              const rc = h.riskContrib;
+              const isConcentratedRisk = rc > bw * 1.4;
+              return (
+                <tr key={h.ticker} className="hover:bg-muted/20 transition-colors">
+                  <td className="px-4 py-2.5">
+                    <div className="font-bold text-foreground">{h.ticker}</div>
+                    <div className="mt-1 h-0.5 w-full bg-muted rounded-full overflow-hidden">
+                      <div className="h-full bg-primary/40 rounded-full"
+                        style={{ width: `${(bw / maxBW) * 100}%` }} />
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-mono font-semibold text-primary">
+                    {formatPercent(bw, 1)}
+                  </td>
+                  <td className={cn("px-3 py-2.5 text-right font-mono", isConcentratedRisk ? "text-amber-400" : "text-muted-foreground")}>
+                    {formatPercent(rc, 1)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-muted-foreground/70">
+                    {formatPercent(h.vol, 1)}
+                  </td>
+                  <td className="px-3 py-2.5 text-center text-muted-foreground/60 font-mono">
+                    {h.cluster != null ? `G${h.cluster}` : "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function StatusLine({
+  riskData, isComputing, hasError, isEngineDown, requestedMethod,
+}: {
+  riskData: ReturnType<typeof useComputePortfolioRisk>["data"];
+  isComputing: boolean;
+  hasError: boolean;
+  isEngineDown?: boolean;
+  requestedMethod: string;
+}) {
+  if (isComputing) {
+    return (
+      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50">
+        <Loader2 className="w-2.5 h-2.5 animate-spin" /><span>Computing…</span>
+      </div>
+    );
+  }
+  if (hasError && !riskData) {
+    return isEngineDown ? (
+      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50">
+        <Loader2 className="w-2.5 h-2.5 animate-spin" /><span>Engine starting…</span>
+      </div>
+    ) : (
+      <div className="flex items-center gap-1.5 text-[10px] text-destructive/70">
+        <AlertTriangle className="w-2.5 h-2.5" /><span>Computation failed</span>
+      </div>
+    );
+  }
+  if (!riskData) {
+    return <div className="text-[10px] text-muted-foreground/40">Waiting for first compute…</div>;
+  }
+
+  const methodLabel = METHOD_LABELS[riskData.method] ?? riskData.method;
+  return (
+    <div className="space-y-0.5">
+      <div className="font-mono text-[10px] text-muted-foreground/60 leading-relaxed truncate">
+        <span className="text-foreground/60">{methodLabel}</span>
+        {riskData.covModel && <> · <span className="text-foreground/50">{riskData.covModel}</span></>}
+        {" · "}<span className="text-foreground/70">{formatPercent(riskData.basePortVol, 1)}</span>
+        {" ×"}<span className="text-foreground/70">{formatNumber(riskData.volTargetMultiplier, 2)}</span>
+        {" → "}<span className="text-foreground/70">{formatPercent(riskData.portfolioVol, 1)}</span>
+      </div>
+      {riskData.method !== requestedMethod && (
+        <p className="text-[10px] text-amber-400/80">⚠ Method fallback active</p>
+      )}
+    </div>
+  );
+}
+
 function DiversifyCard({
-  suggestions,
-  suggestMode,
-  onModeChange,
-  onAdd,
+  suggestions, suggestMode, onModeChange, onAdd,
 }: {
   suggestions: DiversifySuggestion[];
   suggestMode: SuggestMode;
@@ -776,16 +897,13 @@ function DiversifyCard({
           </div>
           <div className="flex rounded-md border border-border overflow-hidden shrink-0">
             {modes.map((m) => (
-              <button
-                key={m.value}
-                onClick={() => onModeChange(m.value)}
+              <button key={m.value} onClick={() => onModeChange(m.value)}
                 className={cn(
                   "px-2.5 py-1 text-[11px] font-medium transition-colors",
                   suggestMode === m.value
                     ? "bg-primary text-primary-foreground"
                     : "bg-transparent text-muted-foreground hover:text-foreground"
-                )}
-              >
+                )}>
                 {m.label}
               </button>
             ))}
@@ -801,29 +919,23 @@ function DiversifyCard({
         <div className="divide-y divide-border/50">
           {suggestions.map((s) => {
             const alphaSign = s.alpha >= 0 ? "+" : "";
-            const alphaStr = `${alphaSign}${s.alpha.toFixed(2)}`;
             const alphaColor = s.alpha >= 0 ? "text-emerald-400" : "text-rose-400";
             const groupLabel = s.group === -1 ? "—" : `G${s.group}`;
             const viaBadge =
-              s.via === "both"
-                ? "Grp+Sec"
-                : s.via === "group"
-                ? `Grp ${formatPercent(s.groupShare, 0)}`
-                : `Sec ${formatPercent(s.sectorShare, 0)}`;
+              s.via === "both" ? "Grp+Sec"
+              : s.via === "group" ? `Grp ${formatPercent(s.groupShare, 0)}`
+              : `Sec ${formatPercent(s.sectorShare, 0)}`;
             const viaBadgeColor =
-              s.via === "both"
-                ? "text-amber-400/80"
-                : s.via === "group"
-                ? "text-sky-400/80"
-                : "text-violet-400/80";
+              s.via === "both" ? "text-amber-400/80"
+              : s.via === "group" ? "text-sky-400/80"
+              : "text-violet-400/80";
 
             return (
               <div key={s.ticker} className="flex items-center gap-2.5 px-4 py-2.5 hover:bg-muted/30 transition-colors">
-                {/* Left: ticker + alpha */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="font-bold text-sm text-foreground tracking-tight">{s.ticker}</span>
-                    <span className={cn("font-mono text-xs font-semibold", alphaColor)}>{alphaStr}</span>
+                    <span className={cn("font-mono text-xs font-semibold", alphaColor)}>{alphaSign}{s.alpha.toFixed(2)}</span>
                     <span className={cn("text-[10px] font-medium", viaBadgeColor)}>{viaBadge}</span>
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5">
@@ -832,13 +944,9 @@ function DiversifyCard({
                     <span className="text-[11px] text-muted-foreground/70 font-mono shrink-0">{groupLabel}</span>
                   </div>
                 </div>
-                {/* Right: Add button */}
-                <button
-                  onClick={() => onAdd(s.ticker)}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary/10 hover:bg-primary/20 text-primary text-[11px] font-semibold transition-colors shrink-0"
-                >
-                  <Plus className="w-3 h-3" />
-                  Add
+                <button onClick={() => onAdd(s.ticker)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary/10 hover:bg-primary/20 text-primary text-[11px] font-semibold transition-colors shrink-0">
+                  <Plus className="w-3 h-3" />Add
                 </button>
               </div>
             );
@@ -846,71 +954,5 @@ function DiversifyCard({
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-function AuditLine({
-  riskData,
-  isComputing,
-  hasError,
-  isEngineDown,
-  requestedMethod,
-}: {
-  riskData: ReturnType<typeof useComputePortfolioRisk>["data"];
-  isComputing: boolean;
-  hasError: boolean;
-  isEngineDown?: boolean;
-  requestedMethod: string;
-}) {
-  if (isComputing) {
-    return (
-      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60">
-        <Loader2 className="w-3 h-3 animate-spin" />
-        <span>Computing…</span>
-      </div>
-    );
-  }
-
-  if (hasError && !riskData) {
-    return isEngineDown ? (
-      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60">
-        <Loader2 className="w-3 h-3 animate-spin" />
-        <span>Engine starting…</span>
-      </div>
-    ) : (
-      <div className="flex items-center gap-1.5 text-[11px] text-destructive/80">
-        <AlertTriangle className="w-3 h-3" />
-        <span>Computation failed</span>
-      </div>
-    );
-  }
-
-  if (!riskData) {
-    return (
-      <div className="text-[11px] text-muted-foreground/50">
-        Audit: waiting for first compute
-      </div>
-    );
-  }
-
-  const methodLabel = METHOD_LABELS[riskData.method] ?? riskData.method;
-  const covModel = riskData.covModel;
-
-  return (
-    <div className="space-y-1">
-      <div className="font-mono text-[10px] text-muted-foreground leading-relaxed">
-        <span className="text-foreground/70 font-semibold">{methodLabel}</span>
-        {covModel && <> · <span className="text-foreground/60">{covModel}</span></>}
-        {" · "}base vol <span className="text-foreground/80">{formatPercent(riskData.basePortVol, 1)}</span>
-        {" · "}×<span className="text-foreground/80">{formatNumber(riskData.volTargetMultiplier, 2)}</span>
-        {" → "}<span className="text-foreground/80">{formatPercent(riskData.portfolioVol, 1)}</span>
-        {" target "}<span className="text-foreground/80">{formatPercent(VOL_TARGET, 0)}</span>
-      </div>
-      {riskData.method !== requestedMethod && (
-        <p className="text-[10px] text-amber-400/80">
-          ⚠ Returned method ({riskData.method}) differs from requested ({requestedMethod})
-        </p>
-      )}
-    </div>
   );
 }
