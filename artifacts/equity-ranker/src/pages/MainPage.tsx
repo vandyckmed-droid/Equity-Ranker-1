@@ -811,7 +811,7 @@ export default function MainPage() {
         </div>
 
         {/* Row 2: Status chips — horizontally scrollable */}
-        <div className="overflow-hidden max-h-8">
+        <div className="overflow-visible max-h-8">
           <div className="flex items-center gap-1.5 px-3 md:px-5 pb-1.5 overflow-x-auto scrollbar-none">
             {/* Universe count */}
             <span className="inline-flex items-center h-5 rounded-full px-2 text-[11px] bg-muted/60 border border-border/40 whitespace-nowrap shrink-0 text-muted-foreground">

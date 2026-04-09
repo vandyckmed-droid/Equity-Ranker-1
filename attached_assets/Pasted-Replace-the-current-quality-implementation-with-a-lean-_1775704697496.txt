@@ -1,0 +1,61 @@
+Replace the current quality implementation with a lean, evidence-based Institutional Quality factor built for robustness, speed, and reliability.
+
+Goal:
+Do not force a fragile 5-field quality sleeve. Build a strict, coverage-aware quality/junk factor using only broad, durable accounting inputs that can be computed reliably from existing fundamentals.
+
+New factor design:
+Use exactly 3 quality pillars:
+
+1) Profitability
+- Primary: operating profitability if already computable robustly
+- Fallback: ROA
+- Higher is better
+
+2) Investment
+- Use total asset growth or similar balance-sheet growth metric
+- Lower growth is better (conservative investment)
+
+3) Safety
+- Use debt/assets or net debt/assets
+- Lower leverage is better
+
+Rules:
+- Gross margin is optional / display-only, not required for the factor
+- Accruals are optional only if already cheap and robust; otherwise omit
+- A stock is quality-eligible only if all 3 pillars are present, allowing fallback within a pillar
+- If any pillar is missing entirely, do not compute quality for that stock
+- Do not create partial quality scores from 1 or 2 pillars
+- Excluding ineligible names from quality is acceptable
+
+Method:
+- Use only annual or TTM accounting data already in the system
+- Apply conservative filing lag / point-in-time safety
+- Recompute quality only when fundamentals update, not on every app launch
+- Winsorize each pillar cross-sectionally
+- Z-score each pillar across the eligible universe
+- Compute:
+  QualityCore = average(zProfitability, -zInvestment, -zLeverage)
+
+Use in ranking:
+- Primary use = junk filter, not a heavy alpha sleeve
+- Default behavior: optional filter that excludes the bottom 20% of quality-eligible names by QualityCore
+- Names with insufficient quality data are outside the quality filter universe, not labeled good or bad
+- If quality remains in alpha, reduce default weight to 5-10% max for now
+
+UI / audit:
+- Show quality eligibility yes/no
+- Show which profitability metric was used (operating profitability or ROA)
+- Show the 3 pillar z-scores and final QualityCore
+- Keep it compact and mobile-friendly
+
+Do not:
+- Do not use gross margin as a required field
+- Do not assign pseudo-quality scores to incomplete names
+- Do not add heavy recomputation or background jobs
+- Do not change momentum methodology
+
+Success criteria:
+- Quality becomes a strict, transparent, evidence-based junk control
+- Fast startup and stable behavior
+- No fake precision
+- If 3-pillar quality cannot be produced robustly, remove quality entirely instead of forcing it

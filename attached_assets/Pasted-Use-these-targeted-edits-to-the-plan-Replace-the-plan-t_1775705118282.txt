@@ -1,0 +1,85 @@
+Use these targeted edits to the plan.
+
+Replace the plan title/summary with:
+
+3-Pillar Institutional Quality / Junk Factor
+
+Replace the current 5-field partial quality sleeve with a strict 3-pillar QualityCore factor designed for robustness, reliability, and broad data coverage. The current implementation relies on ROE, ROA, Gross Margin, Operating Margin, and D/E, allows partial scoring, and produces uneven comparability because missingness is structural, especially for Gross Margin. The new design uses only Profitability, Investment, and Safety. A stock is quality-eligible only if all 3 pillars are present, allowing fallback within a pillar. Quality’s primary role becomes an optional junk filter; if retained in alpha, its default weight should be reduced.
+
+Replace the plan body with:
+
+Scope
+	•	Replace current 5-field quality sleeve with a strict 3-pillar institutional factor.
+	•	Do not build a heavy new subsystem.
+	•	Reuse existing fundamentals pipeline wherever possible.
+	•	Preserve speed, startup performance, and reliability.
+
+New factor design
+
+Build QualityCore from exactly 3 pillars:
+	1.	Profitability
+	•	Primary: operating profitability if already computable robustly from current data
+	•	Fallback: ROA
+	•	Higher is better
+	2.	Investment
+	•	Use asset growth or similar balance-sheet growth metric from existing fundamentals
+	•	Lower is better
+	3.	Safety
+	•	Use debt/assets or net debt/assets if already available cheaply
+	•	Lower is better
+
+Eligibility rules
+	•	A stock is quality-eligible only if all 3 pillars are present
+	•	Fallback is allowed within a pillar, not across pillars
+	•	Do not compute partial quality scores from 1 or 2 pillars
+	•	If any pillar is missing, set quality to not available
+	•	Excluding ineligible names from quality-based filtering is acceptable
+
+Factor construction
+	•	Use only annual or TTM accounting data already available in the system
+	•	Add conservative point-in-time / filing-lag handling if cheap from current architecture
+	•	Winsorize each pillar cross-sectionally
+	•	Z-score each pillar across the eligible universe
+	•	Compute:
+
+QualityCore = average(zProfitability, -zInvestment, -zLeverage)
+
+Role in ranking
+	•	Primary role: optional junk filter
+	•	Default quality filter behavior:
+	•	OFF by default
+	•	When enabled, exclude the bottom 20% of quality-eligible names by QualityCore
+	•	Names without full 3-pillar coverage are outside the quality filter universe
+	•	If quality remains in alpha, reduce default weight to 5–10% rather than 20%
+
+UI / explain panel
+
+Update the existing detail/explain view to show:
+	•	Quality eligible: yes / no
+	•	Which profitability input was used
+	•	The 3 pillar raw values and z-scores
+	•	Final QualityCore
+	•	Whether the stock passed or failed the junk filter
+	•	Coverage / availability status in compact mobile-friendly form
+
+Performance / implementation rules
+	•	No new vendors
+	•	No heavy recomputation on startup
+	•	Recompute only when fundamentals refresh
+	•	No fake partial scores
+	•	Do not change momentum methodology
+	•	Do not require Gross Margin as a core field
+
+Non-goals
+	•	Do not preserve the current 5-field partial-scoring model
+	•	Do not treat missing data as neutral quality inside the factor
+	•	Do not create a large audit page as part of this change
+
+Success criteria
+	•	Quality is evidence-based, simple, and reliable
+	•	Missing Gross Margin no longer weakens the factor design
+	•	Quality works mainly as a robust junk-control layer
+	•	App remains fast and stable
+	•	If 3-pillar quality cannot be implemented robustly from current data, remove quality rather than forcing a weak factor
+
+Most important correction: the current plan summary is still too anchored to the old 5-field missing-GrossMargin problem instead of clearly stating the intended outcome: replace the sleeve with a strict 3-pillar factor and stop partial scoring.
