@@ -155,6 +155,12 @@ export interface Stock {
   hasSafetyData?: boolean | null;
   /** @nullable */
   hasInvestmentData?: boolean | null;
+  /** @nullable - z-score for profitability pillar (populated when pillar toggle is on) */
+  zProfitability?: number | null;
+  /** @nullable - z-score for safety pillar (populated when pillar toggle is on) */
+  zSafety?: number | null;
+  /** @nullable - z-score for investment pillar (populated when pillar toggle is on) */
+  zInvestment?: number | null;
 }
 
 export type UniverseAuditExclusions = { [key: string]: number };

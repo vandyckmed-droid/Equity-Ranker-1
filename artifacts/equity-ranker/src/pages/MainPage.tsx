@@ -599,6 +599,36 @@ export default function MainPage() {
           </TableHead>
         );
       }
+      case "profitability": {
+        const sf: SortField = showZScores ? "zProfitability" : "profitabilityRatio";
+        return (
+          <TableHead key={colId} className="text-right bg-purple-950/10 cursor-pointer hover:text-foreground" onClick={() => handleSort(sf)}>
+            <div className="flex items-center justify-end" title="Profitability: op. income ÷ revenue · ↑ higher = better">
+              {showZScores ? "z(Prof)" : "Prof%"} {getSortIcon(sf)}
+            </div>
+          </TableHead>
+        );
+      }
+      case "safety": {
+        const sf: SortField = showZScores ? "zSafety" : "safetyRatio";
+        return (
+          <TableHead key={colId} className="text-right bg-purple-950/10 cursor-pointer hover:text-foreground" onClick={() => handleSort(sf)}>
+            <div className="flex items-center justify-end" title="Safety: liabilities ÷ assets · ↓ lower = better">
+              {showZScores ? "z(Safe)" : "Safe"} {getSortIcon(sf)}
+            </div>
+          </TableHead>
+        );
+      }
+      case "investment": {
+        const sf: SortField = showZScores ? "zInvestment" : "investmentGrowth";
+        return (
+          <TableHead key={colId} className="text-right bg-purple-950/10 cursor-pointer hover:text-foreground" onClick={() => handleSort(sf)}>
+            <div className="flex items-center justify-end" title="Investment: asset growth YoY · ↓ lower = better">
+              {showZScores ? "z(Inv)" : "Inv%"} {getSortIcon(sf)}
+            </div>
+          </TableHead>
+        );
+      }
       case "vol12":
         return (
           <TableHead key={colId} className="text-right cursor-pointer hover:text-foreground" onClick={() => handleSort("sigma12")}>
@@ -670,6 +700,36 @@ export default function MainPage() {
         return (
           <TableCell key={colId} className={cn("text-right bg-purple-950/10", val! > 0 ? "text-positive" : "text-negative")}>
             {formatNumber(val)}
+          </TableCell>
+        );
+      }
+      case "profitability": {
+        const val = showZScores ? stock.zProfitability : stock.profitabilityRatio;
+        return (
+          <TableCell key={colId} className={cn("text-right bg-purple-950/5",
+            val == null ? "text-muted-foreground/40"
+            : val > 0 ? "text-positive" : "text-negative")}>
+            {val == null ? "—" : showZScores ? formatNumber(val) : formatPercent(val)}
+          </TableCell>
+        );
+      }
+      case "safety": {
+        const val = showZScores ? stock.zSafety : stock.safetyRatio;
+        return (
+          <TableCell key={colId} className={cn("text-right bg-purple-950/5",
+            val == null ? "text-muted-foreground/40"
+            : showZScores ? (val > 0 ? "text-positive" : "text-negative") : "text-muted-foreground")}>
+            {val == null ? "—" : showZScores ? formatNumber(val) : formatNumber(val)}
+          </TableCell>
+        );
+      }
+      case "investment": {
+        const val = showZScores ? stock.zInvestment : stock.investmentGrowth;
+        return (
+          <TableCell key={colId} className={cn("text-right bg-purple-950/5",
+            val == null ? "text-muted-foreground/40"
+            : showZScores ? (val > 0 ? "text-positive" : "text-negative") : "text-muted-foreground")}>
+            {val == null ? "—" : showZScores ? formatNumber(val) : formatPercent(val)}
           </TableCell>
         );
       }
@@ -1383,15 +1443,9 @@ export default function MainPage() {
                             <TableCell colSpan={activeColumns.length + 2} className="px-3 py-2.5">
                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-x-6 gap-y-3 text-[10px] font-mono">
 
-                                {/* ── Quality Audit (unified) ── */}
+                                {/* ── Quality Audit (pillar-aware) ── */}
                                 {(() => {
-                                  const ic = (stock as any).qualityInputCount as number | null ?? 0;
-                                  const confLabel = ic >= 5 ? "High" : ic >= 3 ? "Medium" : "Low";
-                                  const confCls = ic >= 5
-                                    ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/25"
-                                    : ic >= 3
-                                    ? "text-amber-400 bg-amber-500/10 border-amber-500/25"
-                                    : "text-rose-400 bg-rose-500/10 border-rose-500/25";
+                                  const anyPillar = serverParams.useProfitabilityData || serverParams.useSafetyData || serverParams.useInvestmentData;
                                   const wQ = localWQ;
                                   const wS = localW6;
                                   const wT = localW12;
@@ -1399,6 +1453,76 @@ export default function MainPage() {
                                   const qContrib = !(stock as any).qualityMissing && stock.qSleeve != null
                                     ? (wQ * stock.qSleeve) / (totalW || 1)
                                     : null;
+
+                                  if (anyPillar) {
+                                    // ── Pillar mode: show new 3-pillar quality data ──
+                                    const activePillars: { label: string; sign: string; raw: number | null | undefined; z: number | null | undefined; fmt: (v: number | null | undefined) => string; active: boolean }[] = [
+                                      { label: "Profit",  sign: "↑",  raw: stock.profitabilityRatio, z: stock.zProfitability, fmt: fmtPct, active: serverParams.useProfitabilityData },
+                                      { label: "Safety",  sign: "↓",  raw: stock.safetyRatio,        z: stock.zSafety,        fmt: fmtR,   active: serverParams.useSafetyData },
+                                      { label: "Invest",  sign: "↓",  raw: stock.investmentGrowth,   z: stock.zInvestment,    fmt: fmtPct, active: serverParams.useInvestmentData },
+                                    ].filter(p => p.active);
+
+                                    const activeCount = activePillars.length;
+                                    const pillarLabel = [
+                                      serverParams.useProfitabilityData && "P",
+                                      serverParams.useSafetyData && "Sa",
+                                      serverParams.useInvestmentData && "I",
+                                    ].filter(Boolean).join("+");
+
+                                    return (
+                                      <div className="sm:col-span-2 lg:col-span-2 space-y-1">
+                                        <div className="flex items-center gap-2 mb-2">
+                                          <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold">Quality Audit</p>
+                                          <span className="text-[8.5px] font-bold font-sans px-1.5 py-px rounded-full border text-blue-400 bg-blue-500/10 border-blue-500/25">
+                                            Q:{pillarLabel} · {activeCount} pillar{activeCount !== 1 ? "s" : ""}
+                                          </span>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                                          {activePillars.map(({ label, sign, raw, z, fmt }) => {
+                                            const avail = raw != null;
+                                            return (
+                                              <React.Fragment key={label}>
+                                                <div className="flex items-center gap-1">
+                                                  <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", avail ? "bg-blue-500/70" : "bg-muted/30")} />
+                                                  <span className="text-muted-foreground/80 w-10 shrink-0">{label}</span>
+                                                  <span className="text-muted-foreground/50 text-[8px] shrink-0">{sign}</span>
+                                                  <span className={avail ? "text-foreground" : "text-muted-foreground/30 italic text-[8.5px]"}>
+                                                    {avail ? fmt(raw) : "miss"}
+                                                  </span>
+                                                </div>
+                                                <div className={cn("text-right pr-1", avail && z != null ? zCol(z) : "text-muted-foreground/30")}>
+                                                  {avail && z != null ? `z ${fmtZ(z)}` : "—"}
+                                                </div>
+                                              </React.Fragment>
+                                            );
+                                          })}
+                                        </div>
+                                        <div className="text-[8.5px] text-muted-foreground/50 font-sans pt-0.5">
+                                          Q sleeve = equal-weight avg z-score · {activeCount} pillar{activeCount !== 1 ? "s" : ""}
+                                        </div>
+                                        <div className="flex items-center gap-2 pt-1 border-t border-border/20">
+                                          <span className="text-muted-foreground">Q sleeve</span>
+                                          <span className={cn("font-semibold", zCol(stock.qSleeve))}>{fmtZ(stock.qSleeve)}</span>
+                                          {qContrib != null ? (
+                                            <span className={cn("font-mono ml-auto", qContrib > 0 ? "text-emerald-400" : qContrib < 0 ? "text-rose-400" : "text-foreground")}>
+                                              {qContrib >= 0 ? "+" : ""}{qContrib.toFixed(4)} α
+                                            </span>
+                                          ) : (
+                                            <span className="text-amber-400/70 text-[8.5px] font-sans ml-auto">S+T only</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+
+                                  // ── Legacy mode: show old ROE/ROA/margins quality data ──
+                                  const ic = (stock as any).qualityInputCount as number | null ?? 0;
+                                  const confLabel = ic >= 5 ? "High" : ic >= 3 ? "Medium" : "Low";
+                                  const confCls = ic >= 5
+                                    ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/25"
+                                    : ic >= 3
+                                    ? "text-amber-400 bg-amber-500/10 border-amber-500/25"
+                                    : "text-rose-400 bg-rose-500/10 border-rose-500/25";
                                   const qualInputs: { label: string; raw: number | null | undefined; z: number | null | undefined; fmt: (v: number | null | undefined) => string }[] = [
                                     { label: "ROE",    raw: stock.roe,         z: stock.zRoe,    fmt: fmtPct },
                                     { label: "ROA",    raw: stock.roa,         z: stock.zRoa,    fmt: fmtPct },

@@ -191,6 +191,10 @@ def get_rankings(
             "hasProfitabilityData": safe_bool(row.get("has_profitability_data")),
             "hasSafetyData":        safe_bool(row.get("has_safety_data")),
             "hasInvestmentData":    safe_bool(row.get("has_investment_data")),
+            # Per-pillar z-scores (only populated when that pillar toggle is on)
+            "zProfitability":       safe(row.get("z_profitability")),
+            "zSafety":              safe(row.get("z_safety")),
+            "zInvestment":          safe(row.get("z_investment")),
         })
 
     cluster_vals = [s["cluster"] for s in stocks if s["cluster"] is not None]

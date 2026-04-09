@@ -711,6 +711,10 @@ def compute_rankings(df: pd.DataFrame,
         if pillar_parts:
             pillar_df = pd.DataFrame(pillar_parts, index=d.index)
             d["quality"] = pillar_df.mean(axis=1, skipna=False)               # NaN if any selected pillar missing
+            # Store per-pillar z-scores for audit transparency
+            d["z_profitability"] = pillar_parts.get("zP")
+            d["z_safety"]        = pillar_parts.get("zSa")
+            d["z_investment"]    = pillar_parts.get("zI")
         else:
             d["quality"] = np.nan
         effective_use_quality = True
