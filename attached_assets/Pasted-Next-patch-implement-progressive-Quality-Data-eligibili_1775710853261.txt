@@ -1,0 +1,82 @@
+Next patch: implement progressive Quality Data eligibility toggles using the new fundamentals coverage that is now proven to be broad enough and performance-safe.
+
+Context:
+The new raw fundamentals expansion succeeded without hurting performance.
+Coverage in current filtered universe:
+- Profitability readiness (op_income + revenue): 1,250 stocks / 68.8%
+- Safety readiness (liabilities + assets): 1,266 stocks / 69.7%
+- Investment readiness (assets + prior_assets): 1,545 stocks / 85.0%
+- Factor computation remains ~1.18s and rankings remained stable during background re-enrichment
+
+Goal:
+Add a lightweight, toggle-based Quality Data framework that narrows the active universe by required data existence and lets the quality portion of alpha be built only from the selected quality data categories.
+
+Do not build a heavy new subsystem.
+Do not change momentum/trend methodology.
+Do not introduce anything that slows startup, rankings response, or UI smoothness.
+
+Add these 3 toggles:
+1) Profitability Data
+2) Safety Data
+3) Investment Data
+
+How the toggles work:
+- These are data-existence eligibility toggles, not score-threshold filters
+- Turning on a toggle means a stock must have valid data for that category to remain in the active universe
+- Multiple toggles narrow by intersection:
+  - Profitability Data ON = require profitability data
+  - Profitability Data + Safety Data ON = require both
+  - Profitability Data + Safety Data + Investment Data ON = require all three
+
+Definitions:
+- Profitability Data = op_income and revenue available, so profitability can be computed from operating income / revenue
+- Safety Data = total_liabilities and total_assets available, so safety can be computed from liabilities / assets
+- Investment Data = total_assets and prior_total_assets available, so investment can be computed from asset growth
+
+Quality portion of alpha:
+- If no quality data toggles are on, quality contributes 0 and alpha remains S + T only
+- If only Profitability Data is on, quality = z(profitability)
+- If Profitability Data + Safety Data are on, quality = equal-weight average of z(profitability) and -z(safety)
+- If all 3 are on, quality = equal-weight average of z(profitability), -z(safety), and -z(investment growth)
+- Use cross-sectional winsorization and z-scoring within the currently eligible universe for the selected quality categories
+
+UI:
+- Add compact toggles in Filters or Quality settings
+- Show active universe count after these eligibility requirements are applied
+- Show a short note that these toggles require data existence, not good/bad score thresholds
+- Keep mobile UI compact and reliable
+
+Implementation preferences:
+- Reuse the current fundamentals / factor / filter framework
+- Use the raw fields already obtained:
+  - totalAssets
+  - priorTotalAssets
+  - totalLiabilities
+  - revenue
+  - operatingIncome
+- Compute only the minimum new derived values needed:
+  - profitability = operatingIncome / revenue
+  - safety = totalLiabilities / totalAssets
+  - investmentGrowth = totalAssets / priorTotalAssets - 1
+- Keep it simple and explicit
+- No heavy refactor
+- No extra background jobs
+
+Performance rules:
+- Do not put new fetches on the live rankings path
+- Do not add any new vendor
+- Do not degrade current performance stability
+- Missing data should fail gracefully and only affect eligibility for the selected toggles
+
+Suggested defaults:
+- All 3 quality data toggles OFF by default
+- Default quality weight modest at first, preferably 5–10%, not 20%
+- If no quality toggles are on, hide or disable the quality weight effect
+
+Success criteria:
+- All toggles OFF = current full-universe momentum/trend behavior
+- Turning on Profitability Data narrows to the profitability-ready universe
+- Turning on more toggles narrows by intersection cleanly
+- The quality portion of alpha reflects only the selected quality data categories
+- Performance remains smooth and stable
+- No fake precision and no forced broad quality model

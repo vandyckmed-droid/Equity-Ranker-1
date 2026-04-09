@@ -83,6 +83,9 @@ router.get("/equity/rankings", async (req, res): Promise<void> => {
           secFilerOnly: "sec_filer_only",
           excludeSectors: "exclude_sectors",
           requireQuality: "require_quality",
+          useProfitabilityData: "use_profitability_data",
+          useSafetyData: "use_safety_data",
+          useInvestmentData: "use_investment_data",
         };
         const key = mappings[k] || k;
         params.set(key, String(v));

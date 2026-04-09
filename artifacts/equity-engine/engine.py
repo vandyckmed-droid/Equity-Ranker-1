@@ -631,6 +631,26 @@ def compute_factors_vectorized(prices: pd.DataFrame,
 
     df["quality_missing_reason"] = df.apply(_quality_reason, axis=1)
 
+    # ── 3-pillar derived values ────────────────────────────────────────────────
+    df["profitability_ratio"] = np.where(
+        df["op_income"].notna() & df["revenue"].notna() & (df["revenue"] != 0),
+        df["op_income"] / df["revenue"],
+        np.nan,
+    )
+    df["safety_ratio"] = np.where(
+        df["total_liabilities"].notna() & df["total_assets"].notna() & (df["total_assets"] != 0),
+        df["total_liabilities"] / df["total_assets"],
+        np.nan,
+    )
+    df["investment_growth"] = np.where(
+        df["total_assets"].notna() & df["prior_total_assets"].notna() & (df["prior_total_assets"] != 0),
+        df["total_assets"] / df["prior_total_assets"] - 1,
+        np.nan,
+    )
+    df["has_profitability_data"] = df["profitability_ratio"].notna()
+    df["has_safety_data"]        = df["safety_ratio"].notna()
+    df["has_investment_data"]    = df["investment_growth"].notna()
+
     elapsed = time.time() - t0
     _timings["compute_factors"] = round(elapsed, 3)
     _timings["ols_tstat_vectorized"] = round(t_ols_elapsed, 3)
@@ -652,7 +672,10 @@ def compute_rankings(df: pd.DataFrame,
                      w12: float = 0.4,
                      w_quality: float = 0.2,
                      winsor_p: float = 2.0,
-                     vol_floor: float = 0.05) -> pd.DataFrame:
+                     vol_floor: float = 0.05,
+                     use_profitability_data: bool = False,
+                     use_safety_data: bool = False,
+                     use_investment_data: bool = False) -> pd.DataFrame:
     """
     Cross-sectionally standardize factors and compute sleeve-based alpha scores.
     Clustering is handled separately by compute_clustering().
@@ -675,7 +698,33 @@ def compute_rankings(df: pd.DataFrame,
     d["zT6"]  = std_factor(d["tstat6"])
     d["zT12"] = std_factor(d["tstat12"])
 
-    d["zQ"] = std_factor(d["quality"]) if use_quality else pd.Series(0.0, index=d.index)
+    # ── Quality score: new 3-pillar system overrides old sleeve when any toggle on ──
+    any_pillar = use_profitability_data or use_safety_data or use_investment_data
+    if any_pillar:
+        pillar_parts: dict = {}
+        if use_profitability_data and "profitability_ratio" in d.columns:
+            pillar_parts["zP"] = std_factor(d["profitability_ratio"])         # higher = better
+        if use_safety_data and "safety_ratio" in d.columns:
+            pillar_parts["zSa"] = -std_factor(d["safety_ratio"])              # lower liab/assets = better
+        if use_investment_data and "investment_growth" in d.columns:
+            pillar_parts["zI"] = -std_factor(d["investment_growth"])          # lower asset growth = better
+        if pillar_parts:
+            pillar_df = pd.DataFrame(pillar_parts, index=d.index)
+            d["quality"] = pillar_df.mean(axis=1, skipna=False)               # NaN if any selected pillar missing
+        else:
+            d["quality"] = np.nan
+        effective_use_quality = True
+        # Build label for alpha_formula
+        _lbl_parts = []
+        if use_profitability_data: _lbl_parts.append("P")
+        if use_safety_data:        _lbl_parts.append("Sa")
+        if use_investment_data:    _lbl_parts.append("I")
+        _q_label = "+".join(_lbl_parts)
+    else:
+        effective_use_quality = use_quality
+        _q_label = ""
+
+    d["zQ"] = std_factor(d["quality"]) if effective_use_quality else pd.Series(0.0, index=d.index)
 
     d["zM6"]      = d["zS6"]
     d["zM12"]     = d["zS12"]
@@ -685,12 +734,12 @@ def compute_rankings(df: pd.DataFrame,
     d["tSleeve"] = 0.5 * d["zT6"].fillna(0) + 0.5 * d["zT12"].fillna(0)
     d["qSleeve"] = d["zQ"].fillna(0)
 
-    has_quality = d["quality"].notna() & use_quality
+    has_quality = d["quality"].notna() & effective_use_quality
     d["quality_missing"] = ~has_quality
 
     wS = w6
     wT = w12
-    wQ = w_quality if use_quality else 0.0
+    wQ = w_quality if effective_use_quality else 0.0
 
     total_w_full = wS + wT + wQ if (wS + wT + wQ) > 0 else 1.0
     total_w_no_q = wS + wT      if (wS + wT)      > 0 else 1.0
@@ -702,8 +751,9 @@ def compute_rankings(df: pd.DataFrame,
     alpha_with_q    = (wS * S + wT * T + wQ * Q) / total_w_full
     alpha_without_q = (wS * S + wT * T)           / total_w_no_q
 
-    d["alpha"]        = np.where(has_quality, alpha_with_q, alpha_without_q)
-    d["alpha_formula"] = np.where(has_quality, "S+T+Q", "S+T")
+    d["alpha"] = np.where(has_quality, alpha_with_q, alpha_without_q)
+    _formula_with_q = f"S+T+Q({_q_label})" if _q_label else "S+T+Q"
+    d["alpha_formula"] = np.where(has_quality, _formula_with_q, "S+T")
 
     d = d.sort_values("alpha", ascending=False)
     d["rank"]       = np.arange(1, len(d) + 1)
@@ -815,12 +865,15 @@ def _get_sec_cik_map() -> dict:
 
 
 def apply_universe_filters(df: pd.DataFrame,
-                           min_price:        float = 5.0,
-                           min_adv:          float = 1e7,
-                           min_market_cap:   float = 1e9,
-                           sec_filer_only:   bool  = False,
-                           exclude_sectors:  list  = None,
-                           require_quality:  bool  = False) -> tuple:
+                           min_price:               float = 5.0,
+                           min_adv:                 float = 1e7,
+                           min_market_cap:          float = 1e9,
+                           sec_filer_only:          bool  = False,
+                           exclude_sectors:         list  = None,
+                           require_quality:         bool  = False,
+                           use_profitability_data:  bool  = False,
+                           use_safety_data:         bool  = False,
+                           use_investment_data:     bool  = False) -> tuple:
     n_in = len(df)
     mask = pd.Series(True, index=df.index)
     audit_exclusions = {}
@@ -885,6 +938,27 @@ def apply_universe_filters(df: pd.DataFrame,
             audit_exclusions["missing_quality"] = int(no_quality.sum())
             logger.info(f"Universe exclusion [missing_quality]: {no_quality.sum()} tickers")
         mask &= df["quality"].notna()
+
+    if use_profitability_data and "has_profitability_data" in df.columns:
+        fail = (~df["has_profitability_data"]) & mask
+        if fail.any():
+            audit_exclusions["missing_profitability_data"] = int(fail.sum())
+            logger.info(f"Universe exclusion [missing_profitability_data]: {fail.sum()} tickers")
+        mask &= df["has_profitability_data"]
+
+    if use_safety_data and "has_safety_data" in df.columns:
+        fail = (~df["has_safety_data"]) & mask
+        if fail.any():
+            audit_exclusions["missing_safety_data"] = int(fail.sum())
+            logger.info(f"Universe exclusion [missing_safety_data]: {fail.sum()} tickers")
+        mask &= df["has_safety_data"]
+
+    if use_investment_data and "has_investment_data" in df.columns:
+        fail = (~df["has_investment_data"]) & mask
+        if fail.any():
+            audit_exclusions["missing_investment_data"] = int(fail.sum())
+            logger.info(f"Universe exclusion [missing_investment_data]: {fail.sum()} tickers")
+        mask &= df["has_investment_data"]
 
     result = df[mask].copy()
     logger.info(f"Universe filters: {n_in} candidates → {len(result)} qualifying stocks")
@@ -973,6 +1047,12 @@ def apply_universe_filters(df: pd.DataFrame,
         audit["activeFilters"].append(f"exclude_sectors:{','.join(exclude_sectors)}")
     if require_quality:
         audit["activeFilters"].append("require_quality")
+    if use_profitability_data:
+        audit["activeFilters"].append("require_profitability_data")
+    if use_safety_data:
+        audit["activeFilters"].append("require_safety_data")
+    if use_investment_data:
+        audit["activeFilters"].append("require_investment_data")
 
     return result, audit
 
@@ -1107,18 +1187,27 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
     cluster_k   = params.get("cluster_k", 10)
     cluster_lookback = params.get("cluster_lookback", 252)
 
-    sec_filer_only  = params.get("sec_filer_only", False)
-    exclude_sectors = params.get("exclude_sectors", [])
-    require_quality = params.get("require_quality", False)
+    sec_filer_only         = params.get("sec_filer_only", False)
+    exclude_sectors        = params.get("exclude_sectors", [])
+    require_quality        = params.get("require_quality", False)
+    use_profitability_data = params.get("use_profitability_data", False)
+    use_safety_data        = params.get("use_safety_data", False)
+    use_investment_data    = params.get("use_investment_data", False)
 
     fk = json.dumps({"vol_floor": vol_floor, "winsor_p": winsor_p,
                       "qe": _quality_epoch,
                       "sec": sec_filer_only,
                       "xs": sorted(exclude_sectors) if exclude_sectors else [],
-                      "rq": require_quality}, sort_keys=True)
+                      "rq": require_quality,
+                      "up": use_profitability_data,
+                      "us": use_safety_data,
+                      "ui": use_investment_data}, sort_keys=True)
     rk = json.dumps({"fk": fk, "w6": w6, "w12": w12, "wq": w_quality,
                       "uq": use_quality, "ut": use_tstats, "va": vol_adjust,
-                      "wp": winsor_p}, sort_keys=True)
+                      "wp": winsor_p,
+                      "upd": use_profitability_data,
+                      "usd": use_safety_data,
+                      "uid": use_investment_data}, sort_keys=True)
     ck = json.dumps({"rk": rk, "cn": cluster_n, "ck": cluster_k,
                       "cl": cluster_lookback}, sort_keys=True)
 
@@ -1146,6 +1235,9 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
                 sec_filer_only=sec_filer_only,
                 exclude_sectors=exclude_sectors,
                 require_quality=require_quality,
+                use_profitability_data=use_profitability_data,
+                use_safety_data=use_safety_data,
+                use_investment_data=use_investment_data,
             )
 
             if not _audit_printed:
@@ -1175,6 +1267,9 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
                 use_tstats=use_tstats,
                 w6=w6, w12=w12, w_quality=w_quality,
                 winsor_p=winsor_p, vol_floor=vol_floor,
+                use_profitability_data=use_profitability_data,
+                use_safety_data=use_safety_data,
+                use_investment_data=use_investment_data,
             )
             _ranking_cache = ranked
             _ranking_key = rk

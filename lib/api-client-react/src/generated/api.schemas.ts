@@ -143,6 +143,18 @@ export interface Stock {
   qualityBucketCount?: number | null;
   /** @nullable - count of non-null individual quality inputs (0-5: ROE, ROA, GrossM, OpM, D/E) */
   qualityInputCount?: number | null;
+  /** @nullable */
+  profitabilityRatio?: number | null;
+  /** @nullable */
+  safetyRatio?: number | null;
+  /** @nullable */
+  investmentGrowth?: number | null;
+  /** @nullable */
+  hasProfitabilityData?: boolean | null;
+  /** @nullable */
+  hasSafetyData?: boolean | null;
+  /** @nullable */
+  hasInvestmentData?: boolean | null;
 }
 
 export type UniverseAuditExclusions = { [key: string]: number };
@@ -366,4 +378,16 @@ export type GetRankingsParams = {
    * Only include stocks with quality coverage (default false)
    */
   requireQuality?: boolean;
+  /**
+   * Require profitability data (op_income + revenue) — narrows universe and adds profitability pillar to quality
+   */
+  useProfitabilityData?: boolean;
+  /**
+   * Require safety data (total_liabilities + total_assets) — narrows universe and adds safety pillar to quality
+   */
+  useSafetyData?: boolean;
+  /**
+   * Require investment data (total_assets + prior_total_assets) — narrows universe and adds investment pillar to quality
+   */
+  useInvestmentData?: boolean;
 };

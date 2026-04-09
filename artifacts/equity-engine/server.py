@@ -63,6 +63,9 @@ def get_rankings(
     sec_filer_only: bool = Query(False),
     exclude_sectors: Optional[str] = Query(None),
     require_quality: bool = Query(False),
+    use_profitability_data: bool = Query(False),
+    use_safety_data: bool = Query(False),
+    use_investment_data: bool = Query(False),
 ):
     status = engine.get_status()
     if status["status"] == "loading":
@@ -90,6 +93,9 @@ def get_rankings(
         "sec_filer_only": sec_filer_only,
         "exclude_sectors": sectors_list,
         "require_quality": require_quality,
+        "use_profitability_data": use_profitability_data,
+        "use_safety_data": use_safety_data,
+        "use_investment_data": use_investment_data,
     }
 
     result = engine.get_ranked_data(params)
@@ -178,6 +184,13 @@ def get_rankings(
             "qualityBucketCount":      safe(row.get("quality_bucket_count")),
             "qualityInputCount":       safe(row.get("quality_input_count")),
             "qualityMissingReason":    safe_str(row.get("quality_missing_reason")),
+            # 3-pillar progressive quality fields
+            "profitabilityRatio":  safe(row.get("profitability_ratio")),
+            "safetyRatio":         safe(row.get("safety_ratio")),
+            "investmentGrowth":    safe(row.get("investment_growth")),
+            "hasProfitabilityData": safe_bool(row.get("has_profitability_data")),
+            "hasSafetyData":        safe_bool(row.get("has_safety_data")),
+            "hasInvestmentData":    safe_bool(row.get("has_investment_data")),
         })
 
     cluster_vals = [s["cluster"] for s in stocks if s["cluster"] is not None]

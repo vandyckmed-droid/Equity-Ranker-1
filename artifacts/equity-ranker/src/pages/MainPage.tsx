@@ -198,7 +198,7 @@ export default function MainPage() {
     movedTimerRef.current = setTimeout(() => setRecentlyMoved(null), 600);
   }, [moveColumn]);
 
-  const CONTROLS_KEY = "qt:controls-v1";
+  const CONTROLS_KEY = "qt:controls-v2";
 
   const loadControlsFromStorage = () => {
     try {
@@ -220,6 +220,9 @@ export default function MainPage() {
       secFilerOnly: saved?.secFilerOnly ?? false,
       excludeSectors: (saved?.excludeSectors ?? "") as string,
       requireQuality: saved?.requireQuality ?? false,
+      useProfitabilityData: saved?.useProfitabilityData ?? false,
+      useSafetyData: saved?.useSafetyData ?? false,
+      useInvestmentData: saved?.useInvestmentData ?? false,
     };
   });
   const [debouncedServerParams, setDebouncedServerParams] = useState(serverParams);
@@ -240,7 +243,7 @@ export default function MainPage() {
   });
   const [localWQ, setLocalWQ] = useState(() => {
     const saved = loadControlsFromStorage();
-    return saved?.localWQ ?? 0.2;
+    return saved?.localWQ ?? 0.1;
   });
   const [mcapFilter, setMcapFilter] = useState<McapFilter>(() => {
     const saved = loadControlsFromStorage();
@@ -277,7 +280,7 @@ export default function MainPage() {
       useTstats: false,
       w6: 0.4,
       w12: 0.4,
-      wQuality: 0.2,
+      wQuality: 0.1,
       volFloor: debouncedServerParams.volFloor,
       winsorP: debouncedServerParams.winsorP,
       clusterN: debouncedServerParams.clusterN,
@@ -287,6 +290,9 @@ export default function MainPage() {
     if (debouncedServerParams.secFilerOnly) p.secFilerOnly = true;
     if (debouncedServerParams.excludeSectors) p.excludeSectors = debouncedServerParams.excludeSectors;
     if (debouncedServerParams.requireQuality) p.requireQuality = true;
+    if (debouncedServerParams.useProfitabilityData) p.useProfitabilityData = true;
+    if (debouncedServerParams.useSafetyData) p.useSafetyData = true;
+    if (debouncedServerParams.useInvestmentData) p.useInvestmentData = true;
     return p;
   }, [debouncedServerParams]);
 
@@ -697,6 +703,9 @@ export default function MainPage() {
   if (serverParams.requireQuality) activeFilterChips.push("Quality");
   if (mcapFilter === "no_small") activeFilterChips.push("≥$2B");
   if (mcapFilter === "large_only") activeFilterChips.push("≥$10B");
+  if (serverParams.useProfitabilityData) activeFilterChips.push("Profitability");
+  if (serverParams.useSafetyData) activeFilterChips.push("Safety");
+  if (serverParams.useInvestmentData) activeFilterChips.push("Investment");
 
   // Suggested % for top-25: alpha/vol normalized weights (no hook — plain IIFE)
   const suggestedWeights: Map<string, number> = (() => {
@@ -896,7 +905,11 @@ export default function MainPage() {
                 <div className="space-y-1.5">
                   <Label className="text-xs">Q Sleeve — wQ ({formatNumber(localWQ * 100, 0)}%)</Label>
                   <Slider value={[localWQ * 100]} min={0} max={100} step={5}
-                    onValueChange={(v) => setLocalWQ(v[0] / 100)} />
+                    onValueChange={(v) => setLocalWQ(v[0] / 100)}
+                    className={!serverParams.useProfitabilityData && !serverParams.useSafetyData && !serverParams.useInvestmentData ? "opacity-40" : ""} />
+                  {!serverParams.useProfitabilityData && !serverParams.useSafetyData && !serverParams.useInvestmentData && (
+                    <p className="text-[10px] text-muted-foreground">Enable a Quality Data pillar below to activate</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -945,6 +958,45 @@ export default function MainPage() {
                   <p>{audit.postFilterCount ?? "—"} / {audit.preFilterCount ?? "—"} stocks pass filters</p>
                   <p>Quality coverage: {audit.qualityCoverage ?? "—"} ({audit.qualityPct ?? 0}%)</p>
                 </div>
+              )}
+            </div>
+
+            {/* Quality Data Pillars */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Quality Data</h3>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Each toggle requires that data to be present — narrows the active universe and adds that pillar to the Q sleeve.
+              </p>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
+                  <div>
+                    <Label htmlFor="useProfData" className="text-xs cursor-pointer">Profitability</Label>
+                    <p className="text-[10px] text-muted-foreground">op. income ÷ revenue</p>
+                  </div>
+                  <Switch id="useProfData" checked={serverParams.useProfitabilityData}
+                    onCheckedChange={(v) => handleServerParamChange("useProfitabilityData", v)} />
+                </div>
+                <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
+                  <div>
+                    <Label htmlFor="useSafetyData" className="text-xs cursor-pointer">Safety</Label>
+                    <p className="text-[10px] text-muted-foreground">liabilities ÷ assets</p>
+                  </div>
+                  <Switch id="useSafetyData" checked={serverParams.useSafetyData}
+                    onCheckedChange={(v) => handleServerParamChange("useSafetyData", v)} />
+                </div>
+                <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
+                  <div>
+                    <Label htmlFor="useInvData" className="text-xs cursor-pointer">Investment</Label>
+                    <p className="text-[10px] text-muted-foreground">asset growth YoY</p>
+                  </div>
+                  <Switch id="useInvData" checked={serverParams.useInvestmentData}
+                    onCheckedChange={(v) => handleServerParamChange("useInvestmentData", v)} />
+                </div>
+              </div>
+              {(serverParams.useProfitabilityData || serverParams.useSafetyData || serverParams.useInvestmentData) && audit && (
+                <p className="text-[10px] text-muted-foreground border-t border-border/40 pt-1">
+                  {audit.postFilterCount ?? "—"} stocks pass all active data requirements
+                </p>
               )}
             </div>
 
