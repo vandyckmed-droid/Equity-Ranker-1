@@ -231,10 +231,6 @@ export default function MainPage() {
   });
 
   // UI state — persisted together with controls in CONTROLS_KEY
-  const [showZScores, setShowZScores] = useState(() => {
-    const s = loadControlsFromStorage();
-    return s?.showZScores === true;
-  });
   const [sortField, setSortField] = useState<SortField>(() => {
     const s = loadControlsFromStorage();
     return typeof s?.sortField === "string" ? s.sortField as SortField : "alpha";
@@ -247,9 +243,9 @@ export default function MainPage() {
   // Persist controls to localStorage whenever they change
   useEffect(() => {
     try {
-      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, localW6, localW12, mcapFilter, showZScores, sortField, sortDir }));
+      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, localW6, localW12, mcapFilter, sortField, sortDir }));
     } catch {}
-  }, [serverParams, localW6, localW12, mcapFilter, showZScores, sortField, sortDir]);
+  }, [serverParams, localW6, localW12, mcapFilter, sortField, sortDir]);
 
   const params: GetRankingsParams = useMemo(() => {
     const p: GetRankingsParams = {
@@ -266,37 +262,6 @@ export default function MainPage() {
     if (debouncedServerParams.excludeSectors) p.excludeSectors = debouncedServerParams.excludeSectors;
     return p;
   }, [debouncedServerParams]);
-
-  // Alpha highlight state — persisted in localStorage
-  const [topN, setTopN] = useState<number>(() => {
-    try {
-      const stored = localStorage.getItem("qt:topHighlight");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        const mode = parsed.topNMode === 'pct' ? 'pct' : 'n';
-        const max = mode === 'pct' ? 25 : 100;
-        const n = Number(parsed.topN);
-        if (Number.isFinite(n) && n >= 0 && n <= max) return n;
-      }
-    } catch {}
-    return 20;
-  });
-  const [topNMode, setTopNMode] = useState<'n' | 'pct'>(() => {
-    try {
-      const stored = localStorage.getItem("qt:topHighlight");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed.topNMode === 'n' || parsed.topNMode === 'pct') return parsed.topNMode;
-      }
-    } catch {}
-    return 'n';
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("qt:topHighlight", JSON.stringify({ topN, topNMode }));
-    } catch {}
-  }, [topN, topNMode]);
 
   // Session-only UI state (not persisted)
   const [search, setSearch] = useState("");
@@ -530,26 +495,22 @@ export default function MainPage() {
             <div className="flex items-center justify-end">ADV {getSortIcon("adv")}</div>
           </TableHead>
         );
-      case "momentum6": {
-        const sf = showZScores ? "zS6" : "s6";
+      case "momentum6":
         return (
-          <TableHead key={colId} className="text-right bg-blue-950/20 cursor-pointer hover:text-foreground" onClick={() => handleSort(sf)}>
+          <TableHead key={colId} className="text-right bg-blue-950/20 cursor-pointer hover:text-foreground" onClick={() => handleSort("s6")}>
             <div className="flex items-center justify-end" title="S Sleeve — 6M Sharpe (S6)">
-              {showZScores ? "z(S6)" : "S6"} {getSortIcon(sf)}
+              S6 {getSortIcon("s6")}
             </div>
           </TableHead>
         );
-      }
-      case "momentum12": {
-        const sf = showZScores ? "zS12" : "s12";
+      case "momentum12":
         return (
-          <TableHead key={colId} className="text-right bg-blue-950/20 cursor-pointer hover:text-foreground" onClick={() => handleSort(sf)}>
+          <TableHead key={colId} className="text-right bg-blue-950/20 cursor-pointer hover:text-foreground" onClick={() => handleSort("s12")}>
             <div className="flex items-center justify-end" title="S Sleeve — 12M Sharpe (S12)">
-              {showZScores ? "z(S12)" : "S12"} {getSortIcon(sf)}
+              S12 {getSortIcon("s12")}
             </div>
           </TableHead>
         );
-      }
       case "vol12":
         return (
           <TableHead key={colId} className="text-right cursor-pointer hover:text-foreground" onClick={() => handleSort("sigma12")}>
@@ -600,22 +561,18 @@ export default function MainPage() {
         return <TableCell key={colId} className="text-right text-muted-foreground">{formatCompactCurrency(stock.marketCap)}</TableCell>;
       case "adv":
         return <TableCell key={colId} className="text-right text-muted-foreground">{formatCompactCurrency(stock.adv)}</TableCell>;
-      case "momentum6": {
-        const val = showZScores ? stock.zS6 : stock.s6;
+      case "momentum6":
         return (
-          <TableCell key={colId} className={cn("text-right bg-blue-950/10", val! > 0 ? "text-positive" : "text-negative")}>
-            {formatNumber(val)}
+          <TableCell key={colId} className={cn("text-right bg-blue-950/10", (stock.s6 ?? 0) > 0 ? "text-positive" : "text-negative")}>
+            {formatNumber(stock.s6)}
           </TableCell>
         );
-      }
-      case "momentum12": {
-        const val = showZScores ? stock.zS12 : stock.s12;
+      case "momentum12":
         return (
-          <TableCell key={colId} className={cn("text-right bg-blue-950/10", val! > 0 ? "text-positive" : "text-negative")}>
-            {formatNumber(val)}
+          <TableCell key={colId} className={cn("text-right bg-blue-950/10", (stock.s12 ?? 0) > 0 ? "text-positive" : "text-negative")}>
+            {formatNumber(stock.s12)}
           </TableCell>
         );
-      }
       case "vol12":
         return <TableCell key={colId} className="text-right text-muted-foreground">{formatPercent(stock.sigma12)}</TableCell>;
       case "alpha":
@@ -897,40 +854,6 @@ export default function MainPage() {
               </div>
             </div>
 
-            {/* Display */}
-            <div className="space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Display</h3>
-              <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
-                <Label htmlFor="zscores" className="text-xs cursor-pointer">Show Raw Z-Scores</Label>
-                <Switch id="zscores" checked={showZScores} onCheckedChange={setShowZScores} />
-              </div>
-              <div className="space-y-2 bg-muted/40 px-3 py-2 rounded-md">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs">Alpha highlight</Label>
-                  <div className="flex rounded-md overflow-hidden border border-border">
-                    <button
-                      className={cn("px-2 py-0.5 text-xs", topNMode === 'n' ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}
-                      onClick={() => { setTopNMode('n'); setTopN(prev => Math.min(prev, 100)); }}
-                    >N</button>
-                    <button
-                      className={cn("px-2 py-0.5 text-xs border-l border-border", topNMode === 'pct' ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}
-                      onClick={() => { setTopNMode('pct'); setTopN(prev => Math.min(prev, 25)); }}
-                    >%</button>
-                  </div>
-                </div>
-                <Slider
-                  value={[topN]}
-                  min={0}
-                  max={topNMode === 'n' ? 100 : 25}
-                  step={1}
-                  onValueChange={(v) => setTopN(v[0])}
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  {topN === 0 ? "Off" : topNMode === 'n' ? `Top ${topN} names` : `Top ${topN}%`}
-                </p>
-              </div>
-            </div>
-
           </div>
         </SheetContent>
       </Sheet>
@@ -1080,12 +1003,6 @@ export default function MainPage() {
                       stock.cluster !== null && stock.cluster !== undefined && stock.cluster < CLUSTER_COLORS.length
                         ? CLUSTER_COLORS[stock.cluster]
                         : "bg-muted text-muted-foreground";
-                    const isHighlighted = topN > 0 && (
-                      topNMode === 'n'
-                        ? stock.rank !== null && stock.rank !== undefined && stock.rank <= topN
-                        : stock.percentile !== null && stock.percentile !== undefined && stock.percentile >= (100 - topN)
-                    );
-
                     const clusterText =
                       stock.cluster !== null && stock.cluster !== undefined && stock.cluster < CLUSTER_TEXT_COLORS.length
                         ? CLUSTER_TEXT_COLORS[stock.cluster]
@@ -1216,7 +1133,7 @@ export default function MainPage() {
                         >
                           <span className="flex items-center gap-1.5">
                             <span className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", dotColor)} />
-                            <span className={cn(isHighlighted && "text-emerald-400")}>{stock.ticker}</span>
+                            <span>{stock.ticker}</span>
                             {expandedTicker === stock.ticker
                               ? <ChevronDown className="w-2.5 h-2.5 text-muted-foreground ml-0.5" />
                               : <ChevronRight className="w-2.5 h-2.5 text-muted-foreground ml-0.5 opacity-0 group-hover:opacity-100" />}
