@@ -141,10 +141,14 @@ export interface Stock {
   hasLeverageBucket?: boolean | null;
   /** @nullable */
   qualityBucketCount?: number | null;
+  /** @nullable - count of non-null individual quality inputs (0-5: ROE, ROA, GrossM, OpM, D/E) */
+  qualityInputCount?: number | null;
 }
 
 export type UniverseAuditExclusions = { [key: string]: number };
 export type UniverseAuditSectorBreakdown = { [key: string]: number };
+export type QualityInputDist = { [inputCount: string]: number };
+export type QualityFieldMissingRates = { [field: string]: number };
 
 export interface UniverseAudit {
   preFilterCount?: number;
@@ -153,6 +157,8 @@ export interface UniverseAudit {
   sectorBreakdown?: UniverseAuditSectorBreakdown;
   qualityCoverage?: string;
   qualityPct?: number;
+  qualityInputDist?: QualityInputDist;
+  qualityFieldMissingRates?: QualityFieldMissingRates;
   activeFilters?: string[];
 }
 

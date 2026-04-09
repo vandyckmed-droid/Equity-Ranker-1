@@ -49,6 +49,8 @@ import {
   X,
 } from "lucide-react";
 
+import { QualityAuditBadge } from "@/components/QualityAuditBadge";
+
 type SortField = keyof Stock;
 type SortDirection = "asc" | "desc";
 
@@ -819,12 +821,8 @@ export default function MainPage() {
               )}
               {" "}eq
             </span>
-            {/* Quality coverage */}
-            {audit && (
-              <span className="inline-flex items-center h-5 rounded-full px-2 text-[11px] bg-muted/60 border border-border/40 whitespace-nowrap shrink-0 text-muted-foreground">
-                Q {audit.qualityPct ?? 0}%
-              </span>
-            )}
+            {/* Quality coverage – interactive audit badge */}
+            <QualityAuditBadge audit={audit} />
             {/* Active filter chips */}
             {activeFilterChips
               .filter(chip => chip !== "Quality")
@@ -1315,33 +1313,75 @@ export default function MainPage() {
                         return (
                           <TableRow key={`${stock.ticker}-audit`} className="bg-muted/20 border-b-border/20">
                             <TableCell colSpan={activeColumns.length + 2} className="px-3 py-2.5">
-                              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-6 gap-y-3 text-[10px] font-mono">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-x-6 gap-y-3 text-[10px] font-mono">
 
-                                {/* ── Quality raw inputs ── */}
-                                <div className="space-y-1">
-                                  <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Quality (raw)</p>
-                                  <p><span className="text-muted-foreground">ROE:</span>        <span className="text-foreground">{fmtPct(stock.roe)}</span></p>
-                                  <p><span className="text-muted-foreground">ROA:</span>        <span className="text-foreground">{fmtPct(stock.roa)}</span></p>
-                                  <p><span className="text-muted-foreground">GrossM:</span>     <span className="text-foreground">{fmtPct(stock.grossMargin)}</span></p>
-                                  <p><span className="text-muted-foreground">OpM:</span>        <span className="text-foreground">{fmtPct(stock.opMargin)}</span></p>
-                                  <p><span className="text-muted-foreground">D/E:</span>        <span className="text-foreground">{fmtR(stock.deRatio)}</span></p>
-                                  {(stock as any).qualityMissing && (
-                                    <p className="text-destructive/80 text-[9px] mt-1 font-sans break-words">
-                                      ✗ {(stock as any).qualityMissingReason ?? "missing"}
-                                    </p>
-                                  )}
-                                </div>
-
-                                {/* ── Quality z-scores ── */}
-                                <div className="space-y-1">
-                                  <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Quality (z)</p>
-                                  <p><span className="text-muted-foreground">z_ROE:</span>     <span className={zCol(stock.zRoe)}>{fmtZ(stock.zRoe)}</span></p>
-                                  <p><span className="text-muted-foreground">z_ROA:</span>     <span className={zCol(stock.zRoa)}>{fmtZ(stock.zRoa)}</span></p>
-                                  <p><span className="text-muted-foreground">z_Gross:</span>   <span className={zCol(stock.zGross)}>{fmtZ(stock.zGross)}</span></p>
-                                  <p><span className="text-muted-foreground">z_Op:</span>      <span className={zCol(stock.zOp)}>{fmtZ(stock.zOp)}</span></p>
-                                  <p><span className="text-muted-foreground">z_InvLev:</span>  <span className={zCol(stock.zInvLev)}>{fmtZ(stock.zInvLev)}</span></p>
-                                  <p className="mt-1"><span className="text-muted-foreground">Q (sleeve):</span> <span className={zCol(stock.qSleeve)}>{fmtZ(stock.qSleeve)}</span></p>
-                                </div>
+                                {/* ── Quality Audit (unified) ── */}
+                                {(() => {
+                                  const ic = (stock as any).qualityInputCount as number | null ?? 0;
+                                  const confLabel = ic >= 5 ? "High" : ic >= 3 ? "Medium" : "Low";
+                                  const confCls = ic >= 5
+                                    ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/25"
+                                    : ic >= 3
+                                    ? "text-amber-400 bg-amber-500/10 border-amber-500/25"
+                                    : "text-rose-400 bg-rose-500/10 border-rose-500/25";
+                                  const wQ = localWQ;
+                                  const wS = localW6;
+                                  const wT = localW12;
+                                  const totalW = (stock as any).qualityMissing ? (wS + wT) : (wS + wT + wQ);
+                                  const qContrib = !(stock as any).qualityMissing && stock.qSleeve != null
+                                    ? (wQ * stock.qSleeve) / (totalW || 1)
+                                    : null;
+                                  const qualInputs: { label: string; raw: number | null | undefined; z: number | null | undefined; fmt: (v: number | null | undefined) => string }[] = [
+                                    { label: "ROE",    raw: stock.roe,         z: stock.zRoe,    fmt: fmtPct },
+                                    { label: "ROA",    raw: stock.roa,         z: stock.zRoa,    fmt: fmtPct },
+                                    { label: "GrossM", raw: stock.grossMargin, z: stock.zGross,  fmt: fmtPct },
+                                    { label: "OpM",    raw: stock.opMargin,    z: stock.zOp,     fmt: fmtPct },
+                                    { label: "D/E",    raw: stock.deRatio,     z: stock.zInvLev, fmt: fmtR   },
+                                  ];
+                                  return (
+                                    <div className="sm:col-span-2 lg:col-span-2 space-y-1">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold">Quality Audit</p>
+                                        <span className={cn("text-[8.5px] font-bold font-sans px-1.5 py-px rounded-full border", confCls)}>
+                                          {confLabel} · {ic}/5
+                                        </span>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                                        {qualInputs.map(({ label, raw, z, fmt }) => {
+                                          const avail = raw != null;
+                                          return (
+                                            <React.Fragment key={label}>
+                                              <div className="flex items-center gap-1">
+                                                <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", avail ? "bg-emerald-500/70" : "bg-muted/30")} />
+                                                <span className="text-muted-foreground/80 w-9 shrink-0">{label}</span>
+                                                <span className={avail ? "text-foreground" : "text-muted-foreground/30 italic text-[8.5px]"}>
+                                                  {avail ? fmt(raw) : "miss"}
+                                                </span>
+                                              </div>
+                                              <div className={cn("text-right pr-1", avail && z != null ? zCol(z) : "text-muted-foreground/30")}>
+                                                {avail && z != null ? `z ${fmtZ(z)}` : "—"}
+                                              </div>
+                                            </React.Fragment>
+                                          );
+                                        })}
+                                      </div>
+                                      <div className="flex items-center gap-2 pt-1.5 border-t border-border/20 mt-1">
+                                        <span className="text-muted-foreground">Q sleeve</span>
+                                        <span className={cn("font-semibold", zCol(stock.qSleeve))}>{fmtZ(stock.qSleeve)}</span>
+                                        {qContrib != null ? (
+                                          <span className={cn("font-mono ml-auto", qContrib > 0 ? "text-emerald-400" : qContrib < 0 ? "text-rose-400" : "text-foreground")}>
+                                            {qContrib >= 0 ? "+" : ""}{qContrib.toFixed(4)} α
+                                          </span>
+                                        ) : (
+                                          <span className="text-amber-400/70 text-[8.5px] font-sans ml-auto">S+T only</span>
+                                        )}
+                                      </div>
+                                      {(stock as any).qualityMissing && (
+                                        <p className="text-amber-400/60 text-[8.5px] font-sans">{(stock as any).qualityMissingReason ?? "quality missing"}</p>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
 
                                 {/* ── Momentum raw ── */}
                                 <div className="space-y-1">

@@ -566,6 +566,15 @@ def compute_factors_vectorized(prices: pd.DataFrame,
     df["op_margin"]   = df["_op_margin"]
     df["de_ratio"]    = df["_de_ratio"]
 
+    # Count of non-null individual quality inputs (0-5)
+    df["quality_input_count"] = (
+        df["_roe"].notna().astype(int) +
+        df["_roa"].notna().astype(int) +
+        df["_gross_margin"].notna().astype(int) +
+        df["_op_margin"].notna().astype(int) +
+        df["_de_ratio"].notna().astype(int)
+    )
+
     prof_frame   = pd.DataFrame({"z_roe": z_roe,   "z_roa": z_roa})
     margin_frame = pd.DataFrame({"z_gross": z_gross, "z_op": z_op})
 
@@ -874,6 +883,26 @@ def apply_universe_filters(df: pd.DataFrame,
     qual_with = int(result["quality"].notna().sum()) if "quality" in result.columns else 0
     qual_total = len(result)
 
+    # Quality input-count distribution (0–5 individual inputs)
+    if "quality_input_count" in result.columns:
+        qic = result["quality_input_count"]
+        qual_input_dist = {str(i): int((qic == i).sum()) for i in range(6)}
+    else:
+        qual_input_dist = {}
+
+    # Per-field missing rates (% of stocks missing each quality input)
+    _field_cols = {
+        "roe":         "roe",
+        "roa":         "roa",
+        "grossMargin": "gross_margin",
+        "opMargin":    "op_margin",
+        "deRatio":     "de_ratio",
+    }
+    qual_field_missing: dict = {}
+    for label, col in _field_cols.items():
+        if col in result.columns:
+            qual_field_missing[label] = round(float(result[col].isna().mean()) * 100, 1)
+
     audit = {
         "preFilterCount":  n_in,
         "postFilterCount": len(result),
@@ -881,6 +910,8 @@ def apply_universe_filters(df: pd.DataFrame,
         "sectorBreakdown": sector_counts,
         "qualityCoverage": f"{qual_with}/{qual_total}",
         "qualityPct":      round(100 * qual_with / qual_total, 1) if qual_total else 0,
+        "qualityInputDist":        qual_input_dist,
+        "qualityFieldMissingRates": qual_field_missing,
         "activeFilters":   [],
     }
     audit["activeFilters"].append(f"price>=${min_price}")

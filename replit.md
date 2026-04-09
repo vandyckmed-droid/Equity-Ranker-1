@@ -69,7 +69,12 @@ The application is built as a monorepo using `pnpm workspaces`, targeting Node.j
 - **Engine filters**: Price ≥ $5, Avg daily dollar volume ≥ $10M, Market cap ≥ $1B (backfilled), ≥ 252 trading days history.
 - Excludes ETFs, mutual funds, SPACs, OTC, and non-equity instruments.
 - **Optional universe filters**: `secFilerOnly`, `excludeSectors`, `requireQuality`.
-- `/rankings` responses include an `audit` object with filter details, exclusions, sector breakdown, and quality coverage.
+- `/rankings` responses include an `audit` object with filter details, exclusions, sector breakdown, quality coverage, `qualityInputDist` (distribution of 0-5 input counts per stock), and `qualityFieldMissingRates` (per-field missing %).
+- Each `Stock` now carries `qualityInputCount` (0-5, count of non-null individual quality inputs: ROE, ROA, GrossM, OpM, D/E).
+
+**Quality Audit Transparency Layer (implemented)**:
+- **Per-stock expanded row**: "Quality Audit" section replaces separate Raw/Z columns; shows confidence badge (High ≥5/5, Medium 3-4/5, Low 0-2/5), 5 paired raw→z-score rows with availability dots, Q sleeve value, and Q contribution to alpha (wQ × qSleeve / totalW α points).
+- **Universe-level badge**: "Q X%" status badge is now an interactive `QualityAuditBadge` component (`src/components/QualityAuditBadge.tsx`) that opens a dropdown showing the input-count distribution bar chart and per-field missing-rate bars.
 
 **Startup and Caching Strategy (Snapshot-First Architecture)**:
 - **Engine Startup**: Restores universe, prices, and metadata from persistent disk cache for rapid initialization. Quality enrichment is incremental and backgrounded.

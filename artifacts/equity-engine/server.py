@@ -176,6 +176,7 @@ def get_rankings(
             "hasMarginBucket":         safe_bool(row.get("has_margin_bucket")),
             "hasLeverageBucket":       safe_bool(row.get("has_leverage_bucket")),
             "qualityBucketCount":      safe(row.get("quality_bucket_count")),
+            "qualityInputCount":       safe(row.get("quality_input_count")),
             "qualityMissingReason":    safe_str(row.get("quality_missing_reason")),
         })
 
@@ -302,6 +303,7 @@ def universe_filters(body: UniverseFiltersBody):
             "hasMarginBucket":         safe_bool(row.get("has_margin_bucket")),
             "hasLeverageBucket":       safe_bool(row.get("has_leverage_bucket")),
             "qualityBucketCount":      safe(row.get("quality_bucket_count")),
+            "qualityInputCount":       safe(row.get("quality_input_count")),
             "qualityMissingReason":    safe_str(row.get("quality_missing_reason")),
         })
 
