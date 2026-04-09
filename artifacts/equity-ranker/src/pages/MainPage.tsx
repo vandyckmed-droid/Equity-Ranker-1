@@ -205,7 +205,6 @@ export default function MainPage() {
       clusterN: saved?.clusterN ?? 100,
       clusterK: saved?.clusterK ?? 10,
       clusterLookback: saved?.clusterLookback ?? 252,
-      excludeSectors: (saved?.excludeSectors ?? "") as string,
     };
   });
   const [debouncedServerParams, setDebouncedServerParams] = useState(serverParams);
@@ -263,7 +262,6 @@ export default function MainPage() {
       clusterK: debouncedServerParams.clusterK,
       clusterLookback: debouncedServerParams.clusterLookback,
     };
-    if (debouncedServerParams.excludeSectors) p.excludeSectors = debouncedServerParams.excludeSectors;
     return p;
   }, [debouncedServerParams]);
 
@@ -606,7 +604,6 @@ export default function MainPage() {
   // ─── Main render ──────────────────────────────────────────────────────────
   // Active filter chips — computed inline (O(5), no useMemo needed)
   const activeFilterChips: string[] = [];
-  if (serverParams.excludeSectors.includes("Finance")) activeFilterChips.push("No Fin");
   if (mcapFilter === "no_small") activeFilterChips.push("≥$2B");
   if (mcapFilter === "large_only") activeFilterChips.push("≥$10B");
 
@@ -821,17 +818,6 @@ export default function MainPage() {
             <div className="space-y-3">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Universe</h3>
               <div className="space-y-2">
-                <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
-                  <Label htmlFor="secFiler" className="text-xs cursor-pointer">SEC Filers Only</Label>
-                  <Switch id="secFiler" checked={serverParams.secFilerOnly}
-                    onCheckedChange={(v) => handleServerParamChange("secFilerOnly", v)} />
-                </div>
-                <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
-                  <Label htmlFor="exclFin" className="text-xs cursor-pointer">Exclude Financials</Label>
-                  <Switch id="exclFin" checked={serverParams.excludeSectors.includes("Finance")}
-                    onCheckedChange={(v) => handleServerParamChange("excludeSectors",
-                      v ? "Finance,Financial Services,Financials" : "")} />
-                </div>
                 <div className="bg-muted/40 px-3 py-2 rounded-md space-y-2">
                   <Label className="text-xs">Market Cap</Label>
                   <div className="flex rounded-md overflow-hidden border border-border">
