@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UniverseAudit } from "lib/api-client-react/src/generated/api.schemas";
@@ -18,6 +18,23 @@ const FIELD_ORDER = ["roe", "roa", "grossMargin", "opMargin", "deRatio"];
 
 export function QualityAuditBadge({ audit }: Props) {
   const [open, setOpen] = useState(false);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const rect = btnRef.current?.getBoundingClientRect();
+    if (rect) {
+      setDropdownPos({ top: rect.bottom + 6, left: rect.left });
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    document.addEventListener("pointerdown", close, { capture: true });
+    return () => document.removeEventListener("pointerdown", close, { capture: true });
+  }, [open]);
 
   if (!audit) return null;
 
@@ -34,9 +51,13 @@ export function QualityAuditBadge({ audit }: Props) {
       : "text-rose-400 border-rose-500/25 bg-rose-500/10";
 
   return (
-    <div className="relative">
+    <>
       <button
-        onClick={() => setOpen((v) => !v)}
+        ref={btnRef}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
         className={cn(
           "inline-flex items-center h-5 rounded-full px-2 text-[11px] border whitespace-nowrap shrink-0 transition-colors cursor-pointer",
           badgeCls,
@@ -47,8 +68,15 @@ export function QualityAuditBadge({ audit }: Props) {
 
       {open && (
         <div
-          className="absolute top-full left-0 z-50 mt-1.5 w-72 rounded-lg border border-border/60 bg-background/95 backdrop-blur-sm shadow-xl p-3 text-[10px] font-mono"
-          style={{ minWidth: 288 }}
+          onPointerDown={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed",
+            top: dropdownPos.top,
+            left: dropdownPos.left,
+            zIndex: 9999,
+            minWidth: 288,
+          }}
+          className="w-72 rounded-lg border border-border/60 bg-background/95 backdrop-blur-sm shadow-xl p-3 text-[10px] font-mono"
         >
           {/* Header */}
           <div className="flex items-center justify-between mb-2.5">
@@ -154,6 +182,6 @@ export function QualityAuditBadge({ audit }: Props) {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
