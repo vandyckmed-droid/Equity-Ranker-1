@@ -1234,45 +1234,55 @@ export default function MainPage() {
                       </TableRow>
 
                       {expandedTicker === stock.ticker && (() => {
-                        const fmtZ = (v: number | null | undefined) =>
-                          v == null ? "—" : (v > 0 ? "+" : "") + v.toFixed(3);
-                        const fmtR = (v: number | null | undefined) =>
-                          v == null ? "—" : v.toFixed(3);
-                        const fmtPct = (v: number | null | undefined) =>
-                          v == null ? "—" : (v * 100).toFixed(1) + "%";
-                        const zCol = (v: number | null | undefined) =>
-                          v == null ? "text-muted-foreground" : v > 0 ? "text-positive" : "text-negative";
+                        const fmt2 = (v: number | null | undefined) =>
+                          v == null ? "—" : (v > 0 ? "+" : "") + v.toFixed(2);
+                        const heat = (v: number | null | undefined): React.CSSProperties => {
+                          if (v == null) return { color: "hsl(var(--muted-foreground))" };
+                          const x = Math.max(-3, Math.min(3, v)) / 3;
+                          if (x >= 0) {
+                            const s = Math.round(25 + x * 46);
+                            const l = Math.round(48 + x * 10);
+                            return { color: `hsl(142 ${s}% ${l}%)` };
+                          } else {
+                            const ax = Math.abs(x);
+                            const s = Math.round(25 + ax * 48);
+                            const l = Math.round(48 + ax * 7);
+                            return { color: `hsl(0 ${s}% ${l}%)` };
+                          }
+                        };
                         return (
                           <TableRow key={`${stock.ticker}-audit`} className="bg-muted/20 border-b-border/20">
-                            <TableCell colSpan={activeColumns.length + 2} className="px-3 py-2.5">
-                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-x-6 gap-y-3 text-[10px] font-mono">
+                            <TableCell colSpan={activeColumns.length + 2} className="px-3 py-2">
+                              <div className="flex flex-wrap gap-x-8 gap-y-2 text-[10px] font-mono">
 
-                                {/* ── Momentum raw ── */}
+                                {/* ── Sleeves ── */}
                                 <div className="space-y-1">
-                                  <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Momentum (raw)</p>
-                                  <p><span className="text-muted-foreground">s6:</span>   <span className="text-foreground">{fmtR(stock.s6)}</span></p>
-                                  <p><span className="text-muted-foreground">s12:</span>  <span className="text-foreground">{fmtR(stock.s12)}</span></p>
-                                  <p><span className="text-muted-foreground">t6:</span>   <span className="text-foreground">{fmtR(stock.tstat6)}</span></p>
-                                  <p><span className="text-muted-foreground">t12:</span>  <span className="text-foreground">{fmtR(stock.tstat12)}</span></p>
-                                </div>
-
-                                {/* ── Momentum z / sleeves ── */}
-                                <div className="space-y-1">
-                                  <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Momentum (z)</p>
-                                  <p><span className="text-muted-foreground">z_s6:</span>  <span className={zCol(stock.zS6)}>{fmtZ(stock.zS6)}</span></p>
-                                  <p><span className="text-muted-foreground">z_s12:</span> <span className={zCol(stock.zS12)}>{fmtZ(stock.zS12)}</span></p>
-                                  <p><span className="text-muted-foreground">z_t6:</span>  <span className={zCol(stock.zT6)}>{fmtZ(stock.zT6)}</span></p>
-                                  <p><span className="text-muted-foreground">z_t12:</span> <span className={zCol(stock.zT12)}>{fmtZ(stock.zT12)}</span></p>
-                                  <p className="mt-1"><span className="text-muted-foreground">S (sleeve):</span> <span className={zCol(stock.sSleeve)}>{fmtZ(stock.sSleeve)}</span></p>
-                                  <p><span className="text-muted-foreground">T (sleeve):</span> <span className={zCol(stock.tSleeve)}>{fmtZ(stock.tSleeve)}</span></p>
+                                  <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Momentum</p>
+                                  <p className="flex items-center gap-2">
+                                    <span className="text-muted-foreground w-10">S sleeve</span>
+                                    <span className="font-semibold" style={heat(stock.sSleeve)}>{fmt2(stock.sSleeve)}</span>
+                                  </p>
+                                  <p className="flex items-center gap-2">
+                                    <span className="text-muted-foreground w-10">T sleeve</span>
+                                    <span className="font-semibold" style={heat(stock.tSleeve)}>{fmt2(stock.tSleeve)}</span>
+                                  </p>
                                 </div>
 
                                 {/* ── Composite ── */}
                                 <div className="space-y-1">
                                   <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Composite</p>
-                                  <p><span className="text-muted-foreground">Alpha:</span> <span className="text-primary font-bold">{fmtZ(stock.alpha)}</span></p>
-                                  <p><span className="text-muted-foreground">Rank:</span>  <span className="text-foreground">#{stock.rank}</span></p>
-                                  <p><span className="text-muted-foreground">Pct:</span>   <span className="text-foreground">{stock.percentile != null ? stock.percentile.toFixed(1) + "%" : "—"}</span></p>
+                                  <p className="flex items-center gap-2">
+                                    <span className="text-muted-foreground w-10">Alpha</span>
+                                    <span className="font-bold" style={heat(stock.alpha)}>{fmt2(stock.alpha)}</span>
+                                  </p>
+                                  <p className="flex items-center gap-2">
+                                    <span className="text-muted-foreground w-10">Rank</span>
+                                    <span className="text-foreground">#{stock.rank}</span>
+                                  </p>
+                                  <p className="flex items-center gap-2">
+                                    <span className="text-muted-foreground w-10">Pct</span>
+                                    <span className="text-foreground">{stock.percentile != null ? stock.percentile.toFixed(1) + "%" : "—"}</span>
+                                  </p>
                                 </div>
 
                               </div>
