@@ -831,7 +831,11 @@ export default function MainPage() {
               {" "}eq
             </span>
             {/* Quality coverage – interactive audit badge */}
-            <QualityAuditBadge audit={audit} />
+            <QualityAuditBadge audit={audit} pillarState={{
+              profitability: serverParams.useProfitabilityData,
+              safety: serverParams.useSafetyData,
+              investment: serverParams.useInvestmentData,
+            }} />
             {/* Active filter chips */}
             {activeFilterChips
               .filter(chip => chip !== "Quality")
@@ -902,21 +906,12 @@ export default function MainPage() {
                   <Slider value={[localW12 * 100]} min={0} max={100} step={5}
                     onValueChange={(v) => setLocalW12(v[0] / 100)} />
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Q Sleeve — wQ ({formatNumber(localWQ * 100, 0)}%)</Label>
-                  <Slider value={[localWQ * 100]} min={0} max={100} step={5}
-                    onValueChange={(v) => setLocalWQ(v[0] / 100)}
-                    className={!serverParams.useProfitabilityData && !serverParams.useSafetyData && !serverParams.useInvestmentData ? "opacity-40" : ""} />
-                  {!serverParams.useProfitabilityData && !serverParams.useSafetyData && !serverParams.useInvestmentData && (
-                    <p className="text-[10px] text-muted-foreground">Enable a Quality Data pillar below to activate</p>
-                  )}
-                </div>
               </div>
             </div>
 
             {/* Universe Filters */}
             <div className="space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Universe Filters</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Universe</h3>
               <div className="space-y-2">
                 <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
                   <Label htmlFor="secFiler" className="text-xs cursor-pointer">SEC Filers Only</Label>
@@ -928,11 +923,6 @@ export default function MainPage() {
                   <Switch id="exclFin" checked={serverParams.excludeSectors.includes("Finance")}
                     onCheckedChange={(v) => handleServerParamChange("excludeSectors",
                       v ? "Finance,Financial Services,Financials" : "")} />
-                </div>
-                <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
-                  <Label htmlFor="reqQual" className="text-xs cursor-pointer">Require Quality</Label>
-                  <Switch id="reqQual" checked={serverParams.requireQuality}
-                    onCheckedChange={(v) => handleServerParamChange("requireQuality", v)} />
                 </div>
                 <div className="bg-muted/40 px-3 py-2 rounded-md space-y-2">
                   <Label className="text-xs">Market Cap</Label>
@@ -954,49 +944,75 @@ export default function MainPage() {
                 </div>
               </div>
               {audit && (
-                <div className="text-[10px] text-muted-foreground space-y-0.5 pt-1 border-t border-border/40">
-                  <p>{audit.postFilterCount ?? "—"} / {audit.preFilterCount ?? "—"} stocks pass filters</p>
-                  <p>Quality coverage: {audit.qualityCoverage ?? "—"} ({audit.qualityPct ?? 0}%)</p>
-                </div>
+                <p className="text-[10px] text-muted-foreground pt-1 border-t border-border/40">
+                  {audit.postFilterCount ?? "—"} / {audit.preFilterCount ?? "—"} stocks pass base filters
+                </p>
               )}
             </div>
 
-            {/* Quality Data Pillars */}
+            {/* Quality Factor — unified section */}
             <div className="space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Quality Data</h3>
-              <p className="text-[10px] text-muted-foreground leading-relaxed">
-                Each toggle requires that data to be present — narrows the active universe and adds that pillar to the Q sleeve.
-              </p>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
-                  <div>
-                    <Label htmlFor="useProfData" className="text-xs cursor-pointer">Profitability</Label>
-                    <p className="text-[10px] text-muted-foreground">op. income ÷ revenue</p>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Quality Factor</h3>
+
+              {/* Q weight slider */}
+              <div className="space-y-1.5">
+                <Label className="text-xs">Q Sleeve weight — wQ ({formatNumber(localWQ * 100, 0)}%)</Label>
+                <Slider value={[localWQ * 100]} min={0} max={100} step={5}
+                  onValueChange={(v) => setLocalWQ(v[0] / 100)} />
+              </div>
+
+              {/* Data-existence pillar toggles */}
+              <div className="space-y-1">
+                <p className="text-[10px] text-muted-foreground/70 leading-relaxed pb-0.5">
+                  Enabling a pillar requires that data to be present (not a score threshold) — narrows the universe and adds that pillar to the Q sleeve.
+                </p>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
+                    <div>
+                      <Label htmlFor="useProfData" className="text-xs cursor-pointer">Profitability</Label>
+                      <p className="text-[10px] text-muted-foreground">op. income ÷ revenue · ↑ higher = better</p>
+                    </div>
+                    <Switch id="useProfData" checked={serverParams.useProfitabilityData}
+                      onCheckedChange={(v) => handleServerParamChange("useProfitabilityData", v)} />
                   </div>
-                  <Switch id="useProfData" checked={serverParams.useProfitabilityData}
-                    onCheckedChange={(v) => handleServerParamChange("useProfitabilityData", v)} />
-                </div>
-                <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
-                  <div>
-                    <Label htmlFor="useSafetyData" className="text-xs cursor-pointer">Safety</Label>
-                    <p className="text-[10px] text-muted-foreground">liabilities ÷ assets</p>
+                  <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
+                    <div>
+                      <Label htmlFor="useSafetyData" className="text-xs cursor-pointer">Safety</Label>
+                      <p className="text-[10px] text-muted-foreground">liabilities ÷ assets · ↓ lower = better</p>
+                    </div>
+                    <Switch id="useSafetyData" checked={serverParams.useSafetyData}
+                      onCheckedChange={(v) => handleServerParamChange("useSafetyData", v)} />
                   </div>
-                  <Switch id="useSafetyData" checked={serverParams.useSafetyData}
-                    onCheckedChange={(v) => handleServerParamChange("useSafetyData", v)} />
-                </div>
-                <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
-                  <div>
-                    <Label htmlFor="useInvData" className="text-xs cursor-pointer">Investment</Label>
-                    <p className="text-[10px] text-muted-foreground">asset growth YoY</p>
+                  <div className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
+                    <div>
+                      <Label htmlFor="useInvData" className="text-xs cursor-pointer">Investment</Label>
+                      <p className="text-[10px] text-muted-foreground">asset growth YoY · ↓ lower = better</p>
+                    </div>
+                    <Switch id="useInvData" checked={serverParams.useInvestmentData}
+                      onCheckedChange={(v) => handleServerParamChange("useInvestmentData", v)} />
                   </div>
-                  <Switch id="useInvData" checked={serverParams.useInvestmentData}
-                    onCheckedChange={(v) => handleServerParamChange("useInvestmentData", v)} />
                 </div>
               </div>
-              {(serverParams.useProfitabilityData || serverParams.useSafetyData || serverParams.useInvestmentData) && audit && (
-                <p className="text-[10px] text-muted-foreground border-t border-border/40 pt-1">
-                  {audit.postFilterCount ?? "—"} stocks pass all active data requirements
-                </p>
+
+              {/* Legacy quality toggle */}
+              <div className="flex items-center justify-between bg-muted/30 px-3 py-2 rounded-md border border-border/30">
+                <div>
+                  <Label htmlFor="reqQual" className="text-xs cursor-pointer text-muted-foreground">Legacy quality filter</Label>
+                  <p className="text-[10px] text-muted-foreground/60">Require old EDGAR factor buckets (ROE/ROA/margins)</p>
+                </div>
+                <Switch id="reqQual" checked={serverParams.requireQuality}
+                  onCheckedChange={(v) => handleServerParamChange("requireQuality", v)} />
+              </div>
+
+              {/* Coverage stats */}
+              {audit && (
+                <div className="text-[10px] text-muted-foreground space-y-0.5 pt-1 border-t border-border/40">
+                  {(serverParams.useProfitabilityData || serverParams.useSafetyData || serverParams.useInvestmentData) ? (
+                    <p>{audit.postFilterCount ?? "—"} stocks qualify for all active pillars</p>
+                  ) : (
+                    <p>Legacy Q coverage: {audit.qualityCoverage ?? "—"} ({audit.qualityPct ?? 0}%)</p>
+                  )}
+                </div>
               )}
             </div>
 
