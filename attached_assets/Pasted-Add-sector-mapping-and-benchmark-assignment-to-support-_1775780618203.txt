@@ -1,0 +1,68 @@
+Add sector mapping and benchmark assignment to support residual momentum, with full coverage, zero data gaps, and maximum performance.
+
+1. Sector mapping
+- Assign every stock in the universe to a single, stable sector using a consistent classification system (prefer GICS-style sectors).
+- Map each sector to a corresponding sector ETF:
+  XLK, XLF, XLI, XLV, XLY, XLP, XLE, XLU, XLB, XLRE, XLC
+- Store this mapping persistently so it does not change between runs.
+
+2. Handle missing or “miscellaneous” sector classifications
+- No stock should remain unmapped.
+- If a stock does not have a valid sector:
+  - Assign it to a fallback “no-sector” category.
+  - For these stocks, skip sector exposure and use market-only benchmark.
+- Never drop a stock due to missing sector.
+
+3. Market benchmark assignment
+- Define a single broad market benchmark aligned with the universe:
+  - Prefer VTI (U.S. total market proxy) as default
+  - Allow fallback to ACWI for non-U.S. coverage if needed
+- This benchmark must be consistent across all stocks.
+
+4. Data requirements
+- Ensure daily adjusted close data exists for:
+  - all stocks
+  - the market benchmark
+  - all sector ETFs
+- Compute daily log returns for all series using a unified trading-day index (no gaps, no misalignment).
+
+5. Integrity and coverage rules
+- 100% of stocks must have:
+  - a valid market benchmark
+  - either a sector ETF or fallback to market-only
+- If sector ETF data is missing, fallback to market-only (never drop stock).
+- Log and expose:
+  - total stocks
+  - sector-mapped stocks
+  - fallback (no-sector) stocks
+  - missing/failed data counts
+
+6. Performance mandate (critical)
+- Maximize performance, smoothness, and reliability above all else.
+- Do NOT introduce any blocking operations in the live request path.
+- All data fetching must be:
+  - batched
+  - asynchronous
+  - rate-limit aware
+- Cache all fetched data (prices, sectors, mappings) locally.
+- Use persistent storage (disk/DB) with a “last known good” snapshot.
+- Never replace a complete dataset with a partial or failed refresh.
+- Perform all refreshes in a background job (not on UI interaction).
+- Use atomic updates:
+  - fetch → validate → build → then swap into production
+- Reuse existing price data where available (no duplicate fetching).
+- Avoid recomputation unless underlying data has changed.
+- Ensure constant-time reads during runtime (no expensive joins or lookups).
+
+7. Design constraints
+- Keep mapping deterministic and stable across runs.
+- No dynamic or drifting classifications.
+- No degradation of current alpha system performance.
+- This is a data-layer enhancement only—do not alter scoring yet.
+
+Goal:
+- 100% universe coverage
+- Deterministic sector + benchmark assignment
+- Zero missing exposures
+- No performance regression (only improvement)
+- Fully prepared for residual momentum regression

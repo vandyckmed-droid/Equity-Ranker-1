@@ -49,14 +49,120 @@ import diskcache
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CACHE_DIR          = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache")
-PRICE_CACHE_TTL    = 8  * 3600
-META_CACHE_TTL     = 48 * 3600
-UNIVERSE_CACHE_TTL = 24 * 3600
-PRICE_CACHE_KEY    = "price_data_v5"
-META_CACHE_KEY     = "meta_data_v2"
-UNIVERSE_CACHE_KEY = "universe_v1"
-NASDAQ_META_KEY    = "nasdaq_meta_v1"
+CACHE_DIR                  = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache")
+PRICE_CACHE_TTL            = 8  * 3600
+META_CACHE_TTL             = 48 * 3600
+UNIVERSE_CACHE_TTL         = 24 * 3600
+BENCHMARK_PRICES_CACHE_TTL = 8  * 3600
+PRICE_CACHE_KEY            = "price_data_v5"
+META_CACHE_KEY             = "meta_data_v2"
+UNIVERSE_CACHE_KEY         = "universe_v1"
+NASDAQ_META_KEY            = "nasdaq_meta_v1"
+SECTOR_MAP_CACHE_KEY       = "sector_map_v1"
+BENCHMARK_PRICES_CACHE_KEY = "benchmark_prices_v1"
+
+# ─── GICS sector → sector ETF (static, deterministic) ────────────────────────
+MARKET_BENCHMARK: str = "VTI"
+
+GICS_SECTOR_ETF: dict = {
+    "Technology":             "XLK",
+    "Financials":             "XLF",
+    "Industrials":            "XLI",
+    "Health Care":            "XLV",
+    "Consumer Discretionary": "XLY",
+    "Consumer Staples":       "XLP",
+    "Energy":                 "XLE",
+    "Utilities":              "XLU",
+    "Materials":              "XLB",
+    "Real Estate":            "XLRE",
+    "Communication Services": "XLC",
+}
+
+# Normalize raw sector strings (NASDAQ API / yfinance) → GICS sector key
+_SECTOR_NORM: dict = {
+    "technology":                   "Technology",
+    "tech":                         "Technology",
+    "semiconductors":               "Technology",
+    "software":                     "Technology",
+    "information technology":       "Technology",
+    "financials":                   "Financials",
+    "finance":                      "Financials",
+    "financial services":           "Financials",
+    "financial":                    "Financials",
+    "banks":                        "Financials",
+    "banking":                      "Financials",
+    "insurance":                    "Financials",
+    "capital markets":              "Financials",
+    "asset management":             "Financials",
+    "industrials":                  "Industrials",
+    "industrial":                   "Industrials",
+    "aerospace & defense":          "Industrials",
+    "aerospace and defense":        "Industrials",
+    "defense":                      "Industrials",
+    "transportation":               "Industrials",
+    "machinery":                    "Industrials",
+    "construction":                 "Industrials",
+    "health care":                  "Health Care",
+    "healthcare":                   "Health Care",
+    "health":                       "Health Care",
+    "biotechnology":                "Health Care",
+    "pharmaceuticals":              "Health Care",
+    "medical devices":              "Health Care",
+    "medical":                      "Health Care",
+    "life sciences":                "Health Care",
+    "consumer discretionary":       "Consumer Discretionary",
+    "consumer cyclical":            "Consumer Discretionary",
+    "cyclical":                     "Consumer Discretionary",
+    "retail":                       "Consumer Discretionary",
+    "auto":                         "Consumer Discretionary",
+    "automotive":                   "Consumer Discretionary",
+    "leisure":                      "Consumer Discretionary",
+    "hotels":                       "Consumer Discretionary",
+    "restaurants":                  "Consumer Discretionary",
+    "apparel":                      "Consumer Discretionary",
+    "consumer staples":             "Consumer Staples",
+    "consumer defensive":           "Consumer Staples",
+    "defensive":                    "Consumer Staples",
+    "staples":                      "Consumer Staples",
+    "food":                         "Consumer Staples",
+    "beverages":                    "Consumer Staples",
+    "tobacco":                      "Consumer Staples",
+    "household products":           "Consumer Staples",
+    "personal products":            "Consumer Staples",
+    "energy":                       "Energy",
+    "oil & gas":                    "Energy",
+    "oil and gas":                  "Energy",
+    "oil":                          "Energy",
+    "gas":                          "Energy",
+    "utilities":                    "Utilities",
+    "utility":                      "Utilities",
+    "electric utilities":           "Utilities",
+    "water utilities":              "Utilities",
+    "regulated utilities":          "Utilities",
+    "materials":                    "Materials",
+    "basic materials":              "Materials",
+    "chemicals":                    "Materials",
+    "mining":                       "Materials",
+    "metals":                       "Materials",
+    "metals & mining":              "Materials",
+    "metals and mining":            "Materials",
+    "paper":                        "Materials",
+    "containers":                   "Materials",
+    "packaging":                    "Materials",
+    "real estate":                  "Real Estate",
+    "reits":                        "Real Estate",
+    "reit":                         "Real Estate",
+    "real estate investment trusts": "Real Estate",
+    "communication services":       "Communication Services",
+    "communication":                "Communication Services",
+    "communications":               "Communication Services",
+    "telecommunications":           "Communication Services",
+    "telecom":                      "Communication Services",
+    "media":                        "Communication Services",
+    "entertainment":                "Communication Services",
+    "internet":                     "Communication Services",
+    "interactive media":            "Communication Services",
+}
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 cache = diskcache.Cache(CACHE_DIR)
@@ -294,6 +400,12 @@ _cluster_key    = None
 _cache_lock     = threading.Lock()
 
 _timings: dict  = {}
+
+# Sector / benchmark data layer (constant-time reads, populated after stage 1)
+_sector_map:      Optional[dict]         = None  # {ticker: {gics_sector, sector_etf, benchmark}}
+_benchmark_prices: Optional[pd.DataFrame] = None  # daily adj-close: VTI + XL* ETFs
+_sector_map_lock  = threading.Lock()
+_benchmark_lock   = threading.Lock()
 
 
 # ─── Utilities ────────────────────────────────────────────────────────────────
@@ -1138,11 +1250,199 @@ def _load_full_meta_yf(tickers: list) -> dict:
     return meta
 
 
+# ─── Sector + benchmark data layer ───────────────────────────────────────────
+
+def _normalize_sector(raw: Optional[str]) -> Optional[str]:
+    """Map a raw sector string to a GICS sector key. Returns None if unmappable."""
+    if not raw:
+        return None
+    key = raw.strip().lower()
+    # Exact match
+    if key in _SECTOR_NORM:
+        return _SECTOR_NORM[key]
+    # Substring match (raw contains a known keyword)
+    for pattern, gics in _SECTOR_NORM.items():
+        if pattern in key:
+            return gics
+    # Already a valid GICS name
+    for gics in GICS_SECTOR_ETF:
+        if gics.lower() == key:
+            return gics
+    return None
+
+
+def build_sector_map(meta: dict) -> dict:
+    """
+    Build a deterministic sector map from existing metadata.
+    Every ticker gets assigned:
+      - gics_sector : canonical GICS sector name (or None → fallback)
+      - sector_etf  : corresponding XL* ETF (or None → market-only)
+      - benchmark   : always MARKET_BENCHMARK (VTI)
+      - raw_sector  : original string from meta
+
+    100% coverage guaranteed — no stock is dropped.
+    Runs synchronously and instantly (pure dict lookup, no I/O).
+    """
+    result: dict = {}
+    mapped   = 0
+    fallback = 0
+
+    for ticker, m in meta.items():
+        raw_sector = m.get("sector")
+        gics = _normalize_sector(raw_sector)
+        if gics and gics in GICS_SECTOR_ETF:
+            result[ticker] = {
+                "gics_sector": gics,
+                "sector_etf":  GICS_SECTOR_ETF[gics],
+                "benchmark":   MARKET_BENCHMARK,
+                "raw_sector":  raw_sector,
+            }
+            mapped += 1
+        else:
+            result[ticker] = {
+                "gics_sector": None,
+                "sector_etf":  None,
+                "benchmark":   MARKET_BENCHMARK,
+                "raw_sector":  raw_sector,
+            }
+            fallback += 1
+
+    total = len(result)
+    logger.info(
+        f"Sector map: {total} stocks | {mapped} sector-mapped "
+        f"| {fallback} market-only fallback "
+        f"| coverage {100*mapped/total:.1f}%" if total else "Sector map: 0 stocks"
+    )
+    return result
+
+
+def _fetch_benchmark_prices_bg() -> None:
+    """
+    Background daemon: download daily adj-close for VTI + all 11 XL sector ETFs.
+    Atomic update pattern: fetch → validate → swap into _benchmark_prices.
+    Never replaces a good dataset with a partial/failed result.
+    Reuses the existing diskcache for persistence.
+    """
+    global _benchmark_prices
+
+    # ── Check cache first ────────────────────────────────────────────────────
+    cached = cache.get(BENCHMARK_PRICES_CACHE_KEY)
+    required_syms = set([MARKET_BENCHMARK] + list(GICS_SECTOR_ETF.values()))
+    if (cached is not None
+            and isinstance(cached, pd.DataFrame)
+            and not cached.empty
+            and required_syms.issubset(set(cached.columns))):
+        with _benchmark_lock:
+            _benchmark_prices = cached
+        logger.info(f"Benchmark prices from cache: {cached.shape}")
+        return
+
+    symbols = sorted(required_syms)
+    logger.info(f"Fetching benchmark/sector-ETF prices: {symbols}")
+
+    try:
+        raw = yf.download(
+            symbols, period="2y", auto_adjust=True,
+            progress=False, timeout=90,
+        )
+        if raw.empty:
+            logger.error("Benchmark download: empty result")
+            return
+
+        if isinstance(raw.columns, pd.MultiIndex):
+            close = raw["Close"]
+        else:
+            close = raw.rename(columns={"Close": symbols[0]}) if len(symbols) == 1 else raw
+
+        # Validate coverage — warn but don't abort on partial failure
+        valid_cols = [c for c in close.columns if close[c].count() >= 252]
+        missing    = required_syms - set(valid_cols)
+        if missing:
+            logger.warning(f"Benchmark download: insufficient data for {missing}")
+        if not valid_cols:
+            logger.error("Benchmark download: no valid columns — aborting")
+            return
+
+        close = close[valid_cols].sort_index().ffill(limit=5)
+
+        # Atomic swap — only replace if new data is at least as complete
+        with _benchmark_lock:
+            existing = _benchmark_prices
+            if existing is not None and len(existing.columns) > len(close.columns):
+                logger.warning(
+                    "Benchmark refresh produced fewer columns than existing data "
+                    "— keeping existing"
+                )
+                return
+            _benchmark_prices = close
+
+        cache.set(BENCHMARK_PRICES_CACHE_KEY, close, expire=BENCHMARK_PRICES_CACHE_TTL)
+        logger.info(
+            f"Benchmark prices loaded: {close.shape} "
+            f"| cols: {sorted(close.columns.tolist())}"
+        )
+
+    except Exception as e:
+        logger.error(f"Benchmark price fetch failed: {e}")
+        # Never touch _benchmark_prices on failure — keep last-known-good
+
+
+def get_sector_map() -> Optional[dict]:
+    """Constant-time read of the sector map (populated after stage 1)."""
+    return _sector_map
+
+
+def get_benchmark_prices() -> Optional[pd.DataFrame]:
+    """Constant-time read of benchmark + sector ETF prices."""
+    with _benchmark_lock:
+        return _benchmark_prices
+
+
+def get_sector_coverage_stats() -> dict:
+    """Return sector mapping coverage stats for API / logging."""
+    sm = _sector_map
+    if sm is None:
+        return {"status": "not_built"}
+
+    total    = len(sm)
+    mapped   = sum(1 for v in sm.values() if v.get("sector_etf") is not None)
+    fallback = total - mapped
+
+    etf_counts: dict = {}
+    gics_counts: dict = {}
+    for v in sm.values():
+        etf  = v.get("sector_etf") or "_market_only"
+        gics = v.get("gics_sector") or "_unmapped"
+        etf_counts[etf]   = etf_counts.get(etf, 0)   + 1
+        gics_counts[gics] = gics_counts.get(gics, 0) + 1
+
+    bp = _benchmark_prices
+    return {
+        "total_stocks":            total,
+        "sector_mapped":           mapped,
+        "market_only_fallback":    fallback,
+        "coverage_pct":            round(100 * mapped / total, 1) if total else 0.0,
+        "market_benchmark":        MARKET_BENCHMARK,
+        "sector_etfs":             sorted(GICS_SECTOR_ETF.values()),
+        "etf_stock_counts":        etf_counts,
+        "gics_stock_counts":       gics_counts,
+        "benchmark_prices_ok":     (bp is not None and not bp.empty),
+        "benchmark_symbols_loaded": sorted(bp.columns.tolist()) if bp is not None else [],
+    }
+
+
 # ─── Initial data load ───────────────────────────────────────────────────────
+
+def _launch_benchmark_bg() -> None:
+    """Start benchmark price fetch in a daemon thread (non-blocking)."""
+    t = threading.Thread(target=_fetch_benchmark_prices_bg, daemon=True,
+                         name="benchmark-fetch")
+    t.start()
+
 
 def initial_data_load():
     """Load universe, prices, and essential metadata. Engine becomes usable when complete."""
-    global _price_data, _meta_data, _dollar_volume
+    global _price_data, _meta_data, _dollar_volume, _sector_map
 
     t_start = time.time()
 
@@ -1175,6 +1475,11 @@ def initial_data_load():
                 cache.set(META_CACHE_KEY, _meta_data, expire=META_CACHE_TTL)
 
             _timings["total_stage1"] = round(time.time() - t_start, 3)
+
+            # ── Sector map (instant, deterministic) ──────────────────────────
+            with _sector_map_lock:
+                _sector_map = build_sector_map(_meta_data)
+            _launch_benchmark_bg()
 
             update_status("ready",
                           f"Ready. {n} stocks loaded from cache.",
@@ -1264,6 +1569,11 @@ def initial_data_load():
         cache.set(META_CACHE_KEY,  _meta_data,                    expire=META_CACHE_TTL)
     except Exception as e:
         logger.error(f"Cache write failed: {e}")
+
+    # ── Sector map (instant, deterministic) ───────────────────────────────────
+    with _sector_map_lock:
+        _sector_map = build_sector_map(_meta_data)
+    _launch_benchmark_bg()
 
     _timings["total_stage1"] = round(time.time() - t_start, 3)
 

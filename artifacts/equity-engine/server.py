@@ -44,6 +44,19 @@ def get_status():
     }
 
 
+@app.get("/sector-map")
+def get_sector_map(full: bool = False):
+    """
+    Return sector mapping coverage stats.
+    ?full=true also returns the per-ticker mapping dict.
+    """
+    stats = engine.get_sector_coverage_stats()
+    if not full:
+        return stats
+    sm = engine.get_sector_map()
+    return {**stats, "map": sm or {}}
+
+
 @app.get("/rankings")
 def get_rankings(
     vol_adjust: bool = Query(True),
