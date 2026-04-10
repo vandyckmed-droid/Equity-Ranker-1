@@ -196,6 +196,29 @@ paths:
               schema:
                 $ref: "#/components/schemas/PortfolioHistoryResponse"
 
+  /portfolio/reversal:
+    post:
+      operationId: computePortfolioReversal
+      tags: [portfolio]
+      summary: Compute sector-neutralized short-term reversal scores
+      description: >
+        For each requested holding ticker, computes a 21-day log return, subtracts the sector
+        mean across the full universe (sector-neutralization), Z-scores across portfolio holdings,
+        and returns reversal_score = -Z (rank 1 = most dipped = best entry timing).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReversalRequest"
+      responses:
+        "200":
+          description: Reversal scores for each valid holding
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReversalResponse"
+
   /portfolio/corr-seed:
     post:
       operationId: computeCorrSeed
@@ -673,6 +696,66 @@ components:
         - cashWeight
         - daysUsed
         - cashMethod
+
+    ReversalRequest:
+      type: object
+      properties:
+        tickers:
+          type: array
+          items:
+            type: string
+          description: Portfolio holding tickers
+      required:
+        - tickers
+
+    ReversalItem:
+      type: object
+      properties:
+        ticker:
+          type: string
+        r21:
+          type: number
+          description: Raw 21-day log return
+        r21Res:
+          type: number
+          description: Sector-neutralized 21-day log return (r21 minus sector mean)
+        zScore:
+          type: number
+          description: Z-score of r21Res across portfolio holdings
+        reversalScore:
+          type: number
+          description: -zScore; higher = more dipped = better entry timing
+        rank:
+          type: integer
+          description: Rank among holdings (1 = most dipped)
+        pct:
+          type: number
+          description: Rank percentile (rank / n)
+      required:
+        - ticker
+        - r21
+        - r21Res
+        - zScore
+        - reversalScore
+        - rank
+        - pct
+
+    ReversalResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReversalItem"
+          description: Reversal scores for valid holdings, sorted by rank (most dipped first)
+        skipped:
+          type: array
+          items:
+            type: string
+          description: Tickers skipped due to missing price history
+      required:
+        - items
+        - skipped
 
     CorrSeedRequest:
       type: object

@@ -219,6 +219,24 @@ router.post("/portfolio/history", async (req, res): Promise<void> => {
   }
 });
 
+router.post("/portfolio/reversal", async (req, res): Promise<void> => {
+  try {
+    const body = req.body as Record<string, unknown>;
+    const mapped = {
+      tickers: body.tickers,
+    };
+    const [status, data] = await proxyRequest(`${EQUITY_ENGINE_URL}/portfolio-reversal`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(mapped),
+    });
+    res.status(status).json(data);
+  } catch (err) {
+    req.log.error({ err }, "Error computing portfolio reversal");
+    res.status(500).json({ error: "Failed to compute portfolio reversal" });
+  }
+});
+
 router.post("/portfolio/corr-seed", async (req, res): Promise<void> => {
   try {
     const body = req.body as Record<string, unknown>;

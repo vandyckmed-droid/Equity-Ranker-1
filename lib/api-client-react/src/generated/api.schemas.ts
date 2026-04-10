@@ -310,6 +310,34 @@ export interface PortfolioHistoryResponse {
   cashMethod: string;
 }
 
+export interface ReversalRequest {
+  /** Portfolio holding tickers */
+  tickers: string[];
+}
+
+export interface ReversalItem {
+  ticker: string;
+  /** Raw 21-day log return */
+  r21: number;
+  /** Sector-neutralized 21-day log return (r21 minus sector mean) */
+  r21Res: number;
+  /** Z-score of r21Res across portfolio holdings */
+  zScore: number;
+  /** -zScore; higher = more dipped = better entry timing */
+  reversalScore: number;
+  /** Rank among holdings (1 = most dipped) */
+  rank: number;
+  /** Rank percentile (rank / n) */
+  pct: number;
+}
+
+export interface ReversalResponse {
+  /** Reversal scores for valid holdings, sorted by rank (most dipped first) */
+  items: ReversalItem[];
+  /** Tickers skipped due to missing price history */
+  skipped: string[];
+}
+
 export interface CorrSeedRequest {
   /** Candidate tickers in alpha-rank order (best first) */
   tickers: string[];

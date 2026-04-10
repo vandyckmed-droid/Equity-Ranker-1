@@ -717,6 +717,96 @@ def _compute_mean_variance_weights(
     return best
 
 
+class ReversalRequest(BaseModel):
+    tickers: List[str]
+
+
+@app.post("/portfolio-reversal")
+def portfolio_reversal(body: ReversalRequest):
+    import engine as eng
+    import math
+
+    if not body.tickers:
+        raise HTTPException(status_code=400, detail="No tickers provided")
+
+    status = eng.get_status()
+    if status["status"] != "ready":
+        raise HTTPException(status_code=503, detail="Data not ready")
+
+    price_data = eng.get_price_data()
+    if price_data is None:
+        raise HTTPException(status_code=503, detail="Price data not available")
+
+    sector_map = eng.get_sector_map() or {}
+
+    # Last 22 rows for 21-day log return
+    tail = price_data.tail(22)
+    if len(tail) < 22:
+        raise HTTPException(status_code=400, detail="Insufficient price history (need ≥22 rows)")
+
+    # Compute 21-day log return for all universe tickers with valid data
+    universe_r21: dict[str, float] = {}
+    for col in price_data.columns:
+        p_start = tail[col].iloc[0]
+        p_end   = tail[col].iloc[-1]
+        if pd.notna(p_start) and pd.notna(p_end) and p_start > 0 and p_end > 0:
+            universe_r21[col] = math.log(p_end / p_start)
+
+    # Group universe tickers by gics_sector and compute mean r21 per sector
+    sector_r21_lists: dict[str, list[float]] = {}
+    for ticker, r21 in universe_r21.items():
+        info = sector_map.get(ticker) or {}
+        sector = info.get("gics_sector") if isinstance(info, dict) else None
+        if sector:
+            sector_r21_lists.setdefault(sector, []).append(r21)
+
+    sector_means: dict[str, float] = {
+        s: sum(vals) / len(vals)
+        for s, vals in sector_r21_lists.items()
+        if len(vals) >= 3
+    }
+
+    # Process portfolio holdings
+    skipped: list[str] = []
+    valid_items: list[dict] = []
+
+    for ticker in body.tickers:
+        if ticker not in universe_r21:
+            skipped.append(ticker)
+            continue
+        r21 = universe_r21[ticker]
+        info = sector_map.get(ticker) or {}
+        sector = info.get("gics_sector") if isinstance(info, dict) else None
+        if sector and sector in sector_means:
+            r21_res = r21 - sector_means[sector]
+        else:
+            r21_res = r21  # fallback: no neutralization
+        valid_items.append({"ticker": ticker, "r21": r21, "r21Res": r21_res})
+
+    if len(valid_items) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 holdings with valid price history to compute Z-scores")
+
+    # Z-score r21_res across portfolio holdings only
+    res_values = [x["r21Res"] for x in valid_items]
+    mean_res = sum(res_values) / len(res_values)
+    var_res = sum((v - mean_res) ** 2 for v in res_values) / max(len(res_values) - 1, 1)
+    std_res = math.sqrt(var_res) if var_res > 1e-10 else 1.0
+
+    for item in valid_items:
+        z = (item["r21Res"] - mean_res) / std_res
+        item["zScore"] = z
+        item["reversalScore"] = -z  # higher = more dipped
+
+    # Rank by reversal score (1 = most dipped)
+    valid_items.sort(key=lambda x: x["reversalScore"], reverse=True)
+    n = len(valid_items)
+    for i, item in enumerate(valid_items):
+        item["rank"] = i + 1
+        item["pct"] = round((i + 1) / n, 4)
+
+    return {"items": valid_items, "skipped": skipped}
+
+
 @app.post("/portfolio-risk")
 def portfolio_risk(body: PortfolioRiskRequest):
     import engine as eng

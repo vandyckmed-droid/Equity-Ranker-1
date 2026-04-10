@@ -442,6 +442,44 @@ export const ComputePortfolioHistoryResponse = zod.object({
 });
 
 /**
+ * For each requested holding ticker, computes a 21-day log return, subtracts the sector mean across the full universe (sector-neutralization), Z-scores across portfolio holdings, and returns reversal_score = -Z (rank 1 = most dipped = best entry timing).
+
+ * @summary Compute sector-neutralized short-term reversal scores
+ */
+export const ComputePortfolioReversalBody = zod.object({
+  tickers: zod.array(zod.string()).describe("Portfolio holding tickers"),
+});
+
+export const ComputePortfolioReversalResponse = zod.object({
+  items: zod
+    .array(
+      zod.object({
+        ticker: zod.string(),
+        r21: zod.number().describe("Raw 21-day log return"),
+        r21Res: zod
+          .number()
+          .describe(
+            "Sector-neutralized 21-day log return (r21 minus sector mean)",
+          ),
+        zScore: zod
+          .number()
+          .describe("Z-score of r21Res across portfolio holdings"),
+        reversalScore: zod
+          .number()
+          .describe("-zScore; higher = more dipped = better entry timing"),
+        rank: zod.number().describe("Rank among holdings (1 = most dipped)"),
+        pct: zod.number().describe("Rank percentile (rank \/ n)"),
+      }),
+    )
+    .describe(
+      "Reversal scores for valid holdings, sorted by rank (most dipped first)",
+    ),
+  skipped: zod
+    .array(zod.string())
+    .describe("Tickers skipped due to missing price history"),
+});
+
+/**
  * Selects up to N tickers from the candidate list such that each added ticker has a maximum pairwise absolute Pearson correlation ≤ maxCorr with all already-selected names.
 
  * @summary Greedy correlation-constrained basket seeding

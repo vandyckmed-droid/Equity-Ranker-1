@@ -27,6 +27,8 @@ import type {
   PortfolioRiskRequest,
   PortfolioRiskResponse,
   RankingsResponse,
+  ReversalRequest,
+  ReversalResponse,
   UniverseFilters,
 } from "./api.schemas";
 
@@ -549,6 +551,94 @@ export const useComputePortfolioHistory = <
   TContext
 > => {
   return useMutation(getComputePortfolioHistoryMutationOptions(options));
+};
+
+/**
+ * For each requested holding ticker, computes a 21-day log return, subtracts the sector mean across the full universe (sector-neutralization), Z-scores across portfolio holdings, and returns reversal_score = -Z (rank 1 = most dipped = best entry timing).
+
+ * @summary Compute sector-neutralized short-term reversal scores
+ */
+export const getComputePortfolioReversalUrl = () => {
+  return `/api/portfolio/reversal`;
+};
+
+export const computePortfolioReversal = async (
+  reversalRequest: ReversalRequest,
+  options?: RequestInit,
+): Promise<ReversalResponse> => {
+  return customFetch<ReversalResponse>(getComputePortfolioReversalUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(reversalRequest),
+  });
+};
+
+export const getComputePortfolioReversalMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof computePortfolioReversal>>,
+    TError,
+    { data: BodyType<ReversalRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof computePortfolioReversal>>,
+  TError,
+  { data: BodyType<ReversalRequest> },
+  TContext
+> => {
+  const mutationKey = ["computePortfolioReversal"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof computePortfolioReversal>>,
+    { data: BodyType<ReversalRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return computePortfolioReversal(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ComputePortfolioReversalMutationResult = NonNullable<
+  Awaited<ReturnType<typeof computePortfolioReversal>>
+>;
+export type ComputePortfolioReversalMutationBody = BodyType<ReversalRequest>;
+export type ComputePortfolioReversalMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Compute sector-neutralized short-term reversal scores
+ */
+export const useComputePortfolioReversal = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof computePortfolioReversal>>,
+    TError,
+    { data: BodyType<ReversalRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof computePortfolioReversal>>,
+  TError,
+  { data: BodyType<ReversalRequest> },
+  TContext
+> => {
+  return useMutation(getComputePortfolioReversalMutationOptions(options));
 };
 
 /**

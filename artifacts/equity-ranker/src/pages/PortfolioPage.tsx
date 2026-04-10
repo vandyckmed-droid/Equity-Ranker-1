@@ -4,8 +4,10 @@ import {
   useComputePortfolioRisk,
   useComputeCorrSeed,
   useComputePortfolioHistory,
+  useComputePortfolioReversal,
   useGetRankings,
   PortfolioRiskRequestWeightingMethod,
+  type ReversalItem,
   type Stock,
 } from "@workspace/api-client-react";
 import PortfolioHistoryCard from "@/components/PortfolioHistoryCard";
@@ -180,7 +182,9 @@ export default function PortfolioPage() {
   const computeRisk = useComputePortfolioRisk();
   const corrSeed = useComputeCorrSeed();
   const computeHistory = useComputePortfolioHistory();
+  const computeReversal = useComputePortfolioReversal();
   const histKeyRef = useRef("");
+  const reversalKeyRef = useRef("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const triggerCompute = useCallback(() => {
@@ -256,6 +260,19 @@ export default function PortfolioPage() {
   const hasError = computeRisk.isError;
   const isEngineDown = hasError && (computeRisk.error as { status?: number })?.status === 503;
 
+  // Build reversal lookup map keyed by ticker
+  // Only show data when it corresponds to the current basket (gate by basket size + key match)
+  const reversalMap = useMemo((): Record<string, ReversalItem> => {
+    if (basket.length < 2) return {};
+    const items = computeReversal.data?.items;
+    if (!items || items.length === 0) return {};
+    // Only use data if all returned tickers are in the current basket
+    const basketSet = new Set(basket);
+    const allMatch = items.every((item) => basketSet.has(item.ticker));
+    if (!allMatch) return {};
+    return Object.fromEntries(items.map((item) => [item.ticker, item]));
+  }, [computeReversal.data, basket]);
+
   // Max base weight across holdings
   const maxPosition = useMemo(() => {
     if (!riskData || riskData.holdings.length === 0) return 0;
@@ -330,6 +347,15 @@ export default function PortfolioPage() {
       },
     });
   }, [riskData]);
+
+  // Trigger reversal compute whenever basket ticker list changes
+  useEffect(() => {
+    if (basket.length < 2) return;
+    const key = [...basket].sort().join(",");
+    if (key === reversalKeyRef.current) return;
+    reversalKeyRef.current = key;
+    computeReversal.mutate({ data: { tickers: basket } });
+  }, [basket]);
 
   // Diversify suggestions
   const diversifySuggestions = useMemo((): DiversifySuggestion[] => {
@@ -650,7 +676,12 @@ export default function PortfolioPage() {
             )}
 
             {/* ── F. Constituent table ──────────────────────────────────── */}
-            <ConstituentTable holdings={riskData.holdings} scale={riskData.volTargetMultiplier} />
+            <ConstituentTable
+              holdings={riskData.holdings}
+              scale={riskData.volTargetMultiplier}
+              reversalMap={reversalMap}
+              reversalLoading={computeReversal.isPending}
+            />
 
             {/* ── G. Historical Performance ─────────────────────────────── */}
             <PortfolioHistoryCard
@@ -819,15 +850,27 @@ function ExposureCard({
   );
 }
 
+function timingColor(pct: number): string {
+  // pct: [0..1] where 1/n = most dipped (rank 1), 1.0 = most extended (rank n)
+  const r = Math.round(pct * 220);
+  const g = Math.round((1 - pct) * 180);
+  return `rgb(${r},${g},40)`;
+}
+
 function ConstituentTable({
   holdings,
   scale,
+  reversalMap,
+  reversalLoading,
 }: {
-  holdings: Array<{ ticker: string; baseWeight: number; weight: number; vol: number; riskContrib: number; cluster: number | null | undefined }>;
+  holdings: Array<{ ticker: string; baseWeight: number; weight: number; vol: number; riskContrib: number; cluster?: number | null }>;
   scale: number;
+  reversalMap: Record<string, ReversalItem>;
+  reversalLoading: boolean;
 }) {
   const sorted = useMemo(() => [...holdings].sort((a, b) => b.baseWeight - a.baseWeight), [holdings]);
   const maxBW = sorted[0]?.baseWeight ?? 0.01;
+  const reversalN = useMemo(() => Object.keys(reversalMap).length, [reversalMap]);
 
   return (
     <Card className="bg-card border-border">
@@ -846,6 +889,7 @@ function ConstituentTable({
               <th className="text-right px-3 py-2 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">Risk%</th>
               <th className="text-right px-3 py-2 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">Vol</th>
               <th className="text-center px-3 py-2 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">Grp</th>
+              <th className="text-center px-3 py-2 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">Timing</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/20">
@@ -853,6 +897,7 @@ function ConstituentTable({
               const bw = h.baseWeight;
               const rc = h.riskContrib;
               const isConcentratedRisk = rc > bw * 1.4;
+              const rev = reversalMap[h.ticker];
               return (
                 <tr key={h.ticker} className="hover:bg-muted/20 transition-colors">
                   <td className="px-4 py-2.5">
@@ -873,6 +918,31 @@ function ConstituentTable({
                   </td>
                   <td className="px-3 py-2.5 text-center text-muted-foreground/60 font-mono">
                     {h.cluster != null ? `G${h.cluster}` : "—"}
+                  </td>
+                  <td className="px-3 py-2.5 text-center">
+                    {reversalLoading && !rev ? (
+                      <span className="text-muted-foreground/30 font-mono">—</span>
+                    ) : rev ? (
+                      <span
+                        title={`Rank #${rev.rank} of ${reversalN} · reversal score ${rev.reversalScore.toFixed(2)} · 21d log return ${(rev.r21 * 100).toFixed(1)}%${rev.r21Res !== rev.r21 ? ` · sector-adj ${(rev.r21Res * 100).toFixed(1)}%` : ""} · ${rev.pct <= 0.25 ? "dipped" : rev.pct >= 0.75 ? "extended" : "neutral"}`}
+                        className="inline-flex flex-col items-center gap-0.5"
+                      >
+                        <span
+                          className="font-mono font-semibold text-[11px] leading-none px-1.5 py-0.5 rounded"
+                          style={{ color: timingColor(rev.pct), background: `${timingColor(rev.pct)}22` }}
+                        >
+                          #{rev.rank}
+                        </span>
+                        {rev.pct <= 0.25 && (
+                          <span className="text-[9px] leading-none text-emerald-500/70 font-medium">dip</span>
+                        )}
+                        {rev.pct >= 0.75 && (
+                          <span className="text-[9px] leading-none text-red-400/70 font-medium">ext</span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground/30 font-mono">—</span>
+                    )}
                   </td>
                 </tr>
               );
