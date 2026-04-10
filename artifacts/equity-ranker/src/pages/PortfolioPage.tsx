@@ -252,12 +252,17 @@ export default function PortfolioPage() {
     const v = s?.suggestMode;
     return (v === "group" || v === "sector" || v === "both") ? v : "both";
   });
+  const [constituentSort, setConstituentSort] = useState<"weight" | "timing">(() => {
+    const s = loadPortfolioPrefs();
+    const v = s?.constituentSort;
+    return (v === "weight" || v === "timing") ? v : "weight";
+  });
 
   useEffect(() => {
     try {
-      localStorage.setItem(PORTFOLIO_PREFS_KEY, JSON.stringify({ weightingMethod, seedCount, seedMode, maxCorr, suggestMode }));
+      localStorage.setItem(PORTFOLIO_PREFS_KEY, JSON.stringify({ weightingMethod, seedCount, seedMode, maxCorr, suggestMode, constituentSort }));
     } catch {}
-  }, [weightingMethod, seedCount, seedMode, maxCorr, suggestMode]);
+  }, [weightingMethod, seedCount, seedMode, maxCorr, suggestMode, constituentSort]);
 
   const computeRisk = useComputePortfolioRisk();
   const corrSeed = useComputeCorrSeed();
@@ -765,6 +770,8 @@ export default function PortfolioPage() {
               scale={riskData.volTargetMultiplier}
               reversalMap={reversalMap}
               reversalLoading={computeReversal.isPending}
+              sortBy={constituentSort}
+              onSortChange={setConstituentSort}
             />
 
             {/* ── G. Historical Performance ─────────────────────────────── */}
@@ -946,13 +953,17 @@ function ConstituentTable({
   scale,
   reversalMap,
   reversalLoading,
+  sortBy,
+  onSortChange,
 }: {
   holdings: Array<{ ticker: string; baseWeight: number; weight: number; vol: number; riskContrib: number; cluster?: number | null }>;
   scale: number;
   reversalMap: Record<string, ReversalItem>;
   reversalLoading: boolean;
+  sortBy: "weight" | "timing";
+  onSortChange: (s: "weight" | "timing") => void;
 }) {
-  const [sortBy, setSortBy] = useState<"weight" | "timing">("weight");
+  const setSortBy = onSortChange;
 
   const sorted = useMemo(() => {
     const rows = [...holdings];
