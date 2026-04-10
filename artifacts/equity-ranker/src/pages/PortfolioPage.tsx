@@ -325,7 +325,7 @@ export default function PortfolioPage() {
       data: {
         // Pass vol-target-scaled weights (sum = risky sleeve, e.g. 0.8 if scaled down from 1.0)
         holdings:    riskData.holdings.map((h) => ({ ticker: h.ticker, weight: h.weight })),
-        lookback:    252,
+        lookback:    504,
         sgovWeight:  riskData.sgovWeight,
       },
     });
@@ -357,13 +357,15 @@ export default function PortfolioPage() {
 
     const uSectorCounts = new Map<string, number>();
     for (const s of rankedStocks) {
-      const sec = s.sector ?? "Unknown";
+      const sec = s.sector ?? "";
+      if (!sec) continue; // exclude unmapped tickers from sector target computation
       uSectorCounts.set(sec, (uSectorCounts.get(sec) ?? 0) + 1);
     }
     const sectorTarget = 1 / uSectorCounts.size;
     const bSectorCounts = new Map<string, number>();
     for (const t of basket) {
-      const sec = stockMap.get(t)?.sector ?? "Unknown";
+      const sec = stockMap.get(t)?.sector ?? "";
+      if (!sec) continue; // exclude unmapped holdings from sector basket counts
       bSectorCounts.set(sec, (bSectorCounts.get(sec) ?? 0) + 1);
     }
     const sectorDeficits = new Map<string, number>();
@@ -376,16 +378,17 @@ export default function PortfolioPage() {
     for (const s of rankedStocks) {
       if (bSet.has(s.ticker)) continue;
       const g = s.cluster ?? -1;
-      const sec = s.sector ?? "Unknown";
+      const sec = s.sector ?? "";
       const gd = suggestMode !== "sector" ? (groupDeficits.get(g) ?? 0) : 0;
-      const sd = suggestMode !== "group" ? (sectorDeficits.get(sec) ?? 0) : 0;
+      // Unmapped tickers (no sector) never contribute a sector deficit
+      const sd = sec && suggestMode !== "group" ? (sectorDeficits.get(sec) ?? 0) : 0;
       const deficit = Math.max(gd, sd);
       if (deficit === 0) continue;
       result.push({
         ticker: s.ticker, name: s.name ?? "", alpha: s.alpha ?? 0,
-        sector: sec, group: g,
+        sector: sec || "—", group: g,
         groupShare: (bGroupCounts.get(g) ?? 0) / n,
-        sectorShare: (bSectorCounts.get(sec) ?? 0) / n,
+        sectorShare: sec ? (bSectorCounts.get(sec) ?? 0) / n : 0,
         deficit,
         via: gd > 0 && sd > 0 ? "both" : gd > 0 ? "group" : "sector",
       });

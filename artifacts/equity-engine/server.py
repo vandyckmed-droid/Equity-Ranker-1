@@ -218,12 +218,21 @@ def get_rankings(
             return default
         return bool(v)
 
+    _sector_override = getattr(engine, "_TICKER_SECTOR_OVERRIDE", {})
+    _unmapped_sector_labels = {"Miscellaneous", "Other", "N/A"}
     stocks = []
     for _, row in df.iterrows():
+        _ticker = row["ticker"]
+        _raw_sector = safe(row.get("sector"))
+        # Apply override when raw sector is missing or a non-GICS catch-all label
+        if not _raw_sector or _raw_sector in _unmapped_sector_labels:
+            _sector = _sector_override.get(_ticker) or _raw_sector
+        else:
+            _sector = _raw_sector
         stocks.append({
-            "ticker":    row["ticker"],
-            "name":      row.get("name") or row["ticker"],
-            "sector":    safe(row.get("sector")),
+            "ticker":    _ticker,
+            "name":      row.get("name") or _ticker,
+            "sector":    _sector,
             "industry":  safe(row.get("industry")),
             "price":     safe(row.get("price")),
             "marketCap": safe(row.get("market_cap")),
@@ -1046,14 +1055,14 @@ def portfolio_history(body: PortfolioHistoryRequest):
         eq_log    = combined[tickers].values                # (M, N)
         sv_log    = np.zeros(len(combined))                 # (M,)
 
-    # ── Enforce ≥252 shared valid observations ────────────────────────────────
+    # ── Enforce ≥200 shared valid observations ────────────────────────────────
     n_obs = len(combined)
-    if n_obs < 252:
+    if n_obs < 200:
         raise HTTPException(
             status_code=400,
             detail=(
                 f"Insufficient shared price history: {n_obs} valid observations after "
-                f"alignment and log-return calculation — require ≥252."
+                f"alignment and log-return calculation — require ≥200."
             ),
         )
 
