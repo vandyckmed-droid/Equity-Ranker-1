@@ -837,11 +837,37 @@ export default function MainPage() {
                   </div>
                 </div>
               </div>
-              {audit && (
-                <p className="text-[10px] text-muted-foreground pt-1 border-t border-border/40">
-                  {audit.postFilterCount ?? "—"} / {audit.preFilterCount ?? "—"} stocks pass base filters
-                </p>
-              )}
+              {(() => {
+                const threshold  = MCAP_THRESHOLDS[mcapFilter];
+                const baseCount  = clientAlphaStocks.length;
+                const mcapCount  = threshold != null
+                  ? clientAlphaStocks.filter(s => (s.marketCap ?? 0) >= threshold).length
+                  : baseCount;
+                const universeN  = audit?.preFilterCount ?? null;
+                return (
+                  <div className="text-[10px] font-mono pt-1.5 border-t border-border/40 space-y-1">
+                    {universeN != null && (
+                      <div className="flex justify-between text-muted-foreground">
+                        <span className="font-sans font-normal">Universe (raw)</span>
+                        <span>{universeN.toLocaleString()}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-muted-foreground">
+                      <span className="font-sans font-normal">After base filters</span>
+                      <span>{baseCount > 0 ? baseCount.toLocaleString() : "—"}</span>
+                    </div>
+                    {mcapFilter !== "all" && (
+                      <div className="flex justify-between text-foreground/90">
+                        <span className="font-sans font-normal">Mkt cap {MCAP_LABELS[mcapFilter]}</span>
+                        <span className="text-primary font-semibold">{mcapCount.toLocaleString()}</span>
+                      </div>
+                    )}
+                    <p className="font-sans text-muted-foreground/50 pt-0.5 leading-snug normal-case tracking-normal text-[9px]">
+                      Filters applied before cross-sectional z-scoring
+                    </p>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Groups */}
