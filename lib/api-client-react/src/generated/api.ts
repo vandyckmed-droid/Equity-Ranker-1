@@ -460,13 +460,111 @@ export const useComputePortfolioRisk = <
 };
 
 /**
+ * Computes a weighted log-return equity curve using static current weights. Requires ≥252 shared valid daily return observations after alignment. Not a backtest — uses fixed weights applied uniformly over the lookback window.
+
+ * @summary Compute portfolio equity curve
+ */
+export const getComputePortfolioHistoryUrl = () => {
+  return `/api/portfolio/history`;
+};
+
+export const computePortfolioHistory = async (
+  portfolioHistoryRequest: PortfolioHistoryRequest,
+  options?: RequestInit,
+): Promise<PortfolioHistoryResponse> => {
+  return customFetch<PortfolioHistoryResponse>(
+    getComputePortfolioHistoryUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(portfolioHistoryRequest),
+    },
+  );
+};
+
+export const getComputePortfolioHistoryMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof computePortfolioHistory>>,
+    TError,
+    { data: BodyType<PortfolioHistoryRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof computePortfolioHistory>>,
+  TError,
+  { data: BodyType<PortfolioHistoryRequest> },
+  TContext
+> => {
+  const mutationKey = ["computePortfolioHistory"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof computePortfolioHistory>>,
+    { data: BodyType<PortfolioHistoryRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return computePortfolioHistory(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ComputePortfolioHistoryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof computePortfolioHistory>>
+>;
+export type ComputePortfolioHistoryMutationBody =
+  BodyType<PortfolioHistoryRequest>;
+export type ComputePortfolioHistoryMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Compute portfolio equity curve
+ */
+export const useComputePortfolioHistory = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof computePortfolioHistory>>,
+    TError,
+    { data: BodyType<PortfolioHistoryRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof computePortfolioHistory>>,
+  TError,
+  { data: BodyType<PortfolioHistoryRequest> },
+  TContext
+> => {
+  return useMutation(getComputePortfolioHistoryMutationOptions(options));
+};
+
+/**
+ * Selects up to N tickers from the candidate list such that each added ticker has a maximum pairwise absolute Pearson correlation ≤ maxCorr with all already-selected names.
+
  * @summary Greedy correlation-constrained basket seeding
  */
+export const getComputeCorrSeedUrl = () => {
+  return `/api/portfolio/corr-seed`;
+};
+
 export const computeCorrSeed = async (
   corrSeedRequest: CorrSeedRequest,
   options?: RequestInit,
 ): Promise<CorrSeedResponse> => {
-  return customFetch<CorrSeedResponse>("/api/portfolio/corr-seed", {
+  return customFetch<CorrSeedResponse>(getComputeCorrSeedUrl(), {
     ...options,
     method: "POST",
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -474,48 +572,69 @@ export const computeCorrSeed = async (
   });
 };
 
-export const computePortfolioHistory = async (
-  request: PortfolioHistoryRequest,
-  options?: RequestInit,
-): Promise<PortfolioHistoryResponse> => {
-  return customFetch<PortfolioHistoryResponse>("/api/portfolio/history", {
-    ...options,
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(request),
-  });
-};
-
-export const useComputePortfolioHistory = <
+export const getComputeCorrSeedMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
-    PortfolioHistoryResponse,
+    Awaited<ReturnType<typeof computeCorrSeed>>,
     TError,
-    { data: PortfolioHistoryRequest },
+    { data: BodyType<CorrSeedRequest> },
     TContext
   >;
-}): UseMutationResult<PortfolioHistoryResponse, TError, { data: PortfolioHistoryRequest }, TContext> => {
-  return useMutation({
-    mutationFn: ({ data }) => computePortfolioHistory(data),
-    ...options?.mutation,
-  });
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof computeCorrSeed>>,
+  TError,
+  { data: BodyType<CorrSeedRequest> },
+  TContext
+> => {
+  const mutationKey = ["computeCorrSeed"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof computeCorrSeed>>,
+    { data: BodyType<CorrSeedRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return computeCorrSeed(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
 };
 
+export type ComputeCorrSeedMutationResult = NonNullable<
+  Awaited<ReturnType<typeof computeCorrSeed>>
+>;
+export type ComputeCorrSeedMutationBody = BodyType<CorrSeedRequest>;
+export type ComputeCorrSeedMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Greedy correlation-constrained basket seeding
+ */
 export const useComputeCorrSeed = <
   TError = ErrorType<unknown>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
-    CorrSeedResponse,
+    Awaited<ReturnType<typeof computeCorrSeed>>,
     TError,
-    { data: CorrSeedRequest },
+    { data: BodyType<CorrSeedRequest> },
     TContext
   >;
-}): UseMutationResult<CorrSeedResponse, TError, { data: CorrSeedRequest }, TContext> => {
-  return useMutation({
-    mutationFn: ({ data }) => computeCorrSeed(data),
-    ...options?.mutation,
-  });
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof computeCorrSeed>>,
+  TError,
+  { data: BodyType<CorrSeedRequest> },
+  TContext
+> => {
+  return useMutation(getComputeCorrSeedMutationOptions(options));
 };

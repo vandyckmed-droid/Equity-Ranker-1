@@ -18,6 +18,15 @@ export const DataStatusStatus = {
   error: "error",
 } as const;
 
+export type DataStatusEnrichment =
+  (typeof DataStatusEnrichment)[keyof typeof DataStatusEnrichment];
+
+export const DataStatusEnrichment = {
+  pending: "pending",
+  loading: "loading",
+  complete: "complete",
+} as const;
+
 export type DataStatusTimings = { [key: string]: number };
 
 export interface DataStatus {
@@ -31,6 +40,9 @@ export interface DataStatus {
   loaded?: number | null;
   /** @nullable */
   cachedAt?: string | null;
+  enrichment?: DataStatusEnrichment;
+  qualityCoverage?: string;
+  qualityEpoch?: number;
   timings?: DataStatusTimings;
 }
 
@@ -66,6 +78,14 @@ export interface Stock {
   /** @nullable */
   tstat12?: number | null;
   /** @nullable */
+  quality?: number | null;
+  /** @nullable */
+  zM6?: number | null;
+  /** @nullable */
+  zM12?: number | null;
+  /** @nullable */
+  zQuality?: number | null;
+  /** @nullable */
   zS6?: number | null;
   /** @nullable */
   zS12?: number | null;
@@ -74,9 +94,13 @@ export interface Stock {
   /** @nullable */
   zT12?: number | null;
   /** @nullable */
+  zQ?: number | null;
+  /** @nullable */
   sSleeve?: number | null;
   /** @nullable */
   tSleeve?: number | null;
+  /** @nullable */
+  qSleeve?: number | null;
   /** @nullable */
   alpha?: number | null;
   /** @nullable */
@@ -86,19 +110,50 @@ export interface Stock {
   /** @nullable */
   cluster?: number | null;
   /** @nullable */
-  alphaFormula?: string | null;
+  roe?: number | null;
+  /** @nullable */
+  roa?: number | null;
+  /** @nullable */
+  grossMargin?: number | null;
+  /** @nullable */
+  opMargin?: number | null;
+  /** @nullable */
+  deRatio?: number | null;
+  /** @nullable */
+  zRoe?: number | null;
+  /** @nullable */
+  zRoa?: number | null;
+  /** @nullable */
+  zGross?: number | null;
+  /** @nullable */
+  zOp?: number | null;
+  /** @nullable */
+  zInvLev?: number | null;
+  /** @nullable */
+  qualityMissing?: boolean | null;
+  /** @nullable */
+  qualityMissingReason?: string | null;
+  /** @nullable */
+  hasProfitabilityBucket?: boolean | null;
+  /** @nullable */
+  hasMarginBucket?: boolean | null;
+  /** @nullable */
+  hasLeverageBucket?: boolean | null;
+  /** @nullable */
+  qualityBucketCount?: number | null;
 }
 
 export type UniverseAuditExclusions = { [key: string]: number };
+
 export type UniverseAuditSectorBreakdown = { [key: string]: number };
 
 export interface UniverseAudit {
-  /** Total candidates entering the filter pipeline */
   preFilterCount?: number;
-  /** Stocks passing all filters */
   postFilterCount?: number;
   exclusions?: UniverseAuditExclusions;
   sectorBreakdown?: UniverseAuditSectorBreakdown;
+  qualityCoverage?: string;
+  qualityPct?: number;
   activeFilters?: string[];
 }
 
@@ -116,9 +171,11 @@ export interface UniverseFilters {
   minAdv?: number;
   minMarketCap?: number;
   volAdjust?: boolean;
+  useQuality?: boolean;
   useTstats?: boolean;
   w6?: number;
   w12?: number;
+  wQuality?: number;
   volFloor?: number;
   winsorP?: number;
   clusterN?: number;
@@ -129,31 +186,6 @@ export interface UniverseFilters {
 export interface PortfolioHolding {
   ticker: string;
   weight: number;
-}
-
-export type PortfolioRiskRequestWeightingMethod =
-  (typeof PortfolioRiskRequestWeightingMethod)[keyof typeof PortfolioRiskRequestWeightingMethod];
-
-export const PortfolioRiskRequestWeightingMethod = {
-  equal: "equal",
-  inverse_vol: "inverse_vol",
-  signal_vol: "signal_vol",
-  risk_parity: "risk_parity",
-  min_var: "min_var",
-  mean_variance: "mean_variance",
-} as const;
-
-export interface PortfolioRiskRequest {
-  holdings: PortfolioHolding[];
-  /** Days of history for covariance (60, 126, or 252) */
-  lookback: number;
-  weightingMethod: PortfolioRiskRequestWeightingMethod;
-  /** Top N stocks to cluster (matches Filters → Top N to Group) */
-  clusterN?: number;
-  /** Number of clusters K (matches Filters → Number of Groups K) */
-  clusterK?: number;
-  /** Lookback days for correlation clustering */
-  clusterLookback?: number;
 }
 
 export interface PortfolioHoldingRisk {
@@ -176,20 +208,44 @@ export interface ClusterCount {
   weight: number;
 }
 
+export type PortfolioRiskRequestWeightingMethod =
+  (typeof PortfolioRiskRequestWeightingMethod)[keyof typeof PortfolioRiskRequestWeightingMethod];
+
+export const PortfolioRiskRequestWeightingMethod = {
+  equal: "equal",
+  inverse_vol: "inverse_vol",
+  signal_vol: "signal_vol",
+  risk_parity: "risk_parity",
+  min_var: "min_var",
+  mean_variance: "mean_variance",
+} as const;
+
+export interface PortfolioRiskRequest {
+  /** Basket tickers (manual selection). Weights are fully automated by the server — the client must NOT supply per-name weights.
+   */
+  tickers?: string[];
+  /** DEPRECATED — weight field is ignored. Send weight=1 for all entries. Prefer the tickers field in future.
+   */
+  holdings: PortfolioHolding[];
+  /** Days of history for covariance (60, 126, or 252) */
+  lookback: number;
+  weightingMethod: PortfolioRiskRequestWeightingMethod;
+}
+
 export interface PortfolioRiskResponse {
-  /** Final portfolio vol after vol-target overlay */
+  /** Final portfolio vol after vol-target overlay (= risky_sleeve² × Σ computation) */
   portfolioVol: number;
   /** Pre-overlay portfolio vol (sqrt of w_base' Σ w_base) */
   basePortVol: number;
   /** Equity sleeve multiplier = min(15% / basePortVol, 1.0) — capped at 1, no leverage */
   volTargetMultiplier: number;
-  /** Total risky-sleeve weight (= volTargetMultiplier) */
+  /** Total risky-sleeve weight (= volTargetMultiplier, since base weights sum to 1) */
   grossExposure: number;
-  /** Risky equity sleeve total weight (explicit label, same value as grossExposure) */
+  /** Risky equity sleeve total weight (same as grossExposure, explicit label) */
   riskySleeve: number;
   /** Residual cash / SGOV weight = max(0, 1 - riskySleeve) */
   sgovWeight: number;
-  /** Weighted-avg individual vol / portfolio vol — DR > 1 means diversification benefit */
+  /** Weighted-avg individual vol / portfolio vol (base weights). DR > 1 means diversification benefit. */
   diversificationRatio: number;
   /** Effective number of positions = 1 / sum(w_base_i^2) — Herfindahl-based */
   effectiveN: number;
@@ -219,18 +275,39 @@ export interface PortfolioRiskResponse {
 }
 
 export interface PortfolioHistoryRequest {
+  /** Equity holdings with vol-target-scaled weights (sum = risky sleeve, not 1.0). Weights are used as-is — not renormalized inside the endpoint.
+   */
   holdings: PortfolioHolding[];
+  /** Trading-day window for price history (default 252) */
   lookback?: number;
+  /** Cash/SGOV weight hint from the vol-target overlay. The endpoint derives cashWeight defensively from sum(equity weights) rather than trusting this value directly, but it signals that SGOV data should be included.
+   */
+  sgovWeight?: number;
 }
 
 export interface PortfolioHistoryResponse {
+  /** ISO-8601 date labels — length = daysUsed + 1 (includes base date at index 0) */
   dates: string[];
+  /** Cumulative NAV starting at 100 — length = daysUsed + 1 */
   nav: number[];
+  /** Drawdown from running peak (%) — length = daysUsed + 1 */
   drawdown: number[];
+  /** Total return over the window (%) */
   totalReturn: number;
+  /** Maximum drawdown over the window (%) */
   maxDrawdown: number;
+  /** Annualized portfolio volatility of log-returns (%) */
   annualizedVol: number;
+  /** Number of shared valid daily log-return observations used */
   numDays: number;
+  /** Sum of all equity holding weights actually applied in computation */
+  investedWeight: number;
+  /** Residual cash weight = max(0, 1 - investedWeight) */
+  cashWeight: number;
+  /** Alias for numDays — number of shared valid observations */
+  daysUsed: number;
+  /** "sgov" when SGOV prices were available; "zero" fallback otherwise */
+  cashMethod: string;
 }
 
 export interface CorrSeedRequest {
@@ -259,17 +336,25 @@ export type GetRankingsParams = {
    */
   volAdjust?: boolean;
   /**
-   * Include OLS t-stats in the T sleeve
+   * Include quality factor in alpha
+   */
+  useQuality?: boolean;
+  /**
+   * Include OLS t-stats
    */
   useTstats?: boolean;
   /**
-   * Weight on S sleeve / 6-month momentum (default 0.5)
+   * Weight on 6-month momentum (default 0.4)
    */
   w6?: number;
   /**
-   * Weight on T sleeve / 12-month momentum (default 0.5)
+   * Weight on 12-month momentum (default 0.4)
    */
   w12?: number;
+  /**
+   * Weight on quality factor (default 0.2)
+   */
+  wQuality?: number;
   /**
    * Volatility floor (default 0.05)
    */
@@ -291,7 +376,15 @@ export type GetRankingsParams = {
    */
   clusterLookback?: number;
   /**
+   * Only include SEC-filing companies (default false)
+   */
+  secFilerOnly?: boolean;
+  /**
    * Comma-separated list of sectors to exclude
    */
   excludeSectors?: string;
+  /**
+   * Only include stocks with quality coverage (default false)
+   */
+  requireQuality?: boolean;
 };

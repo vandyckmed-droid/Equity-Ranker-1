@@ -9,16 +9,31 @@ import type { ClusterCount } from "./clusterCount";
 import type { PortfolioHoldingRisk } from "./portfolioHoldingRisk";
 
 export interface PortfolioRiskResponse {
-  /** Final portfolio vol after vol-target scaling (= VOL_TARGET when uncapped) */
+  /** Final portfolio vol after vol-target overlay (= risky_sleeve² × Σ computation) */
   portfolioVol: number;
-  /** Pre-scale portfolio vol (sqrt of w_base' Σ w_base) */
+  /** Pre-overlay portfolio vol (sqrt of w_base' Σ w_base) */
   basePortVol: number;
-  /** Multiplier applied to base weights (= 15% / basePortVol) */
+  /** Equity sleeve multiplier = min(15% / basePortVol, 1.0) — capped at 1, no leverage */
   volTargetMultiplier: number;
-  /** Sum of final weights (= volTargetMultiplier since base weights sum to 1) */
+  /** Total risky-sleeve weight (= volTargetMultiplier, since base weights sum to 1) */
   grossExposure: number;
+  /** Risky equity sleeve total weight (same as grossExposure, explicit label) */
+  riskySleeve: number;
+  /** Residual cash / SGOV weight = max(0, 1 - riskySleeve) */
+  sgovWeight: number;
+  /** Weighted-avg individual vol / portfolio vol (base weights). DR > 1 means diversification benefit. */
+  diversificationRatio: number;
+  /** Effective number of positions = 1 / sum(w_base_i^2) — Herfindahl-based */
+  effectiveN: number;
+  /** Tickers that hit the per-name cap (Risk Parity only) */
+  namesCapped: string[];
   /** Actual method used (may differ from requested if fallback triggered) */
   method: string;
+  /**
+   * Covariance model label (e.g. "ewma(λ=0.94)+ridge"). Null for heuristic methods.
+   * @nullable
+   */
+  covModel?: string | null;
   /**
    * Non-null when a fallback was triggered — describes what happened
    * @nullable

@@ -317,13 +317,16 @@ export default function PortfolioPage() {
   // Trigger history compute whenever holdings/weights change
   useEffect(() => {
     if (!riskData || riskData.holdings.length === 0) return;
-    const key = riskData.holdings.map((h) => `${h.ticker}:${h.baseWeight.toFixed(5)}`).join(",");
+    // Dedup key uses vol-target-scaled weight (h.weight) so a multiplier change triggers recompute
+    const key = riskData.holdings.map((h) => `${h.ticker}:${h.weight.toFixed(5)}`).join(",");
     if (key === histKeyRef.current) return;
     histKeyRef.current = key;
     computeHistory.mutate({
       data: {
-        holdings: riskData.holdings.map((h) => ({ ticker: h.ticker, weight: h.baseWeight })),
-        lookback: 252,
+        // Pass vol-target-scaled weights (sum = risky sleeve, e.g. 0.8 if scaled down from 1.0)
+        holdings:    riskData.holdings.map((h) => ({ ticker: h.ticker, weight: h.weight })),
+        lookback:    252,
+        sgovWeight:  riskData.sgovWeight,
       },
     });
   }, [riskData]);

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { Stock } from "./stock";
+import type { UniverseAudit } from "./universeAudit";
 
 export interface RankingsResponse {
   stocks: Stock[];
@@ -13,4 +14,5 @@ export interface RankingsResponse {
   /** @nullable */
   cachedAt?: string | null;
   clusterCount: number;
+  audit?: UniverseAudit;
 }

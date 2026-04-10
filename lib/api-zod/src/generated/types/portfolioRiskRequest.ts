@@ -9,6 +9,11 @@ import type { PortfolioHolding } from "./portfolioHolding";
 import type { PortfolioRiskRequestWeightingMethod } from "./portfolioRiskRequestWeightingMethod";
 
 export interface PortfolioRiskRequest {
+  /** Basket tickers (manual selection). Weights are fully automated by the server — the client must NOT supply per-name weights.
+   */
+  tickers?: string[];
+  /** DEPRECATED — weight field is ignored. Send weight=1 for all entries. Prefer the tickers field in future.
+   */
   holdings: PortfolioHolding[];
   /** Days of history for covariance (60, 126, or 252) */
   lookback: number;

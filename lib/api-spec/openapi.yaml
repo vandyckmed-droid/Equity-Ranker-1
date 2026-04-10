@@ -173,6 +173,51 @@ paths:
               schema:
                 $ref: "#/components/schemas/PortfolioRiskResponse"
 
+  /portfolio/history:
+    post:
+      operationId: computePortfolioHistory
+      tags: [portfolio]
+      summary: Compute portfolio equity curve
+      description: >
+        Computes a weighted log-return equity curve using static current weights.
+        Requires ≥252 shared valid daily return observations after alignment.
+        Not a backtest — uses fixed weights applied uniformly over the lookback window.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PortfolioHistoryRequest"
+      responses:
+        "200":
+          description: Portfolio equity curve and summary statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortfolioHistoryResponse"
+
+  /portfolio/corr-seed:
+    post:
+      operationId: computeCorrSeed
+      tags: [portfolio]
+      summary: Greedy correlation-constrained basket seeding
+      description: >
+        Selects up to N tickers from the candidate list such that each added ticker has
+        a maximum pairwise absolute Pearson correlation ≤ maxCorr with all already-selected names.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CorrSeedRequest"
+      responses:
+        "200":
+          description: Selected basket tickers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CorrSeedResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -551,3 +596,128 @@ components:
         - clusterDistribution
         - largestWeight
         - numHoldings
+
+    PortfolioHistoryRequest:
+      type: object
+      properties:
+        holdings:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortfolioHolding"
+          description: >
+            Equity holdings with vol-target-scaled weights (sum = risky sleeve, not 1.0).
+            Weights are used as-is — not renormalized inside the endpoint.
+        lookback:
+          type: integer
+          description: Trading-day window for price history (default 252)
+        sgovWeight:
+          type: number
+          description: >
+            Cash/SGOV weight hint from the vol-target overlay.
+            The endpoint derives cashWeight defensively from sum(equity weights) rather than
+            trusting this value directly, but it signals that SGOV data should be included.
+      required:
+        - holdings
+
+    PortfolioHistoryResponse:
+      type: object
+      properties:
+        dates:
+          type: array
+          items:
+            type: string
+          description: ISO-8601 date labels — length = daysUsed + 1 (includes base date at index 0)
+        nav:
+          type: array
+          items:
+            type: number
+          description: Cumulative NAV starting at 100 — length = daysUsed + 1
+        drawdown:
+          type: array
+          items:
+            type: number
+          description: Drawdown from running peak (%) — length = daysUsed + 1
+        totalReturn:
+          type: number
+          description: Total return over the window (%)
+        maxDrawdown:
+          type: number
+          description: Maximum drawdown over the window (%)
+        annualizedVol:
+          type: number
+          description: Annualized portfolio volatility of log-returns (%)
+        numDays:
+          type: integer
+          description: Number of shared valid daily log-return observations used
+        investedWeight:
+          type: number
+          description: Sum of all equity holding weights actually applied in computation
+        cashWeight:
+          type: number
+          description: Residual cash weight = max(0, 1 - investedWeight)
+        daysUsed:
+          type: integer
+          description: Alias for numDays — number of shared valid observations
+        cashMethod:
+          type: string
+          description: '"sgov" when SGOV prices were available; "zero" fallback otherwise'
+      required:
+        - dates
+        - nav
+        - drawdown
+        - totalReturn
+        - maxDrawdown
+        - annualizedVol
+        - numDays
+        - investedWeight
+        - cashWeight
+        - daysUsed
+        - cashMethod
+
+    CorrSeedRequest:
+      type: object
+      properties:
+        tickers:
+          type: array
+          items:
+            type: string
+          description: Candidate tickers in alpha-rank order (best first)
+        n:
+          type: integer
+          description: Max basket size
+        maxCorr:
+          type: number
+          description: Pairwise correlation ceiling (absolute value)
+        lookback:
+          type: integer
+          description: Trading days used for correlation estimation
+      required:
+        - tickers
+        - n
+        - maxCorr
+        - lookback
+
+    CorrSeedResponse:
+      type: object
+      properties:
+        tickers:
+          type: array
+          items:
+            type: string
+        count:
+          type: integer
+        requested:
+          type: integer
+        maxCorr:
+          type: number
+        lookback:
+          type: integer
+        candidatesScanned:
+          type: integer
+      required:
+        - tickers
+        - count
+        - requested
+        - maxCorr
+        - lookback
+        - candidatesScanned

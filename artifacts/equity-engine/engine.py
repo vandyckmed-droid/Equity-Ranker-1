@@ -1582,7 +1582,7 @@ def _fetch_benchmark_prices_bg() -> None:
 
     # ── Check cache first ────────────────────────────────────────────────────
     cached = cache.get(BENCHMARK_PRICES_CACHE_KEY)
-    required_syms = set([MARKET_BENCHMARK] + list(GICS_SECTOR_ETF.values()))
+    required_syms = set([MARKET_BENCHMARK, "SGOV"] + list(GICS_SECTOR_ETF.values()))
     if (cached is not None
             and isinstance(cached, pd.DataFrame)
             and not cached.empty

@@ -8,8 +8,14 @@
 
 export interface PortfolioHoldingRisk {
   ticker: string;
+  /** Final weight after vol-target overlay */
   weight: number;
+  /** Base weight before vol-target overlay (sums to 1) */
+  baseWeight: number;
+  /** Annualized individual volatility */
   vol: number;
+  /** Fraction of total portfolio variance contributed by this name (sums to 1) */
+  riskContrib: number;
   /** @nullable */
   cluster?: number | null;
 }

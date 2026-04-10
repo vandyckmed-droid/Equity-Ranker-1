@@ -203,8 +203,9 @@ router.post("/portfolio/history", async (req, res): Promise<void> => {
   try {
     const body = req.body as Record<string, unknown>;
     const mapped = {
-      holdings: body.holdings,
-      lookback: body.lookback ?? 252,
+      holdings:    body.holdings,
+      lookback:    body.lookback    ?? 252,
+      sgov_weight: body.sgovWeight  ?? body.sgov_weight ?? 0,
     };
     const [status, data] = await proxyRequest(`${EQUITY_ENGINE_URL}/portfolio-history`, {
       method: "POST",

@@ -51,4 +51,16 @@ export type GetRankingsParams = {
    * Lookback days for correlation clustering (default 252)
    */
   clusterLookback?: number;
+  /**
+   * Only include SEC-filing companies (default false)
+   */
+  secFilerOnly?: boolean;
+  /**
+   * Comma-separated list of sectors to exclude
+   */
+  excludeSectors?: string;
+  /**
+   * Only include stocks with quality coverage (default false)
+   */
+  requireQuality?: boolean;
 };

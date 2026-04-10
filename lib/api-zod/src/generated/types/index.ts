@@ -7,12 +7,16 @@
  */
 
 export * from "./clusterCount";
+export * from "./corrSeedRequest";
+export * from "./corrSeedResponse";
 export * from "./dataStatus";
 export * from "./dataStatusEnrichment";
 export * from "./dataStatusStatus";
 export * from "./dataStatusTimings";
 export * from "./getRankingsParams";
 export * from "./healthStatus";
+export * from "./portfolioHistoryRequest";
+export * from "./portfolioHistoryResponse";
 export * from "./portfolioHolding";
 export * from "./portfolioHoldingRisk";
 export * from "./portfolioRiskRequest";
@@ -20,4 +24,7 @@ export * from "./portfolioRiskRequestWeightingMethod";
 export * from "./portfolioRiskResponse";
 export * from "./rankingsResponse";
 export * from "./stock";
+export * from "./universeAudit";
+export * from "./universeAuditExclusions";
+export * from "./universeAuditSectorBreakdown";
 export * from "./universeFilters";

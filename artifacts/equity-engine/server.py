@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 import numpy as np
+import pandas as pd
 
 import engine
 from quality_audit import build_coverage_report, build_per_ticker_audit, export_audit_json
@@ -958,63 +959,135 @@ def portfolio_risk(body: PortfolioRiskRequest):
 class PortfolioHistoryRequest(BaseModel):
     holdings: List[PortfolioHolding]
     lookback: int = 252
+    sgov_weight: float = 0.0  # cash/SGOV weight hint from vol-target overlay
 
 
 @app.post("/portfolio-history")
 def portfolio_history(body: PortfolioHistoryRequest):
     """
-    Compute a weighted-return equity curve for the current basket.
-    Uses existing adjusted-close price data — static weights (not a true backtest).
+    Compute a weighted log-return equity curve for the current basket.
+
+    Formula: r_p,t = Σ_i w_i * ln(P_i,t / P_i,t-1)  +  w_cash * ln(SGOV_t / SGOV_t-1)
+
+    Weights:
+      - Equity weights (body.holdings[].weight) represent the vol-target-scaled risky sleeve.
+        They are used AS-IS — not renormalized to 1 — so they reflect the true equity exposure.
+      - cash_weight = max(0, 1 - sum(equity_w_used)) — derived defensively from actual weights,
+        not echoed from body.sgov_weight (which is an input hint).
+      - SGOV prices used when available; falls back to zero cash return, logged.
+
+    Alignment:
+      - Date index is intersected across all equity tickers + SGOV (if available).
+      - Any date with ANY NaN log-return is dropped.
+      - ≥252 shared valid daily return observations required; HTTP 400 otherwise.
     """
-    import engine as eng
+    import logging as _logging
+    _log = _logging.getLogger("server")
 
     if not body.holdings:
         raise HTTPException(status_code=400, detail="No holdings provided")
 
-    status = eng.get_status()
+    status = engine.get_status()
     if status["status"] != "ready":
         raise HTTPException(status_code=503, detail="Data not ready")
 
-    price_data = eng.get_price_data()
+    price_data = engine.get_price_data()
     if price_data is None:
         raise HTTPException(status_code=503, detail="Price data not available")
 
+    # ── Filter to valid tickers (preserve caller's weight magnitudes) ─────────
     valid = [(h.ticker, h.weight) for h in body.holdings if h.ticker in price_data.columns]
     if not valid:
         raise HTTPException(status_code=400, detail="No valid tickers in price data")
 
-    tickers = [t for t, _ in valid]
-    raw_w = np.array([w for _, w in valid], dtype=float)
-    raw_w /= raw_w.sum()
+    tickers  = [t for t, _ in valid]
+    equity_w = np.array([w for _, w in valid], dtype=float)
 
+    # invested / cash diagnostic — derived from actual weights used
+    invested_weight = float(equity_w.sum())
+    cash_weight     = max(0.0, 1.0 - invested_weight)
+
+    # ── Pull price window: extra row needed for log-diff ─────────────────────
     prices = price_data[tickers].tail(body.lookback + 1)
-    rets = prices.pct_change().iloc[1:].fillna(0.0)
 
-    if len(rets) < 10:
-        raise HTTPException(status_code=400, detail="Insufficient price history")
+    # ── SGOV / cash setup ─────────────────────────────────────────────────────
+    bench = engine.get_benchmark_prices()
+    sgov_series: Optional[pd.Series] = None
+    cash_method = "zero"
 
-    port_rets = (rets.values * raw_w).sum(axis=1)
+    if bench is not None and "SGOV" in bench.columns:
+        sgov_raw = bench["SGOV"].tail(body.lookback + 1)
+        # Align equity price index with SGOV
+        shared_idx = prices.index.intersection(sgov_raw.index)
+        if len(shared_idx) > 1:
+            prices      = prices.loc[shared_idx]
+            sgov_series = sgov_raw.loc[shared_idx]
+            cash_method = "sgov"
+    else:
+        _log.warning("portfolio-history: SGOV not in benchmark prices — using zero cash return")
 
-    nav = 100.0 * np.cumprod(1.0 + port_rets)
-    nav = np.insert(nav, 0, 100.0)
+    # ── Log returns: ln(P_t / P_t-1), drop seed row ──────────────────────────
+    equity_log_df = np.log(prices / prices.shift(1)).iloc[1:]   # shape (T, N)
 
+    # ── Align equity + SGOV log-returns; drop any date with a NaN ────────────
+    if sgov_series is not None:
+        sgov_log = np.log(sgov_series / sgov_series.shift(1)).iloc[1:]
+        combined  = pd.concat([equity_log_df, sgov_log.rename("_sgov")], axis=1).dropna()
+        eq_log    = combined[tickers].values                # (M, N)
+        sv_log    = combined["_sgov"].values                # (M,)
+    else:
+        combined  = equity_log_df.dropna()
+        eq_log    = combined[tickers].values                # (M, N)
+        sv_log    = np.zeros(len(combined))                 # (M,)
+
+    # ── Enforce ≥252 shared valid observations ────────────────────────────────
+    n_obs = len(combined)
+    if n_obs < 252:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Insufficient shared price history: {n_obs} valid observations after "
+                f"alignment and log-return calculation — require ≥252."
+            ),
+        )
+
+    # ── Portfolio daily log-return series ─────────────────────────────────────
+    # r_p,t = Σ_i w_i * r_i,t  +  w_cash * r_sgov,t
+    port_rets = (eq_log * equity_w).sum(axis=1) + sv_log * cash_weight
+
+    # ── Cumulative NAV from log-returns: NAV_t = 100 × exp(Σ r_s, s≤t) ──────
+    nav = 100.0 * np.exp(np.cumsum(port_rets))
+    nav = np.insert(nav, 0, 100.0)   # prepend day-0 base at 100
+
+    # ── Drawdown series ───────────────────────────────────────────────────────
     running_peak = np.maximum.accumulate(nav)
     drawdown_pct = (nav / running_peak - 1.0) * 100.0
 
-    date_strs = [d.strftime("%Y-%m-%d") for d in prices.index]
+    # ── Date labels: [base_date] + return_dates  (length = n_obs + 1) ────────
+    base_date_str = prices.index[0].strftime("%Y-%m-%d")
+    date_strs = [base_date_str] + [d.strftime("%Y-%m-%d") for d in combined.index]
 
     total_return = float(nav[-1] - 100.0)
     max_drawdown = float(drawdown_pct.min())
-    ann_vol = float(np.std(port_rets) * np.sqrt(252) * 100.0)
+    ann_vol      = float(np.std(port_rets) * np.sqrt(252) * 100.0)
+
+    _log.info(
+        f"portfolio-history: {len(tickers)} tickers, {n_obs} obs, "
+        f"invested={invested_weight:.3f}, cash={cash_weight:.3f} ({cash_method})"
+    )
 
     return {
-        "dates": date_strs,
-        "nav": [round(float(v), 4) for v in nav],
-        "drawdown": [round(float(v), 4) for v in drawdown_pct],
-        "totalReturn": round(total_return, 2),
-        "maxDrawdown": round(max_drawdown, 2),
-        "annualizedVol": round(ann_vol, 2),
-        "numDays": len(port_rets),
+        "dates":          date_strs,
+        "nav":            [round(float(v), 4) for v in nav],
+        "drawdown":       [round(float(v), 4) for v in drawdown_pct],
+        "totalReturn":    round(total_return, 2),
+        "maxDrawdown":    round(max_drawdown, 2),
+        "annualizedVol":  round(ann_vol, 2),
+        "numDays":        n_obs,
+        "investedWeight": round(invested_weight, 6),
+        "cashWeight":     round(cash_weight, 6),
+        "daysUsed":       n_obs,
+        "cashMethod":     cash_method,
     }
 
 

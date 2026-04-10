@@ -171,6 +171,15 @@ function fmtVol(v: number) {
   return `${v.toFixed(1)}%`;
 }
 
+function DiagItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-[9px] uppercase tracking-wider text-muted-foreground/40 font-medium">{label}</span>
+      <span className="text-[9px] font-mono text-muted-foreground/60">{value}</span>
+    </div>
+  );
+}
+
 export default function PortfolioHistoryCard({
   histData,
   isLoading,
@@ -244,6 +253,16 @@ export default function PortfolioHistoryCard({
             </p>
             <DrawdownChart dates={histData.dates} drawdown={histData.drawdown} />
           </div>
+
+          {/* Diagnostic strip — fields added by updated PortfolioHistoryResponse */}
+          {histData.investedWeight != null && (
+            <div className="mx-4 mt-3 flex items-center gap-3 flex-wrap">
+              <DiagItem label="Invested" value={`${(histData.investedWeight * 100).toFixed(1)}%`} />
+              <DiagItem label="Cash" value={`${(histData.cashWeight * 100).toFixed(1)}%`} />
+              <DiagItem label="Days" value={String(histData.daysUsed)} />
+              <DiagItem label="Cash via" value={histData.cashMethod.toUpperCase()} />
+            </div>
+          )}
         </CardContent>
       )}
     </Card>

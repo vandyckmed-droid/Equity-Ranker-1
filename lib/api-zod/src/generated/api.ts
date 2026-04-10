@@ -28,6 +28,7 @@ export const GetDataStatusResponse = zod.object({
   cachedAt: zod.string().nullish(),
   enrichment: zod.enum(["pending", "loading", "complete"]).optional(),
   qualityCoverage: zod.string().optional(),
+  qualityEpoch: zod.number().optional(),
   timings: zod.record(zod.string(), zod.number()).optional(),
 });
 
@@ -77,6 +78,18 @@ export const GetRankingsQueryParams = zod.object({
     .number()
     .optional()
     .describe("Lookback days for correlation clustering (default 252)"),
+  secFilerOnly: zod.coerce
+    .boolean()
+    .optional()
+    .describe("Only include SEC-filing companies (default false)"),
+  excludeSectors: zod.coerce
+    .string()
+    .optional()
+    .describe("Comma-separated list of sectors to exclude"),
+  requireQuality: zod.coerce
+    .boolean()
+    .optional()
+    .describe("Only include stocks with quality coverage (default false)"),
 });
 
 export const GetRankingsResponse = zod.object({
@@ -114,11 +127,38 @@ export const GetRankingsResponse = zod.object({
       rank: zod.number().nullish(),
       percentile: zod.number().nullish(),
       cluster: zod.number().nullish(),
+      roe: zod.number().nullish(),
+      roa: zod.number().nullish(),
+      grossMargin: zod.number().nullish(),
+      opMargin: zod.number().nullish(),
+      deRatio: zod.number().nullish(),
+      zRoe: zod.number().nullish(),
+      zRoa: zod.number().nullish(),
+      zGross: zod.number().nullish(),
+      zOp: zod.number().nullish(),
+      zInvLev: zod.number().nullish(),
+      qualityMissing: zod.boolean().nullish(),
+      qualityMissingReason: zod.string().nullish(),
+      hasProfitabilityBucket: zod.boolean().nullish(),
+      hasMarginBucket: zod.boolean().nullish(),
+      hasLeverageBucket: zod.boolean().nullish(),
+      qualityBucketCount: zod.number().nullish(),
     }),
   ),
   total: zod.number(),
   cachedAt: zod.string().nullish(),
   clusterCount: zod.number(),
+  audit: zod
+    .object({
+      preFilterCount: zod.number().optional(),
+      postFilterCount: zod.number().optional(),
+      exclusions: zod.record(zod.string(), zod.number()).optional(),
+      sectorBreakdown: zod.record(zod.string(), zod.number()).optional(),
+      qualityCoverage: zod.string().optional(),
+      qualityPct: zod.number().optional(),
+      activeFilters: zod.array(zod.string()).optional(),
+    })
+    .optional(),
 });
 
 /**
@@ -176,11 +216,38 @@ export const ApplyUniverseFiltersResponse = zod.object({
       rank: zod.number().nullish(),
       percentile: zod.number().nullish(),
       cluster: zod.number().nullish(),
+      roe: zod.number().nullish(),
+      roa: zod.number().nullish(),
+      grossMargin: zod.number().nullish(),
+      opMargin: zod.number().nullish(),
+      deRatio: zod.number().nullish(),
+      zRoe: zod.number().nullish(),
+      zRoa: zod.number().nullish(),
+      zGross: zod.number().nullish(),
+      zOp: zod.number().nullish(),
+      zInvLev: zod.number().nullish(),
+      qualityMissing: zod.boolean().nullish(),
+      qualityMissingReason: zod.string().nullish(),
+      hasProfitabilityBucket: zod.boolean().nullish(),
+      hasMarginBucket: zod.boolean().nullish(),
+      hasLeverageBucket: zod.boolean().nullish(),
+      qualityBucketCount: zod.number().nullish(),
     }),
   ),
   total: zod.number(),
   cachedAt: zod.string().nullish(),
   clusterCount: zod.number(),
+  audit: zod
+    .object({
+      preFilterCount: zod.number().optional(),
+      postFilterCount: zod.number().optional(),
+      exclusions: zod.record(zod.string(), zod.number()).optional(),
+      sectorBreakdown: zod.record(zod.string(), zod.number()).optional(),
+      qualityCoverage: zod.string().optional(),
+      qualityPct: zod.number().optional(),
+      activeFilters: zod.array(zod.string()).optional(),
+    })
+    .optional(),
 });
 
 /**
@@ -188,39 +255,85 @@ export const ApplyUniverseFiltersResponse = zod.object({
  * @summary Compute portfolio risk metrics
  */
 export const ComputePortfolioRiskBody = zod.object({
-  holdings: zod.array(
-    zod.object({
-      ticker: zod.string(),
-      weight: zod.number(),
-    }),
-  ),
+  tickers: zod
+    .array(zod.string())
+    .optional()
+    .describe(
+      "Basket tickers (manual selection). Weights are fully automated by the server — the client must NOT supply per-name weights.\n",
+    ),
+  holdings: zod
+    .array(
+      zod.object({
+        ticker: zod.string(),
+        weight: zod.number(),
+      }),
+    )
+    .describe(
+      "DEPRECATED — weight field is ignored. Send weight=1 for all entries. Prefer the tickers field in future.\n",
+    ),
   lookback: zod
     .number()
     .describe("Days of history for covariance (60, 126, or 252)"),
-  weightingMethod: zod.enum(["equal", "inverse_vol", "min_var"]),
+  weightingMethod: zod.enum([
+    "equal",
+    "inverse_vol",
+    "signal_vol",
+    "risk_parity",
+    "min_var",
+    "mean_variance",
+  ]),
 });
 
 export const ComputePortfolioRiskResponse = zod.object({
   portfolioVol: zod
     .number()
     .describe(
-      "Final portfolio vol after vol-target scaling (= VOL_TARGET when uncapped)",
+      "Final portfolio vol after vol-target overlay (= risky_sleeve² × Σ computation)",
     ),
   basePortVol: zod
     .number()
-    .describe("Pre-scale portfolio vol (sqrt of w_base' Σ w_base)"),
+    .describe("Pre-overlay portfolio vol (sqrt of w_base' Σ w_base)"),
   volTargetMultiplier: zod
     .number()
-    .describe("Multiplier applied to base weights (= 15% \/ basePortVol)"),
+    .describe(
+      "Equity sleeve multiplier = min(15% \/ basePortVol, 1.0) — capped at 1, no leverage",
+    ),
   grossExposure: zod
     .number()
     .describe(
-      "Sum of final weights (= volTargetMultiplier since base weights sum to 1)",
+      "Total risky-sleeve weight (= volTargetMultiplier, since base weights sum to 1)",
     ),
+  riskySleeve: zod
+    .number()
+    .describe(
+      "Risky equity sleeve total weight (same as grossExposure, explicit label)",
+    ),
+  sgovWeight: zod
+    .number()
+    .describe("Residual cash \/ SGOV weight = max(0, 1 - riskySleeve)"),
+  diversificationRatio: zod
+    .number()
+    .describe(
+      "Weighted-avg individual vol \/ portfolio vol (base weights). DR > 1 means diversification benefit.",
+    ),
+  effectiveN: zod
+    .number()
+    .describe(
+      "Effective number of positions = 1 \/ sum(w_base_i^2) — Herfindahl-based",
+    ),
+  namesCapped: zod
+    .array(zod.string())
+    .describe("Tickers that hit the per-name cap (Risk Parity only)"),
   method: zod
     .string()
     .describe(
       "Actual method used (may differ from requested if fallback triggered)",
+    ),
+  covModel: zod
+    .string()
+    .nullish()
+    .describe(
+      'Covariance model label (e.g. \"ewma(λ=0.94)+ridge\"). Null for heuristic methods.',
     ),
   fallback: zod
     .string()
@@ -238,8 +351,16 @@ export const ComputePortfolioRiskResponse = zod.object({
   holdings: zod.array(
     zod.object({
       ticker: zod.string(),
-      weight: zod.number(),
-      vol: zod.number(),
+      weight: zod.number().describe("Final weight after vol-target overlay"),
+      baseWeight: zod
+        .number()
+        .describe("Base weight before vol-target overlay (sums to 1)"),
+      vol: zod.number().describe("Annualized individual volatility"),
+      riskContrib: zod
+        .number()
+        .describe(
+          "Fraction of total portfolio variance contributed by this name (sums to 1)",
+        ),
       cluster: zod.number().nullish(),
     }),
   ),
@@ -252,4 +373,97 @@ export const ComputePortfolioRiskResponse = zod.object({
   ),
   largestWeight: zod.number(),
   numHoldings: zod.number(),
+});
+
+/**
+ * Computes a weighted log-return equity curve using static current weights. Requires ≥252 shared valid daily return observations after alignment. Not a backtest — uses fixed weights applied uniformly over the lookback window.
+
+ * @summary Compute portfolio equity curve
+ */
+export const ComputePortfolioHistoryBody = zod.object({
+  holdings: zod
+    .array(
+      zod.object({
+        ticker: zod.string(),
+        weight: zod.number(),
+      }),
+    )
+    .describe(
+      "Equity holdings with vol-target-scaled weights (sum = risky sleeve, not 1.0). Weights are used as-is — not renormalized inside the endpoint.\n",
+    ),
+  lookback: zod
+    .number()
+    .optional()
+    .describe("Trading-day window for price history (default 252)"),
+  sgovWeight: zod
+    .number()
+    .optional()
+    .describe(
+      "Cash\/SGOV weight hint from the vol-target overlay. The endpoint derives cashWeight defensively from sum(equity weights) rather than trusting this value directly, but it signals that SGOV data should be included.\n",
+    ),
+});
+
+export const ComputePortfolioHistoryResponse = zod.object({
+  dates: zod
+    .array(zod.string())
+    .describe(
+      "ISO-8601 date labels — length = daysUsed + 1 (includes base date at index 0)",
+    ),
+  nav: zod
+    .array(zod.number())
+    .describe("Cumulative NAV starting at 100 — length = daysUsed + 1"),
+  drawdown: zod
+    .array(zod.number())
+    .describe("Drawdown from running peak (%) — length = daysUsed + 1"),
+  totalReturn: zod.number().describe("Total return over the window (%)"),
+  maxDrawdown: zod.number().describe("Maximum drawdown over the window (%)"),
+  annualizedVol: zod
+    .number()
+    .describe("Annualized portfolio volatility of log-returns (%)"),
+  numDays: zod
+    .number()
+    .describe("Number of shared valid daily log-return observations used"),
+  investedWeight: zod
+    .number()
+    .describe(
+      "Sum of all equity holding weights actually applied in computation",
+    ),
+  cashWeight: zod
+    .number()
+    .describe("Residual cash weight = max(0, 1 - investedWeight)"),
+  daysUsed: zod
+    .number()
+    .describe("Alias for numDays — number of shared valid observations"),
+  cashMethod: zod
+    .string()
+    .describe(
+      '\"sgov\" when SGOV prices were available; \"zero\" fallback otherwise',
+    ),
+});
+
+/**
+ * Selects up to N tickers from the candidate list such that each added ticker has a maximum pairwise absolute Pearson correlation ≤ maxCorr with all already-selected names.
+
+ * @summary Greedy correlation-constrained basket seeding
+ */
+export const ComputeCorrSeedBody = zod.object({
+  tickers: zod
+    .array(zod.string())
+    .describe("Candidate tickers in alpha-rank order (best first)"),
+  n: zod.number().describe("Max basket size"),
+  maxCorr: zod
+    .number()
+    .describe("Pairwise correlation ceiling (absolute value)"),
+  lookback: zod
+    .number()
+    .describe("Trading days used for correlation estimation"),
+});
+
+export const ComputeCorrSeedResponse = zod.object({
+  tickers: zod.array(zod.string()),
+  count: zod.number(),
+  requested: zod.number(),
+  maxCorr: zod.number(),
+  lookback: zod.number(),
+  candidatesScanned: zod.number(),
 });
