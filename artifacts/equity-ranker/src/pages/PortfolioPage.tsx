@@ -58,6 +58,86 @@ const METHOD_LABELS: Record<string, string> = Object.fromEntries(
 const VOL_TARGET = 0.15;
 const LOOKBACK = 126;
 
+// ── Compact always-visible basket summary (4 key stats) ──────────────────────
+function BasketSummary({
+  riskData,
+  avgAlpha,
+  isComputing,
+}: {
+  riskData: ReturnType<typeof useComputePortfolioRisk>["data"];
+  avgAlpha: number | null;
+  isComputing: boolean;
+}) {
+  const prevRef = useRef<Record<string, number | null>>({});
+  const [flashing, setFlashing] = useState(new Set<string>());
+
+  useEffect(() => {
+    if (!riskData || isComputing) return;
+    const curr: Record<string, number | null> = {
+      alpha: avgAlpha,
+      vol:   riskData.basePortVol,
+      corr:  riskData.avgCorrelation,
+      effN:  riskData.effectiveN ?? null,
+    };
+    const thresholds: Record<string, number> = { alpha: 0.02, vol: 0.001, corr: 0.01, effN: 0.1 };
+    const changed = new Set<string>();
+    for (const [k, v] of Object.entries(curr)) {
+      const p = prevRef.current[k];
+      if (p != null && v != null && Math.abs(v - p) > (thresholds[k] ?? 0.01)) changed.add(k);
+    }
+    prevRef.current = curr;
+    if (changed.size > 0) {
+      setFlashing(changed);
+      const id = setTimeout(() => setFlashing(new Set()), 1100);
+      return () => clearTimeout(id);
+    }
+  }, [riskData, avgAlpha, isComputing]);
+
+  const tiles = [
+    {
+      key: "alpha", label: "Avg α",
+      value: avgAlpha != null ? `${avgAlpha > 0 ? "+" : ""}${formatNumber(avgAlpha, 2)}` : isComputing ? "…" : "—",
+      highlight: avgAlpha != null && avgAlpha > 0.3,
+      warn: avgAlpha != null && avgAlpha < 0,
+    },
+    {
+      key: "vol", label: "Vol",
+      value: riskData ? formatPercent(riskData.basePortVol, 1) : isComputing ? "…" : "—",
+      highlight: riskData != null && riskData.basePortVol < 0.12,
+      warn: riskData != null && riskData.basePortVol > 0.18,
+    },
+    {
+      key: "corr", label: "Corr",
+      value: riskData ? formatNumber(riskData.avgCorrelation, 2) : isComputing ? "…" : "—",
+      highlight: riskData != null && riskData.avgCorrelation < 0.25,
+      warn: riskData != null && riskData.avgCorrelation > 0.45,
+    },
+    {
+      key: "effN", label: "Eff N",
+      value: riskData ? formatNumber(riskData.effectiveN ?? riskData.numHoldings, 1) : isComputing ? "…" : "—",
+      highlight: riskData != null && (riskData.effectiveN ?? riskData.numHoldings) >= 15,
+      warn: riskData != null && (riskData.effectiveN ?? riskData.numHoldings) < 8,
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-4 border-b border-border/40">
+      {tiles.map(({ key, label, value, highlight, warn }) => (
+        <div key={key} className={cn(
+          "flex flex-col gap-0.5 px-3 py-2 transition-colors duration-700",
+          flashing.has(key) && "bg-primary/10"
+        )}>
+          <span className="text-[9px] uppercase tracking-wider font-medium text-muted-foreground/40 leading-none">{label}</span>
+          <span className={cn(
+            "text-sm font-mono font-semibold leading-none mt-0.5",
+            warn ? "text-amber-400" : highlight ? "text-primary" : "text-foreground/80"
+          )}>{value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Plain-English portfolio narrative ────────────────────────────────────────
 function buildNarrative(
   riskData: NonNullable<ReturnType<typeof useComputePortfolioRisk>["data"]>,
@@ -525,6 +605,9 @@ export default function PortfolioPage() {
             </p>
           </div>
 
+          {/* Compact live summary — visible while editing basket */}
+          <BasketSummary riskData={riskData} avgAlpha={avgAlpha} isComputing={isComputing} />
+
           {/* Holdings table */}
           <div className="overflow-auto flex-1 min-h-0">
             <table className="w-full text-xs">
@@ -568,7 +651,8 @@ export default function PortfolioPage() {
                       <td className="pr-2 text-center">
                         <button
                           onClick={() => removeFromBasket(ticker)}
-                          className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/30 hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
+                          className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/20 hover:text-destructive group-hover:text-muted-foreground/50 transition-colors"
+                          aria-label={`Remove ${ticker}`}
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
