@@ -1,0 +1,77 @@
+Implement Phase 1 only for the existing profitability/OPA pipeline. Do not change alpha, ranking formulas, weights, filters, or any cross-sectional computations used for ranking.
+
+Goal:
+Expose the already-computed profitability data cleanly from backend to frontend so the user can see it, audit it, and understand missingness before deciding whether to integrate it into alpha later.
+
+What to expose
+1. In the rankings response for each stock, include:
+- quality = raw OPA value already computed by the backend
+- zQ = normalized profitability score derived from OPA
+- qualityMissing = boolean
+- qualityMissingReason = short machine-readable reason
+- qualityCoverage = overall coverage summary metadata
+- qualityEpoch = timestamp/version of the profitability dataset if already available
+
+2. Keep naming compatible with the existing OpenAPI/schema where possible, but treat this as a profitability/OPA display feature for now, not a full quality composite.
+
+Critical rule
+- Do not let quality or zQ affect alpha in any way.
+- Do not add quality into the alpha formula.
+- Do not change stock ordering, rank, filters, basket logic, cached ranking behavior, or methodology math.
+- This is visibility/audit only.
+
+Normalization for zQ
+- Compute zQ from OPA for display only.
+- Prefer peer-relative normalization over full-universe normalization:
+  1. subsector if available and sample is large enough
+  2. otherwise industry group
+  3. otherwise sector
+  4. otherwise full active universe fallback
+- Use a simple, robust minimum group size rule.
+- Winsorize OPA before z-scoring to reduce outlier distortion.
+- Missing OPA should produce zQ = null, not zero, because this phase is display/audit only.
+
+Backend requirements
+- Pass the existing profitability data through get_ranked_data() / rankings response.
+- Reuse the current cached profitability dataset; do not introduce heavy new fetch behavior.
+- Keep startup and request performance stable.
+- Keep all existing diagnostic endpoints working.
+- If normalization cannot be computed for a ticker, return null and provide a reason rather than fabricating a value.
+
+Frontend requirements
+- Add a compact profitability badge/indicator to each stock row/card.
+- Badge should be mobile-friendly, lightweight, and visually quiet:
+  - High profitability
+  - Mid/neutral
+  - Low profitability
+  - Missing
+- Also make raw OPA and zQ visible somewhere sensible in existing detail UI / expanded view / tooltip / secondary line without cluttering the main screen.
+- Do not add large new cards or heavy panels.
+- Optimize for iPhone readability and smooth scrolling.
+
+Auditability requirements
+- User should be able to tell:
+  - raw OPA
+  - normalized zQ
+  - whether profitability is missing
+  - why it is missing
+  - what percentage of the universe currently has profitability data
+- Add a concise profitability legend or explanatory text in the methodology/details area:
+  - quality currently means profitability on assets only
+  - it is displayed for transparency
+  - it does not yet affect alpha
+
+Implementation guidance
+- Keep this patch narrow and low-risk.
+- Reuse existing schema fields and cache protections where possible.
+- Do not redesign the app.
+- Do not add a slider yet.
+- Do not add filtering/hiding behavior yet.
+- Do not rename broad app concepts unless necessary; just present this as the existing quality fields currently exposing OPA/profitability.
+
+Acceptance criteria
+- Rankings API returns quality/zQ/missing/reason/coverage fields for stocks.
+- Frontend shows a compact profitability badge and exposes raw OPA + zQ in a low-clutter way.
+- Alpha values and stock order are unchanged versus pre-patch behavior.
+- Missing profitability is clearly visible and explained.
+- App remains fast, stable, and mobile-friendly.
