@@ -362,11 +362,26 @@ def get_rankings(
     cluster_count = len(set(cluster_vals))
 
     # ── Quality coverage stats for audit ──────────────────────────────────────
-    _all_tickers = [s["ticker"] for s in stocks]
-    _q_available_count = sum(1 for t in _all_tickers if quality_opa.get(t, {}).get("available"))
-    _q_total = len(_all_tickers)
-    audit["qualityCoverage"] = f"{_q_available_count}/{_q_total}"
-    audit["qualityPct"] = round(_q_available_count / _q_total * 100, 1) if _q_total > 0 else 0.0
+    _q_total = len(stocks)
+    _q_primary_count        = sum(1 for s in stocks if s.get("qualityFormula") == "op_income/avg_assets")
+    _q_ebit_count           = sum(1 for s in stocks if s.get("qualityFormula") == "ebit/avg_assets")
+    _q_net_income_count     = sum(1 for s in stocks if s.get("qualityFormula") == "net_income/avg_assets")
+    _q_missing_count        = sum(1 for s in stocks if s.get("qualityMissing", True))
+    _q_available_count      = _q_primary_count + _q_ebit_count + _q_net_income_count
+
+    def _pct(n: int) -> float:
+        return round(n / _q_total * 100, 1) if _q_total > 0 else 0.0
+
+    audit["qualityCoverage"]               = f"{_q_available_count}/{_q_total}"
+    audit["qualityPct"]                    = _pct(_q_available_count)
+    audit["qualityPrimaryCount"]           = _q_primary_count
+    audit["qualityPrimaryPct"]             = _pct(_q_primary_count)
+    audit["qualityEbitFallbackCount"]      = _q_ebit_count
+    audit["qualityEbitFallbackPct"]        = _pct(_q_ebit_count)
+    audit["qualityNetIncomeFallbackCount"] = _q_net_income_count
+    audit["qualityNetIncomeFallbackPct"]   = _pct(_q_net_income_count)
+    audit["qualityMissingCount"]           = _q_missing_count
+    audit["qualityMissingPct"]             = _pct(_q_missing_count)
 
     return {
         "stocks": stocks,

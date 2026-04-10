@@ -15,5 +15,13 @@ export interface UniverseAudit {
   sectorBreakdown?: UniverseAuditSectorBreakdown;
   qualityCoverage?: string;
   qualityPct?: number;
+  qualityPrimaryCount?: number;
+  qualityPrimaryPct?: number;
+  qualityEbitFallbackCount?: number;
+  qualityEbitFallbackPct?: number;
+  qualityNetIncomeFallbackCount?: number;
+  qualityNetIncomeFallbackPct?: number;
+  qualityMissingCount?: number;
+  qualityMissingPct?: number;
   activeFilters?: string[];
 }

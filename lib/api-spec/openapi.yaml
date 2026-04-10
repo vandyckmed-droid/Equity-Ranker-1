@@ -406,6 +406,22 @@ components:
           type: string
         qualityPct:
           type: number
+        qualityPrimaryCount:
+          type: integer
+        qualityPrimaryPct:
+          type: number
+        qualityEbitFallbackCount:
+          type: integer
+        qualityEbitFallbackPct:
+          type: number
+        qualityNetIncomeFallbackCount:
+          type: integer
+        qualityNetIncomeFallbackPct:
+          type: number
+        qualityMissingCount:
+          type: integer
+        qualityMissingPct:
+          type: number
         activeFilters:
           type: array
           items:
