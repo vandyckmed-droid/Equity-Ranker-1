@@ -628,10 +628,16 @@ export default function MainPage() {
     return map;
   })();
 
-  // Rank-within-group: plain IIFE const (no hook) — full pre-filter universe
+  // Rank-within-group: plain IIFE const (no hook) — mcap-filtered universe only
+  // Uses the mcap threshold so group rank and group size reflect the active filter,
+  // matching the spec: "group rank and alpha computed after universe filters applied".
   const clusterRankMap: Map<string, { rankInGroup: number; groupSize: number }> = (() => {
+    const mcapThr = MCAP_THRESHOLDS[mcapFilter];
+    const filteredForGroups = mcapThr != null
+      ? clientAlphaStocks.filter(s => (s.marketCap ?? 0) >= mcapThr)
+      : clientAlphaStocks;
     const byCluster = new Map<number, { ticker: string; rank: number }[]>();
-    for (const s of clientAlphaStocks) {
+    for (const s of filteredForGroups) {
       if (s.cluster == null) continue;
       if (!byCluster.has(s.cluster)) byCluster.set(s.cluster, []);
       byCluster.get(s.cluster)!.push({ ticker: s.ticker, rank: s.rank ?? Infinity });
