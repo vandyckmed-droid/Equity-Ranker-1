@@ -1205,12 +1205,12 @@ export default function MainPage() {
                                         <>
                                           <p className="flex items-center gap-1 pl-2">
                                             <span className="text-muted-foreground/60 w-1">·</span>
-                                            <span className="text-muted-foreground/70 w-16">0.7× Momentum</span>
+                                            <span className="text-muted-foreground/70 w-12">0.7× Mom</span>
                                             <span className="text-[9px]" style={heat(momComp)}>{fmt2(momComp)}</span>
                                           </p>
                                           <p className="flex items-center gap-1 pl-2">
                                             <span className="text-muted-foreground/60 w-1">·</span>
-                                            <span className="text-muted-foreground/70 w-16">0.3× Residual</span>
+                                            <span className="text-muted-foreground/70 w-12">0.3× Res</span>
                                             <span className="text-[9px]" style={heat(resComp)}>{fmt2(resComp)}</span>
                                           </p>
                                         </>
