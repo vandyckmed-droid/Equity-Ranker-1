@@ -3,7 +3,7 @@ import { useState, useCallback } from "react";
 export const ALL_COLUMN_IDS = [
   "rank", "name", "sector", "price", "marketCap", "adv",
   "momentum6", "momentum12",
-  "vol12", "alpha", "cluster",
+  "vol12", "alpha", "cluster", "quality",
 ] as const;
 
 export type ColumnId = typeof ALL_COLUMN_IDS[number];
@@ -20,6 +20,7 @@ export const COLUMN_LABELS: Record<ColumnId, string> = {
   vol12: "Vol (12m)",
   alpha: "Alpha",
   cluster: "Group",
+  quality: "Prof",
 };
 
 export const DEFAULT_VISIBLE: ColumnId[] = [

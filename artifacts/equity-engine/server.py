@@ -220,6 +220,86 @@ def get_rankings(
 
     _sector_override = getattr(engine, "_TICKER_SECTOR_OVERRIDE", {})
     _unmapped_sector_labels = {"Miscellaneous", "Other", "N/A"}
+
+    # ── Quality OPA join (serialization layer only — cache untouched) ──────────
+    quality_opa = engine.get_quality_opa() or {}
+
+    def _compute_zq(opa_values: list) -> dict:
+        """Winsorize + z-score a list of (ticker, opa) pairs, return {ticker: zQ}."""
+        if len(opa_values) < 2:
+            return {}
+        tickers_in, vals = zip(*opa_values)
+        arr = np.array(vals, dtype=float)
+        p2, p98 = np.nanpercentile(arr, [2, 98])
+        clipped = np.clip(arr, p2, p98)
+        mu = np.nanmean(clipped)
+        sd = np.nanstd(clipped)
+        if sd < 1e-12:
+            return {t: 0.0 for t in tickers_in}
+        z = (clipped - mu) / sd
+        return {t: float(z[i]) for i, t in enumerate(tickers_in)}
+
+    def _build_zq_map(df_rows: pd.DataFrame) -> dict:
+        """
+        Build {ticker: zQ} using industry → sector → universe peer hierarchy.
+        Min peer group N ≥ 10 with valid OPA. Falls back to next level if < 10.
+        Missing OPA → zQ = None (NOT 0).
+        """
+        _MIN_PEERS = 10
+
+        records = []
+        for _, row in df_rows.iterrows():
+            t = row["ticker"]
+            ind = row.get("industry")
+            sec = row.get("sector")
+            rec = quality_opa.get(t)
+            opa_val = rec.get("opa") if rec and rec.get("available") else None
+            records.append((t, ind, sec, opa_val))
+
+        # Industry-level groups
+        from collections import defaultdict
+        by_industry: dict = defaultdict(list)
+        by_sector: dict = defaultdict(list)
+        universe_valid: list = []
+        for t, ind, sec, opa_val in records:
+            if opa_val is not None:
+                if ind:
+                    by_industry[ind].append((t, opa_val))
+                if sec:
+                    by_sector[sec].append((t, opa_val))
+                universe_valid.append((t, opa_val))
+
+        # Precompute z-scores at each level
+        zq_industry = {}
+        for grp, pairs in by_industry.items():
+            if len(pairs) >= _MIN_PEERS:
+                zq_industry.update(_compute_zq(pairs))
+
+        zq_sector = {}
+        for grp, pairs in by_sector.items():
+            if len(pairs) >= _MIN_PEERS:
+                zq_sector.update(_compute_zq(pairs))
+
+        zq_universe = {}
+        if len(universe_valid) >= _MIN_PEERS:
+            zq_universe = _compute_zq(universe_valid)
+
+        result = {}
+        for t, ind, sec, opa_val in records:
+            if opa_val is None:
+                result[t] = None
+            elif t in zq_industry:
+                result[t] = zq_industry[t]
+            elif t in zq_sector:
+                result[t] = zq_sector[t]
+            elif t in zq_universe:
+                result[t] = zq_universe[t]
+            else:
+                result[t] = None
+        return result
+
+    zq_map = _build_zq_map(df)
+
     stocks = []
     for _, row in df.iterrows():
         _ticker = row["ticker"]
@@ -231,6 +311,10 @@ def get_rankings(
             _sector = _sector_override.get(_ticker)  # None when no override → unmapped
         else:
             _sector = _raw_sector
+
+        _q_rec = quality_opa.get(_ticker)
+        _q_available = bool(_q_rec and _q_rec.get("available"))
+        _q_missing = not _q_available
         stocks.append({
             "ticker":    _ticker,
             "name":      row.get("name") or _ticker,
@@ -266,10 +350,23 @@ def get_rankings(
             "percentile":   safe(row.get("percentile")),
             "cluster":      safe(row.get("cluster")),
             "alphaFormula": safe_str(row.get("alpha_formula"), "S+T"),
+            # ── Quality / Profitability (display-only, does not affect alpha) ──
+            "quality":              safe(_q_rec.get("opa") if _q_rec else None),
+            "zQ":                   safe(zq_map.get(_ticker)),
+            "qualityMissing":       _q_missing,
+            "qualityMissingReason": safe_str(_q_rec.get("reason") if _q_rec else "not_computed"),
+            "qualityFormula":       safe_str(_q_rec.get("formula") if _q_rec else None),
         })
 
     cluster_vals = [s["cluster"] for s in stocks if s["cluster"] is not None]
     cluster_count = len(set(cluster_vals))
+
+    # ── Quality coverage stats for audit ──────────────────────────────────────
+    _all_tickers = [s["ticker"] for s in stocks]
+    _q_available_count = sum(1 for t in _all_tickers if quality_opa.get(t, {}).get("available"))
+    _q_total = len(_all_tickers)
+    audit["qualityCoverage"] = f"{_q_available_count}/{_q_total}"
+    audit["qualityPct"] = round(_q_available_count / _q_total * 100, 1) if _q_total > 0 else 0.0
 
     return {
         "stocks": stocks,

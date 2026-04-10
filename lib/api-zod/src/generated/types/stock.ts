@@ -94,6 +94,8 @@ export interface Stock {
   /** @nullable */
   qualityMissingReason?: string | null;
   /** @nullable */
+  qualityFormula?: string | null;
+  /** @nullable */
   hasProfitabilityBucket?: boolean | null;
   /** @nullable */
   hasMarginBucket?: boolean | null;

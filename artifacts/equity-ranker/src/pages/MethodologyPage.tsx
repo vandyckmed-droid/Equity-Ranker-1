@@ -80,11 +80,20 @@ export default function MethodologyPage() {
         <CardHeader><CardTitle>5 — Composite Alpha</CardTitle></CardHeader>
         <CardContent>
           <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
-            <p><span className="text-foreground">Alpha</span> = wS × S + wT × T + wQ × Q</p>
-            <p className="mt-2 opacity-60">Default: wS = 0.4 · wT = 0.4 · wQ = 0.2</p>
-            <p className="mt-2 opacity-70">= 0.2×Z(s6) + 0.2×Z(s12) + 0.2×Z(tstat6) + 0.2×Z(tstat12) + 0.2×Z(quality)</p>
+            <p><span className="text-foreground">Alpha</span> = wS × S + wT × T</p>
+            <p className="mt-2 opacity-60">Default: wS = 0.5 · wT = 0.5  (quality weight = 0, display only)</p>
+            <p className="mt-2 opacity-70">= 0.25×Z(s6) + 0.25×Z(s12) + 0.25×Z(tstat6) + 0.25×Z(tstat12)</p>
           </div>
           <p className="text-xs text-muted-foreground mt-2">Stocks ranked descending by Alpha. Top 20 marked ★. Missing data → z = 0.</p>
+          <p className="text-xs text-muted-foreground mt-3 border-t border-border pt-3">
+            <span className="font-semibold text-foreground">Profitability / Quality data (OPA):</span>{" "}
+            Operating Profit / Assets (OPA) is computed for approximately 97–98% of the universe using a
+            formula hierarchy: Operating Income → EBIT → Net Income, each divided by average total assets.
+            The resulting value and its peer-relative z-score (zQ, normalized within industry then sector
+            then the full universe) are displayed in the "Prof" column and in each stock's expanded detail
+            panel for transparency and auditing purposes. <em>OPA does not currently enter the alpha formula</em>{" "}
+            — rank, alpha, and sort order are unchanged by its presence.
+          </p>
         </CardContent>
       </Card>
 

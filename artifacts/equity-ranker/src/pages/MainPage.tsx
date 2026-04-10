@@ -535,6 +535,12 @@ export default function MainPage() {
             <div className="flex items-center justify-center text-xs">Grp {getSortIcon("cluster")}</div>
           </TableHead>
         );
+      case "quality":
+        return (
+          <TableHead key={colId} className="text-center w-10" title="Profitability — Operating Profit / Assets (display only, does not affect alpha)">
+            <div className="flex items-center justify-center text-xs">Prof</div>
+          </TableHead>
+        );
     }
   };
 
@@ -598,6 +604,31 @@ export default function MainPage() {
             ) : "—"}
           </TableCell>
         );
+      case "quality": {
+        const zQ = stock.zQ;
+        const rawOpa = stock.quality;
+        const qMissing = stock.qualityMissing;
+        let label = "?";
+        let chipCls = "bg-muted/60 text-muted-foreground border-muted-foreground/20";
+        if (!qMissing && zQ != null) {
+          if (zQ > 0.5) { label = "H"; chipCls = "bg-green-900/40 text-green-400 border-green-700/40"; }
+          else if (zQ < -0.5) { label = "L"; chipCls = "bg-amber-900/40 text-amber-400 border-amber-700/40"; }
+          else { label = "M"; chipCls = "bg-muted/50 text-muted-foreground border-muted-foreground/30"; }
+        }
+        const tooltipText = qMissing || zQ == null
+          ? "Profitability data unavailable"
+          : `OPA: ${rawOpa != null ? (rawOpa * 100).toFixed(2) + "%" : "—"}  zQ: ${zQ != null ? zQ.toFixed(2) : "—"}`;
+        return (
+          <TableCell key={colId} className="text-center p-1">
+            <span
+              title={tooltipText}
+              className={cn("inline-flex items-center justify-center text-[9px] font-bold w-5 h-5 rounded border", chipCls)}
+            >
+              {label}
+            </span>
+          </TableCell>
+        );
+      }
     }
   };
 
@@ -1271,6 +1302,45 @@ export default function MainPage() {
                                     <span className="text-foreground">{stock.percentile != null ? stock.percentile.toFixed(1) + "%" : "—"}</span>
                                   </p>
                                 </div>
+
+                                {/* ── Profitability ── */}
+                                {(() => {
+                                  const rawOpa = stock.quality;
+                                  const zQ = stock.zQ;
+                                  const qMissing = stock.qualityMissing;
+                                  const qFormula = stock.qualityFormula;
+                                  const qReason = stock.qualityMissingReason;
+                                  const formulaLabel = qFormula
+                                    ? qFormula.replace("op_income", "Op Income").replace("ebit", "EBIT").replace("net_income", "Net Income").replace("/avg_assets", " / Avg Assets").replace("/assets", " / Assets")
+                                    : null;
+                                  return (
+                                    <div className="space-y-1">
+                                      <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Profitability</p>
+                                      <p className="flex items-center gap-2">
+                                        <span className="text-muted-foreground w-10">OPA</span>
+                                        <span className="font-semibold" style={heat(zQ)}>
+                                          {rawOpa != null ? (rawOpa * 100).toFixed(2) + "%" : "—"}
+                                        </span>
+                                      </p>
+                                      <p className="flex items-center gap-2">
+                                        <span className="text-muted-foreground w-10">zQ</span>
+                                        <span style={heat(zQ)}>{zQ != null ? fmt2(zQ) : "—"}</span>
+                                      </p>
+                                      {formulaLabel && (
+                                        <p className="flex items-center gap-2">
+                                          <span className="text-muted-foreground w-10">Formula</span>
+                                          <span className="text-muted-foreground/70 text-[9px]">{formulaLabel}</span>
+                                        </p>
+                                      )}
+                                      {qMissing && qReason && (
+                                        <p className="flex items-center gap-2">
+                                          <span className="text-muted-foreground w-10">Note</span>
+                                          <span className="text-muted-foreground/60 text-[9px]">{qReason}</span>
+                                        </p>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
 
                               </div>
                             </TableCell>

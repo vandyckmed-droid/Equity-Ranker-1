@@ -373,6 +373,8 @@ components:
           type: ["boolean", "null"]
         qualityMissingReason:
           type: ["string", "null"]
+        qualityFormula:
+          type: ["string", "null"]
         hasProfitabilityBucket:
           type: ["boolean", "null"]
         hasMarginBucket:
