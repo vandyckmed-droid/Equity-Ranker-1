@@ -1,0 +1,95 @@
+This is a strong result.
+
+What matters most
+	•	Coverage is excellent: 2,005 / 2,027 sector-mapped = 98.9%
+	•	Fallback bucket is small: 22 names = 1.1%
+	•	All 11 sector ETFs loaded
+	•	501 trading days on VTI is more than enough for 12m regression windows
+	•	No alpha pipeline changes is exactly what you wanted
+	•	Atomic swap + cache + background fetch is the right performance architecture
+
+Bottom line
+
+You now have the infrastructure needed for residual momentum without having taken on meaningful risk to the live app.
+
+The only thing I would check before the next step
+
+Make sure the 22 market-only names are truly the right names to leave market-only, rather than names that just have messy metadata and could still be sector-mapped with one more normalization pass.
+
+Next build order
+	1.	Compute daily returns for stocks, VTI, and sector ETFs on the same trading-day index
+	2.	Run 6m and 12m market + sector regressions per stock
+	3.	Sum residuals into res6 and res12
+	4.	Winsorize and z-score into zR6 and zR12
+	5.	Blend into current S sleeve only
+	6.	Keep fallback names market-only
+
+Tight next prompt
+
+Add residual momentum to the current alpha system using the sector/benchmark infrastructure already built.
+
+Use the existing universe, existing price history, existing VTI benchmark data, and existing per-ticker sector ETF mapping. Do not redesign the architecture and do not alter the current alpha pipeline until the new residual signals are fully computed and validated.
+
+Build steps:
+1. Compute daily log returns for:
+- all stocks
+- VTI
+- each sector ETF already loaded
+
+2. Use one unified trading-day index for all return series.
+
+3. For each stock, compute 2 residual momentum signals:
+- 6-month window = last 126 trading days
+- 12-month window = last 252 trading days
+
+4. Regression:
+- If the stock has a sector ETF mapping:
+  regress stock daily returns on [market return, sector ETF return]
+- If the stock is in the market-only fallback bucket:
+  regress stock daily returns on [market return] only
+
+5. For each horizon, sum regression residuals across the full lookback window:
+- res6
+- res12
+
+6. Validation and safety:
+- require adequate observations before regression
+- if regression fails, output neutral residual signal for that stock rather than dropping it
+- never reduce universe coverage
+- never let missing residuals remove a stock from scoring
+- keep all current scoring live and untouched until residual signals are validated
+
+7. Normalize residual signals exactly like current alpha inputs:
+- winsorize at 2nd/98th percentile across full eligible universe
+- z-score across full eligible universe
+- produce:
+  - zR6
+  - zR12
+
+8. Integrate with minimal architectural change:
+- S6_blend  = 0.7*zS6  + 0.3*zR6
+- S12_blend = 0.7*zS12 + 0.3*zR12
+- S_new = 0.5*S6_blend + 0.5*S12_blend
+- leave T sleeve unchanged
+- final alpha = 0.5*S_new + 0.5*T
+
+9. Performance mandate:
+- maximize runtime performance and stability
+- reuse cached price data already in memory/storage
+- avoid duplicate fetches
+- avoid blocking live request paths
+- precompute residual signals in background refresh / factor build process, not on UI interaction
+- use deterministic outputs and stable caching
+
+10. Audit output:
+Return counts for:
+- total stocks processed
+- sector+market regressions
+- market-only regressions
+- regression failures
+- neutral fallback assignments
+- names with valid res6
+- names with valid res12
+
+Goal:
+Add final-form residual momentum cleanly, safely, and fast, using the infrastructure already built, with zero loss of coverage and zero unnecessary complexity.

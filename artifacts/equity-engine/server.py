@@ -57,6 +57,12 @@ def get_sector_map(full: bool = False):
     return {**stats, "map": sm or {}}
 
 
+@app.get("/residual-audit")
+def get_residual_audit():
+    """Return the most recent residual momentum regression audit."""
+    return engine.get_residual_audit()
+
+
 @app.get("/rankings")
 def get_rankings(
     vol_adjust: bool = Query(True),
@@ -147,6 +153,13 @@ def get_rankings(
             "zS12":      safe(row.get("zS12")),
             "zT6":       safe(row.get("zT6")),
             "zT12":      safe(row.get("zT12")),
+            "zR6":       safe(row.get("zR6")),
+            "zR12":      safe(row.get("zR12")),
+            "res6":      safe(row.get("res6")),
+            "res12":     safe(row.get("res12")),
+            "S6blend":   safe(row.get("S6_blend")),
+            "S12blend":  safe(row.get("S12_blend")),
+            "regType":   safe_str(row.get("reg_type"), "none"),
             "sSleeve":      safe(row.get("sSleeve")),
             "tSleeve":      safe(row.get("tSleeve")),
             "alpha":        safe(row.get("alpha")),

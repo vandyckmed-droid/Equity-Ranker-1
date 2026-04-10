@@ -164,6 +164,33 @@ _SECTOR_NORM: dict = {
     "interactive media":            "Communication Services",
 }
 
+# Per-ticker overrides for stocks with None / 'Miscellaneous' sector metadata.
+# These are applied before the generic normalizer so they always win.
+_TICKER_SECTOR_OVERRIDE: dict = {
+    "AMPX":  "Energy",                  # Amprius Technologies — battery cells
+    "ATKR":  "Industrials",             # Atkore — electrical conduit/products
+    "BELFA": "Technology",              # Bel Fuse A shares — electronic components
+    "BELFB": "Technology",              # Bel Fuse B shares — electronic components
+    "CAE":   "Industrials",             # CAE — flight simulation & training
+    "DBD":   "Technology",              # Diebold Nixdorf — banking technology
+    "DLB":   "Communication Services",  # Dolby Laboratories — audio/media tech
+    "FERG":  "Industrials",             # Ferguson — industrial distribution
+    "FLNC":  "Energy",                  # Fluence Energy — grid-scale storage
+    "GEF":   "Materials",               # Greif — industrial packaging
+    "GEV":   "Industrials",             # GE Vernova — power/energy equipment
+    "IDCC":  "Technology",              # InterDigital — wireless IP licensing
+    "KSPI":  "Financials",              # Kaspi.kz — Kazakhstan fintech/banking
+    "NATL":  "Financials",              # National Western Financial — insurance
+    "NMFCZ": "Financials",              # New Mountain Finance — BDC
+    "NOVT":  "Technology",              # Novanta — medical/industrial motion tech
+    "OGC":   "Materials",               # OceanaGold — gold mining
+    "QS":    "Technology",              # QuantumScape — solid-state battery R&D
+    "RUN":   "Utilities",               # Sunrun — residential solar energy
+    "TPGXL": "Financials",              # TPG — alternative asset manager
+    # Genuinely ambiguous → remain market-only
+    # "AAUC", "ARIS" — left unmapped intentionally
+}
+
 os.makedirs(CACHE_DIR, exist_ok=True)
 cache = diskcache.Cache(CACHE_DIR)
 
@@ -402,10 +429,13 @@ _cache_lock     = threading.Lock()
 _timings: dict  = {}
 
 # Sector / benchmark data layer (constant-time reads, populated after stage 1)
-_sector_map:      Optional[dict]         = None  # {ticker: {gics_sector, sector_etf, benchmark}}
+_sector_map:       Optional[dict]         = None  # {ticker: {gics_sector, sector_etf, benchmark}}
 _benchmark_prices: Optional[pd.DataFrame] = None  # daily adj-close: VTI + XL* ETFs
-_sector_map_lock  = threading.Lock()
-_benchmark_lock   = threading.Lock()
+_sector_map_lock   = threading.Lock()
+_benchmark_lock    = threading.Lock()
+
+# Residual momentum audit (populated each time factors are recomputed)
+_residual_audit: dict = {"status": "not_computed"}
 
 
 # ─── Utilities ────────────────────────────────────────────────────────────────
@@ -609,6 +639,9 @@ def compute_factors_vectorized(prices: pd.DataFrame,
             if avg_vol and np.isfinite(price_last.get(t, 0)):
                 adv[t] = price_last[t] * avg_vol
 
+    # ── Residual momentum signals (vectorized, reuses log_returns) ───────────
+    res_df = _compute_residual_signals(log_returns, tickers)
+
     df = pd.DataFrame({
         "ticker":          tickers,
         "name":            meta_names,
@@ -626,6 +659,9 @@ def compute_factors_vectorized(prices: pd.DataFrame,
         "s12":             s12.values,
         "tstat6":          tstat6.values,
         "tstat12":         tstat12.values,
+        "res6":            res_df["res6"].values,
+        "res12":           res_df["res12"].values,
+        "reg_type":        res_df["reg_type"].values,
         "structure_exclusion": struct_excl,
     })
 
@@ -678,7 +714,27 @@ def compute_rankings(df: pd.DataFrame,
     d["zT6"]  = std_factor(d["tstat6"])
     d["zT12"] = std_factor(d["tstat12"])
 
-    d["sSleeve"] = 0.5 * d["zS6"].fillna(0) + 0.5 * d["zS12"].fillna(0)
+    # ── Residual momentum blend (when signals are available) ─────────────────
+    has_residuals = ("res6" in d.columns and "res12" in d.columns
+                     and d["res6"].abs().sum() > 0)
+
+    if has_residuals:
+        d["zR6"]  = std_factor(d["res6"])
+        d["zR12"] = std_factor(d["res12"])
+        # S6_blend = 70% raw Sharpe momentum + 30% residual momentum (6m)
+        # S12_blend = 70% raw Sharpe momentum + 30% residual momentum (12m)
+        d["S6_blend"]  = 0.7 * d["zS6"].fillna(0) + 0.3 * d["zR6"].fillna(0)
+        d["S12_blend"] = 0.7 * d["zS12"].fillna(0) + 0.3 * d["zR12"].fillna(0)
+        d["sSleeve"]   = 0.5 * d["S6_blend"] + 0.5 * d["S12_blend"]
+        alpha_formula  = "S+T+Resid"
+    else:
+        d["zR6"]      = 0.0
+        d["zR12"]     = 0.0
+        d["S6_blend"] = d["zS6"].fillna(0)
+        d["S12_blend"] = d["zS12"].fillna(0)
+        d["sSleeve"]  = 0.5 * d["zS6"].fillna(0) + 0.5 * d["zS12"].fillna(0)
+        alpha_formula = "S+T"
+
     d["tSleeve"] = 0.5 * d["zT6"].fillna(0) + 0.5 * d["zT12"].fillna(0)
 
     wS      = w6
@@ -686,7 +742,7 @@ def compute_rankings(df: pd.DataFrame,
     total_w = (wS + wT) or 1.0
 
     d["alpha"]        = (wS * d["sSleeve"] + wT * d["tSleeve"]) / total_w
-    d["alpha_formula"] = "S+T"
+    d["alpha_formula"] = alpha_formula
 
     d = d.sort_values("alpha", ascending=False)
     d["rank"]       = np.arange(1, len(d) + 1)
@@ -765,6 +821,187 @@ def compute_clustering(d: pd.DataFrame,
 
     _timings["clustering"] = round(time.time() - t0, 3)
     return result
+
+
+# ─── Residual momentum computation ────────────────────────────────────────────
+
+def _compute_residual_signals(
+    stock_log_ret: pd.DataFrame,  # (T_full, N) — all log returns, already computed
+    tickers: list,
+    w6:  int = 126,
+    w12: int = 252,
+) -> pd.DataFrame:
+    """
+    Vectorized residual momentum for every ticker.
+
+    For each ticker:
+      - sector-mapped: OLS on [intercept, VTI, sector_ETF]
+      - market-only:   OLS on [intercept, VTI]
+
+    For each window (6m=126d, 12m=252d), sums regression residuals → res6/res12.
+    Neutral (0.0) for any regression failure — universe coverage never decreases.
+
+    Returns DataFrame indexed by ticker:
+      columns: res6, res12, reg_type
+    """
+    global _residual_audit
+
+    sm = get_sector_map()
+    bp = get_benchmark_prices()
+
+    _no_residuals = pd.DataFrame({
+        "res6":     np.zeros(len(tickers), dtype=np.float64),
+        "res12":    np.zeros(len(tickers), dtype=np.float64),
+        "reg_type": ["none"] * len(tickers),
+    }, index=tickers)
+
+    if sm is None or bp is None or bp.empty:
+        _residual_audit = {
+            "status": "skipped",
+            "reason": "sector_map or benchmark_prices not ready",
+        }
+        return _no_residuals
+
+    t0 = time.time()
+
+    # ── Align stock and benchmark returns on common trading-day index ──────────
+    bench_log_ret = np.log(bp.clip(lower=1e-8)).diff()
+    common_idx    = stock_log_ret.index.intersection(bench_log_ret.index)
+
+    if len(common_idx) < 30:
+        _residual_audit = {
+            "status": "skipped",
+            "reason": f"only {len(common_idx)} common dates",
+        }
+        return _no_residuals
+
+    # Use last w12 common dates; fill NaN → 0 (flat day, neutral for regression)
+    idx_w12 = common_idx[-w12:]
+    T12     = len(idx_w12)
+    T6      = min(w6, T12)
+
+    S_mat = (stock_log_ret
+             .reindex(index=idx_w12, columns=tickers)
+             .fillna(0.0)
+             .values)                                          # (T12, N)
+    B_df  = (bench_log_ret
+             .reindex(index=idx_w12)
+             .fillna(0.0))                                    # (T12, K)
+
+    vti = B_df["VTI"].values if "VTI" in B_df.columns else np.zeros(T12)
+
+    # ── Vectorized batch OLS helper ────────────────────────────────────────────
+    def _batch_resid_sum(Y: np.ndarray, X_factors: np.ndarray,
+                         window: int) -> np.ndarray:
+        """
+        Y: (T, N) — stock returns
+        X_factors: (T, K) — factor returns
+
+        Regression model: r_t = β·f_t + ε_t  (NO intercept)
+
+        Without an intercept, OLS residuals do NOT algebraically sum to zero,
+        so the summed residuals carry genuine cross-sectional information.
+        The residual represents factor-unexplained return — exactly the signal
+        we want for residual momentum.
+
+        Returns summed residuals (N,); NaN on numerical failure.
+        """
+        Yw = Y[-window:]
+        Xw = X_factors[-window:]
+        W  = Yw.shape[0]
+        if W < 10:
+            return np.full(Y.shape[1], np.nan)
+        try:
+            # No intercept: model is r_t = β·f_t + ε_t
+            beta, _, _, _ = np.linalg.lstsq(Xw, Yw, rcond=None)   # (K, N)
+            return (Yw - Xw @ beta).sum(axis=0)                     # (N,)
+        except Exception:
+            return np.full(Y.shape[1], np.nan)
+
+    # ── Group tickers by sector ETF ────────────────────────────────────────────
+    from collections import defaultdict
+    groups: dict = defaultdict(list)   # etf_name_or_None → [ticker_position, ...]
+    for i, t in enumerate(tickers):
+        etf = (sm.get(t) or {}).get("sector_etf")
+        groups[etf].append(i)
+
+    res6_arr  = np.zeros(len(tickers), dtype=np.float64)
+    res12_arr = np.zeros(len(tickers), dtype=np.float64)
+    reg_types = ["none"] * len(tickers)
+
+    n_sector = 0; n_market = 0
+    n_fail6  = 0; n_fail12 = 0
+    n_valid6 = 0; n_valid12 = 0
+
+    for etf, idxs in groups.items():
+        Y = S_mat[:, idxs]    # (T12, group_N)
+
+        if etf and etf in B_df.columns:
+            X       = np.column_stack([vti, B_df[etf].values])  # (T12, 2)
+            rtype   = "sector+market"
+            n_sect  = len(idxs)
+        else:
+            X       = vti.reshape(-1, 1)                         # (T12, 1)
+            rtype   = "market_only"
+            n_sect  = 0
+
+        # 6-month residuals
+        r6 = _batch_resid_sum(Y, X, T6)
+        for li, gi in enumerate(idxs):
+            if np.isfinite(r6[li]):
+                res6_arr[gi] = r6[li]
+                n_valid6    += 1
+                if rtype == "sector+market":
+                    n_sector += 1
+                else:
+                    n_market += 1
+            else:
+                n_fail6 += 1
+
+        # 12-month residuals
+        r12 = _batch_resid_sum(Y, X, T12)
+        for li, gi in enumerate(idxs):
+            if np.isfinite(r12[li]):
+                res12_arr[gi] = r12[li]
+                n_valid12    += 1
+            else:
+                n_fail12 += 1
+                res12_arr[gi] = 0.0   # neutral
+
+        for gi in idxs:
+            reg_types[gi] = rtype
+
+    elapsed = time.time() - t0
+    _timings["residual_signals"] = round(elapsed, 3)
+
+    _residual_audit = {
+        "status":                "ok",
+        "elapsed_s":             round(elapsed, 3),
+        "total_stocks":          len(tickers),
+        "sector_regressions":    n_sector,
+        "market_only_regressions": n_market,
+        "regression_failures_6m":  n_fail6,
+        "regression_failures_12m": n_fail12,
+        "neutral_fallbacks":     n_fail6 + n_fail12,
+        "valid_res6":            n_valid6,
+        "valid_res12":           n_valid12,
+        "window_6m_days":        T6,
+        "window_12m_days":       T12,
+    }
+
+    logger.info(
+        f"residual_signals: {elapsed:.3f}s | "
+        f"N={len(tickers)} | "
+        f"sector_reg={n_sector} market_reg={n_market} | "
+        f"valid6={n_valid6} valid12={n_valid12} | "
+        f"fail6={n_fail6} fail12={n_fail12}"
+    )
+
+    return pd.DataFrame({
+        "res6":     res6_arr,
+        "res12":    res12_arr,
+        "reg_type": reg_types,
+    }, index=tickers)
 
 
 # ─── Universe filtering ───────────────────────────────────────────────────────
@@ -859,6 +1096,11 @@ def get_meta_data() -> Optional[dict]:
     return _meta_data
 
 
+def get_residual_audit() -> dict:
+    """Return the most recent residual momentum computation audit."""
+    return dict(_residual_audit)
+
+
 def _print_audit_summary(price_data: pd.DataFrame, meta_data: dict,
                           factors_pre: pd.DataFrame, factors_post: pd.DataFrame) -> None:
     lines: list = ["", "═" * 60, "  UNIVERSE AUDIT SUMMARY", "═" * 60]
@@ -937,8 +1179,11 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
     cluster_lookback = params.get("cluster_lookback", 252)
     exclude_sectors  = params.get("exclude_sectors", [])
 
+    # has_bench in factor key: if benchmark prices arrive after first computation,
+    # the key changes → factors are recomputed with residuals on the next request.
     fk = json.dumps({"vol_floor": vol_floor, "winsor_p": winsor_p,
-                      "xs": sorted(exclude_sectors) if exclude_sectors else []},
+                      "xs":        sorted(exclude_sectors) if exclude_sectors else [],
+                      "has_bench": bool(get_benchmark_prices() is not None)},
                      sort_keys=True)
     rk = json.dumps({"fk": fk, "w6": w6, "w12": w12,
                       "ut": use_tstats, "va": vol_adjust,
@@ -1289,7 +1534,9 @@ def build_sector_map(meta: dict) -> dict:
 
     for ticker, m in meta.items():
         raw_sector = m.get("sector")
-        gics = _normalize_sector(raw_sector)
+        # Per-ticker override wins over generic normalizer
+        gics = (_TICKER_SECTOR_OVERRIDE.get(ticker)
+                or _normalize_sector(raw_sector))
         if gics and gics in GICS_SECTOR_ETF:
             result[ticker] = {
                 "gics_sector": gics,

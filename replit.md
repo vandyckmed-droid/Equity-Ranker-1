@@ -2,7 +2,7 @@
 
 ## Overview
 
-Quant Terminal is a mobile-first equity ranking and risk application designed to analyze and rank approximately 1,800 large, liquid US stocks (NYSE + NASDAQ, market cap ≥ $2B). It utilizes real market data from Yahoo Finance and employs a sophisticated 3-sleeve alpha composite (return-strength, trend-quality, and quality) for ranking. The application also provides tools for portfolio construction and risk analysis, aiming to offer users a comprehensive platform for quantitative equity analysis.
+Quant Terminal is a mobile-first equity ranking and risk application that ranks ~1,817 large liquid US stocks (NYSE + NASDAQ, market cap ≥ $2B) using real Yahoo Finance data and a residual momentum alpha model.
 
 ## User Preferences
 
@@ -34,8 +34,16 @@ The application is built as a monorepo using `pnpm workspaces`, targeting Node.j
     *   Employs vectorized factor computation using `numpy` for efficiency.
     *   **Three-layer caching**: Factors, rankings, and clustering results are aggressively cached to ensure high performance.
     *   Quality enrichment fetches data from SEC EDGAR XBRL API in a background thread.
-    *   Computes various momentum, Sharpe, OLS t-stat factors, and a composite quality score.
-    *   Alpha is calculated as a weighted sum of S, T, and Q sleeves, with individual inputs z-scored.
+    *   **Alpha model** (full formula):
+        - `m6/m12` = skip-last-month log return (6m/12m), Sharpe-adjusted by vol → `s6`, `s12`
+        - OLS trend t-stats: `tstat6`, `tstat12`
+        - **Residual momentum**: batch OLS of each stock on [VTI, sector_ETF] (no intercept) → summed residuals `res6`, `res12`
+        - `zR6/zR12` = winsorize(2%) + z-score residuals cross-sectionally
+        - `S6_blend = 0.7·zS6 + 0.3·zR6`, `S12_blend = 0.7·zS12 + 0.3·zR12`
+        - `sSleeve = 0.5·S6_blend + 0.5·S12_blend`
+        - `tSleeve = 0.5·zT6 + 0.5·zT12`
+        - `alpha = 0.5·sSleeve + 0.5·tSleeve`  (formula: `S+T+Resid`)
+    *   **Sector/benchmark layer**: GICS sector map (99.9% coverage), VTI market benchmark, 11 XL sector ETFs; built deterministically from metadata with `_TICKER_SECTOR_OVERRIDE` for hard-to-classify names.
     *   Uses AgglomerativeClustering for stock grouping.
     *   Calculates portfolio risk metrics including covariance matrix and average pairwise correlation.
     *   FastAPI server (`server.py`) exposes endpoints for status, rankings, universe filtering, portfolio risk, and correlation-constrained basket seeding.
