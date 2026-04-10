@@ -12,6 +12,7 @@ from pydantic import BaseModel
 import numpy as np
 
 import engine
+from quality_audit import build_coverage_report, build_per_ticker_audit, export_audit_json
 
 app = FastAPI(title="Equity Engine")
 
@@ -61,6 +62,92 @@ def get_sector_map(full: bool = False):
 def get_residual_audit():
     """Return the most recent residual momentum regression audit."""
     return engine.get_residual_audit()
+
+
+@app.get("/quality-coverage")
+def quality_coverage():
+    """
+    Return quality data coverage summary.
+
+    Fields:
+      status:            "ready" | "loading" | "not_started"
+      universe_count:    total tickers in price universe
+      available:         count with OPA computed
+      available_pct:     percentage of universe with quality data
+      unavailable:       count without quality data
+      formula_breakdown: {formula: count}  (op_income, ebit, net_income paths)
+      reason_breakdown:  top reasons for unavailability
+      using_avg_assets:  count using average of current + prior year assets
+      using_cur_assets:  count using current year assets only (prior not available)
+    """
+    opa = engine.get_quality_opa()
+    if opa is None:
+        return {"status": "loading", "message": "Quality data fetch in progress"}
+    price_data = engine.get_price_data()
+    universe   = list(price_data.columns) if price_data is not None else []
+    report     = build_coverage_report(opa, universe)
+    report["status"] = "ready"
+    return report
+
+
+@app.get("/quality-audit")
+def quality_audit_endpoint(
+    ticker: Optional[str] = Query(None, description="Filter to a single ticker"),
+    formula: Optional[str] = Query(None, description="Filter by formula used"),
+    available: Optional[bool] = Query(None, description="Filter by availability"),
+    limit: int = Query(500, ge=1, le=5000),
+    offset: int = Query(0, ge=0),
+    export_json: bool = Query(False, description="Return full JSON export"),
+):
+    """
+    Per-ticker quality audit records.
+
+    Each record contains: ticker, available, formula, opa, numerator, denominator,
+    using_avg_assets, assets_current, assets_prior, period_date, source_fields, reason.
+
+    Query params:
+      ticker:      single ticker lookup
+      formula:     filter by formula path (op_income/avg_assets, ebit/*, net_income/*, unavailable)
+      available:   true = only available, false = only unavailable
+      limit/offset: pagination (max 5000)
+      export_json: return the full unfiltered list as a JSON attachment
+    """
+    opa = engine.get_quality_opa()
+    if opa is None:
+        return {"status": "loading", "message": "Quality data fetch in progress", "records": []}
+
+    price_data = engine.get_price_data()
+    universe   = list(price_data.columns) if price_data is not None else list(opa.keys())
+
+    records = build_per_ticker_audit(opa, universe)
+
+    if export_json:
+        from fastapi.responses import Response
+        body = export_audit_json(records)
+        return Response(
+            content=body,
+            media_type="application/json",
+            headers={"Content-Disposition": "attachment; filename=quality_audit.json"},
+        )
+
+    # Filters
+    if ticker:
+        records = [r for r in records if r["ticker"].upper() == ticker.upper()]
+    if formula is not None:
+        records = [r for r in records if formula in (r["formula"] or "")]
+    if available is not None:
+        records = [r for r in records if r["available"] == available]
+
+    total    = len(records)
+    page     = records[offset: offset + limit]
+
+    return {
+        "status":  "ready",
+        "total":   total,
+        "offset":  offset,
+        "limit":   limit,
+        "records": page,
+    }
 
 
 @app.get("/rankings")

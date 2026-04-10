@@ -1,0 +1,94 @@
+Focus only on the backend/data layer for a new Quality input. Do not change the UI yet. Do not add anything to alpha yet. Do not change any ranking, cross-sectional calculations, or filtering behavior yet. This phase is only about obtaining the data well.
+
+Goal:
+Build a quality-data pipeline that maximizes:
+1. coverage
+2. performance
+3. consistency/reliability
+4. auditability
+
+Primary metric target:
+Operating Profit / Assets
+
+Preferred formula:
+OpProfAssets = Operating Income / Average Total Assets
+
+Fallback hierarchy to maximize coverage:
+1. Operating Income / Average Total Assets
+2. EBIT / Average Total Assets
+3. Net Income / Average Total Assets
+
+Asset handling:
+- Prefer Average Total Assets = (current period total assets + prior period total assets) / 2
+- If prior total assets are missing, use current total assets
+- If total assets are missing, quality should be marked unavailable for that ticker, but the ticker should remain in the universe
+
+Requirements:
+
+A) Coverage
+- Maximize usable coverage across the full stock universe, ideally above 90% if realistically possible
+- Reuse existing fundamentals sources if already present
+- Add fallback extraction logic before giving up on a ticker
+- Gracefully handle missing fields and inconsistent filings
+- Keep a clear record of which source/formula was used per ticker
+
+B) Performance
+- This must be fast and stable
+- Prefer one enrichment pass with cached results, not repeated per-screen computation
+- Persist results in a cache/snapshot so the app does not randomly lose quality coverage between sessions
+- User is fine with data being somewhat stale if that improves reliability
+- Favor daily or manual-refresh fundamentals snapshots over fragile live recomputation
+- Avoid adding runtime load to scrolling, ranking, or screen rendering
+
+C) Auditability
+For every ticker, store an audit record with:
+- ticker
+- whether quality is available
+- formula actually used:
+  - op_income/assets
+  - ebit/assets
+  - net_income/assets
+  - unavailable
+- numerator raw value
+- denominator raw value
+- whether average assets or current assets were used
+- source fields found / missing
+- filing period/date if available
+- reason unavailable if unavailable
+
+D) Output structure
+Create a simple, inspectable output for the whole universe, such as:
+- total universe count
+- count and percent with quality available
+- count by formula path used
+- count unavailable
+- top reasons unavailable
+- optional csv/json audit export per ticker
+
+E) Reliability rules
+- Never allow this data to disappear randomly on app restart if a good cached snapshot exists
+- If refresh fails, keep last known good quality dataset instead of dropping coverage
+- Separate “data fetch/build” from “app consumption”
+- Prefer deterministic behavior over cleverness
+
+F) Code organization
+Please keep this isolated and easy to inspect:
+- one loader/enrichment module for quality data
+- one normalization/formula module
+- one audit/report module
+- one cache/persistence path
+
+G) Deliverables
+1. Implement the pipeline
+2. Report actual coverage numbers by formula path
+3. Report the main missing-data bottlenecks
+4. State exactly where the data is cached and how refresh/fallback works
+5. Do not proceed to UI until this is working reliably
+
+Important:
+- Do not blend quality into alpha yet
+- Do not build a composite quality model yet
+- Do not add flags yet
+- Do not add hide behavior yet
+- Treat this as a data engineering and reliability task first
+- Optimize for simple, robust, inspectable behavior

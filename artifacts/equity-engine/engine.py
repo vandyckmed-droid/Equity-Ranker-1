@@ -46,6 +46,10 @@ from scipy import stats
 from sklearn.cluster import AgglomerativeClustering
 import diskcache
 
+from quality_loader  import get_or_build_quality_raw
+from quality_formula import compute_opa_all
+from quality_audit   import build_coverage_report, build_per_ticker_audit
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -436,6 +440,10 @@ _benchmark_lock    = threading.Lock()
 
 # Residual momentum audit (populated each time factors are recomputed)
 _residual_audit: dict = {"status": "not_computed"}
+
+# Quality data layer (populated by background thread after stage-1 ready)
+_quality_opa:  Optional[dict] = None   # {ticker: formula_result}
+_quality_lock  = threading.Lock()
 
 
 # ─── Utilities ────────────────────────────────────────────────────────────────
@@ -1687,6 +1695,78 @@ def _launch_benchmark_bg() -> None:
     t.start()
 
 
+# ─── Quality data background layer ───────────────────────────────────────────
+
+def _fetch_quality_bg() -> None:
+    """
+    Background daemon: fetch/restore quality financials for all universe tickers.
+
+    Flow:
+      1. Pre-load any existing diskcache snapshot into _quality_opa immediately
+         (makes the quality endpoints respond in milliseconds on restart — never
+         leaves a coverage gap between restarts).
+      2. If the cache is fresh (not expired) for all tickers: done.
+      3. If stale or missing: fetch sequentially via quality_loader
+         (may take ~10–15 min on a cold run; incremental saves every 100 tickers
+         preserve progress so a crash can resume mid-batch).
+      4. Apply formula hierarchy and update _quality_opa with final results.
+
+    Never blocks the HTTP server — runs in a dedicated daemon thread.
+    Sequential yfinance calls only (no ThreadPoolExecutor).
+    """
+    global _quality_opa
+    try:
+        tickers = list(_price_data.columns) if _price_data is not None else []
+        if not tickers:
+            logger.warning("quality_bg: no tickers available, skipping")
+            return
+
+        # ── Step 1: pre-load from cache (instant, never-drop-good-data) ──────
+        from quality_loader import QUALITY_RAW_CACHE_KEY
+        existing_raw = cache.get(QUALITY_RAW_CACHE_KEY) or {}
+        if existing_raw:
+            initial_opa = compute_opa_all(existing_raw)
+            with _quality_lock:
+                _quality_opa = initial_opa
+            logger.info(
+                f"quality_bg: pre-loaded {len(existing_raw)} cached records "
+                f"({len(initial_opa)} OPA values) — endpoints now serving"
+            )
+
+        # ── Step 2: full fetch (builds/refreshes cache; may be fast if cached) ─
+        logger.info(f"quality_bg: starting fetch for {len(tickers)} tickers")
+        t0 = time.time()
+
+        raw = get_or_build_quality_raw(tickers, cache)
+        opa = compute_opa_all(raw)
+
+        with _quality_lock:
+            _quality_opa = opa
+
+        elapsed = time.time() - t0
+        report  = build_coverage_report(opa, tickers)
+        logger.info(
+            f"quality_bg: DONE in {elapsed:.1f}s — "
+            f"available={report['available']}/{report['universe_count']} "
+            f"({report['available_pct']}%)  "
+            f"formulas={report['formula_breakdown']}"
+        )
+    except Exception as e:
+        logger.error(f"quality_bg: unhandled error: {e}", exc_info=True)
+
+
+def _launch_quality_bg() -> None:
+    """Start quality data fetch in a daemon thread (non-blocking)."""
+    t = threading.Thread(target=_fetch_quality_bg, daemon=True, name="quality-fetch")
+    t.start()
+
+
+def get_quality_opa() -> Optional[dict]:
+    """Return the current quality OPA results dict, or None if not yet computed."""
+    with _quality_lock:
+        return _quality_opa
+
+
 def initial_data_load():
     """Load universe, prices, and essential metadata. Engine becomes usable when complete."""
     global _price_data, _meta_data, _dollar_volume, _sector_map
@@ -1727,6 +1807,7 @@ def initial_data_load():
             with _sector_map_lock:
                 _sector_map = build_sector_map(_meta_data)
             _launch_benchmark_bg()
+            _launch_quality_bg()
 
             update_status("ready",
                           f"Ready. {n} stocks loaded from cache.",
@@ -1821,6 +1902,7 @@ def initial_data_load():
     with _sector_map_lock:
         _sector_map = build_sector_map(_meta_data)
     _launch_benchmark_bg()
+    _launch_quality_bg()
 
     _timings["total_stage1"] = round(time.time() - t_start, 3)
 
