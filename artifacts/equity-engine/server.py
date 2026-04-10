@@ -1023,6 +1023,12 @@ def portfolio_history(body: PortfolioHistoryRequest):
             prices      = prices.loc[shared_idx]
             sgov_series = sgov_raw.loc[shared_idx]
             cash_method = "sgov"
+        else:
+            _log.warning(
+                "portfolio-history: SGOV present in benchmark but index overlap with equity "
+                "prices is insufficient (%d shared dates) — using zero cash return",
+                len(shared_idx),
+            )
     else:
         _log.warning("portfolio-history: SGOV not in benchmark prices — using zero cash return")
 
