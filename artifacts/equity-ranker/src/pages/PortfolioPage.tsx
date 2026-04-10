@@ -952,16 +952,35 @@ function ConstituentTable({
   reversalMap: Record<string, ReversalItem>;
   reversalLoading: boolean;
 }) {
-  const sorted = useMemo(() => [...holdings].sort((a, b) => b.baseWeight - a.baseWeight), [holdings]);
-  const maxBW = sorted[0]?.baseWeight ?? 0.01;
+  const [sortBy, setSortBy] = useState<"weight" | "timing">("weight");
+
+  const sorted = useMemo(() => {
+    const rows = [...holdings];
+    if (sortBy === "timing") {
+      rows.sort((a, b) => {
+        const ra = reversalMap[a.ticker]?.rank ?? Infinity;
+        const rb = reversalMap[b.ticker]?.rank ?? Infinity;
+        return ra !== rb ? ra - rb : b.baseWeight - a.baseWeight;
+      });
+    } else {
+      rows.sort((a, b) => b.baseWeight - a.baseWeight);
+    }
+    return rows;
+  }, [holdings, sortBy, reversalMap]);
+
+  const maxBW = useMemo(() => Math.max(...holdings.map(h => h.baseWeight), 0.01), [holdings]);
   const reversalN = useMemo(() => Object.keys(reversalMap).length, [reversalMap]);
+
+  const thBase = "px-3 py-2 text-[10px] font-medium uppercase tracking-wider cursor-pointer select-none transition-colors";
 
   return (
     <Card className="bg-card border-border">
       <CardHeader className="p-4 pb-2">
         <CardTitle className="text-sm">Constituents</CardTitle>
         <CardDescription className="text-[11px]">
-          Sorted by base weight · scaled ×{formatNumber(scale, 2)} for 15% vol target
+          {sortBy === "timing"
+            ? `Sorted by timing · best entry first · scaled ×${formatNumber(scale, 2)} for 15% vol target`
+            : `Sorted by base weight · scaled ×${formatNumber(scale, 2)} for 15% vol target`}
         </CardDescription>
       </CardHeader>
       <CardContent className="p-0">
@@ -969,11 +988,17 @@ function ConstituentTable({
           <thead className="border-b border-border/40">
             <tr>
               <th className="text-left px-4 py-2 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">Ticker</th>
-              <th className="text-right px-3 py-2 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">Wt%</th>
+              <th
+                className={cn(thBase, "text-right", sortBy === "weight" ? "text-primary" : "text-muted-foreground/50 hover:text-muted-foreground/80")}
+                onClick={() => setSortBy("weight")}
+              >Wt%{sortBy === "weight" && " ↑"}</th>
               <th className="text-right px-3 py-2 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">Risk%</th>
               <th className="text-right px-3 py-2 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">Vol</th>
               <th className="text-center px-3 py-2 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">Grp</th>
-              <th className="text-center px-3 py-2 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">Timing</th>
+              <th
+                className={cn(thBase, "text-center", sortBy === "timing" ? "text-primary" : "text-muted-foreground/50 hover:text-muted-foreground/80")}
+                onClick={() => setSortBy("timing")}
+              >Timing{sortBy === "timing" && " ↑"}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/20">
