@@ -224,9 +224,11 @@ def get_rankings(
     for _, row in df.iterrows():
         _ticker = row["ticker"]
         _raw_sector = safe(row.get("sector"))
-        # Apply override when raw sector is missing or a non-GICS catch-all label
+        # Apply override when raw sector is missing or a non-GICS catch-all label.
+        # If no override exists either, return None so the frontend treats the ticker
+        # as unmapped (excluded from sector-deficit math, never forms a fake bucket).
         if not _raw_sector or _raw_sector in _unmapped_sector_labels:
-            _sector = _sector_override.get(_ticker) or _raw_sector
+            _sector = _sector_override.get(_ticker)  # None when no override → unmapped
         else:
             _sector = _raw_sector
         stocks.append({
