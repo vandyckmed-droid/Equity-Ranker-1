@@ -1182,17 +1182,46 @@ export default function MainPage() {
                               <div className="flex flex-wrap gap-x-8 gap-y-2 text-[10px] font-mono">
 
                                 {/* ── Sleeves ── */}
-                                <div className="space-y-1">
-                                  <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Momentum</p>
-                                  <p className="flex items-center gap-2">
-                                    <span className="text-muted-foreground w-10">S sleeve</span>
-                                    <span className="font-semibold" style={heat(stock.sSleeve)}>{fmt2(stock.sSleeve)}</span>
-                                  </p>
-                                  <p className="flex items-center gap-2">
-                                    <span className="text-muted-foreground w-10">T sleeve</span>
-                                    <span className="font-semibold" style={heat(stock.tSleeve)}>{fmt2(stock.tSleeve)}</span>
-                                  </p>
-                                </div>
+                                {(() => {
+                                  const zR6  = (stock as any).zR6  as number | null | undefined;
+                                  const zR12 = (stock as any).zR12 as number | null | undefined;
+                                  const zS6  = (stock as any).zS6  as number | null | undefined;
+                                  const zS12 = (stock as any).zS12 as number | null | undefined;
+                                  const hasResid = zR6 != null && zR12 != null && (Math.abs(zR6) + Math.abs(zR12)) > 0.0001;
+                                  const momComp = hasResid && zS6 != null && zS12 != null
+                                    ? 0.7 * (0.5 * zS6 + 0.5 * zS12)
+                                    : null;
+                                  const resComp = hasResid
+                                    ? 0.3 * (0.5 * (zR6 ?? 0) + 0.5 * (zR12 ?? 0))
+                                    : null;
+                                  return (
+                                    <div className="space-y-1">
+                                      <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Momentum</p>
+                                      <p className="flex items-center gap-2">
+                                        <span className="text-muted-foreground w-10">S sleeve</span>
+                                        <span className="font-semibold" style={heat(stock.sSleeve)}>{fmt2(stock.sSleeve)}</span>
+                                      </p>
+                                      {hasResid && momComp != null && resComp != null && (
+                                        <>
+                                          <p className="flex items-center gap-1 pl-2">
+                                            <span className="text-muted-foreground/60 w-1">·</span>
+                                            <span className="text-muted-foreground/70 w-16">0.7× Momentum</span>
+                                            <span className="text-[9px]" style={heat(momComp)}>{fmt2(momComp)}</span>
+                                          </p>
+                                          <p className="flex items-center gap-1 pl-2">
+                                            <span className="text-muted-foreground/60 w-1">·</span>
+                                            <span className="text-muted-foreground/70 w-16">0.3× Residual</span>
+                                            <span className="text-[9px]" style={heat(resComp)}>{fmt2(resComp)}</span>
+                                          </p>
+                                        </>
+                                      )}
+                                      <p className="flex items-center gap-2">
+                                        <span className="text-muted-foreground w-10">T sleeve</span>
+                                        <span className="font-semibold" style={heat(stock.tSleeve)}>{fmt2(stock.tSleeve)}</span>
+                                      </p>
+                                    </div>
+                                  );
+                                })()}
 
                                 {/* ── Composite ── */}
                                 <div className="space-y-1">
