@@ -1310,9 +1310,12 @@ export default function MainPage() {
                                   const qMissing = stock.qualityMissing;
                                   const qFormula = stock.qualityFormula;
                                   const qReason = stock.qualityMissingReason;
-                                  const formulaLabel = qFormula
-                                    ? qFormula.replace("op_income", "Op Income").replace("ebit", "EBIT").replace("net_income", "Net Income").replace("/avg_assets", " / Avg Assets").replace("/assets", " / Assets")
-                                    : null;
+                                  const formulaMap: Record<string, { label: string; primary: boolean }> = {
+                                    "op_income/avg_assets": { label: "Op Income / Avg Assets", primary: true },
+                                    "ebit/avg_assets":      { label: "EBIT / Avg Assets",       primary: false },
+                                    "net_income/avg_assets":{ label: "Net Income / Avg Assets", primary: false },
+                                  };
+                                  const formulaInfo = qFormula ? formulaMap[qFormula] ?? null : null;
                                   return (
                                     <div className="space-y-1">
                                       <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Profitability</p>
@@ -1326,10 +1329,26 @@ export default function MainPage() {
                                         <span className="text-muted-foreground w-10">zQ</span>
                                         <span style={heat(zQ)}>{zQ != null ? fmt2(zQ) : "—"}</span>
                                       </p>
-                                      {formulaLabel && (
-                                        <p className="flex items-center gap-2">
+                                      {formulaInfo && (
+                                        <p className="flex items-center gap-2 flex-wrap">
                                           <span className="text-muted-foreground w-10">Formula</span>
-                                          <span className="text-muted-foreground/70 text-[9px]">{formulaLabel}</span>
+                                          <span className="text-muted-foreground/70 text-[9px]">
+                                            {formulaInfo.primary ? "Primary" : "Fallback"} ({formulaInfo.label})
+                                          </span>
+                                          {formulaInfo.primary ? (
+                                            <span
+                                              className="text-[8px] px-1 py-0.5 rounded font-semibold tracking-wide bg-emerald-950/50 text-emerald-400/80"
+                                            >
+                                              Primary
+                                            </span>
+                                          ) : (
+                                            <span
+                                              className="text-[8px] px-1 py-0.5 rounded font-semibold tracking-wide bg-amber-950/50 text-amber-400/80 cursor-help"
+                                              title="Fallback metrics are less clean and may be less predictive than operating profitability."
+                                            >
+                                              Fallback
+                                            </span>
+                                          )}
                                         </p>
                                       )}
                                       {qMissing && qReason && (
