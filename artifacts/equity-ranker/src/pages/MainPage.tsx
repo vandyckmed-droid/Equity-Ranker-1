@@ -1051,17 +1051,17 @@ export default function MainPage() {
                     <div
                       key={key}
                       className={cn(
-                        "flex items-center gap-3 -mx-1 px-2 rounded-lg h-11 transition-opacity",
+                        "flex items-start gap-3 -mx-1 px-2 rounded-lg py-2.5 transition-opacity",
                         isHidden ? "opacity-40" : "opacity-100"
                       )}
                     >
-                      <span className={cn("inline-flex items-center rounded border px-1.5 text-[9px] font-semibold tracking-wide leading-4 shrink-0", colorCls)}>
+                      <span className={cn("inline-flex items-center rounded border px-1.5 text-[9px] font-semibold tracking-wide leading-4 shrink-0 mt-0.5", colorCls)}>
                         {def.shortLabel}
                       </span>
                       <span className="flex-1 text-sm min-w-0">
-                        <span className="block truncate">{def.label}</span>
+                        <span className="block">{def.label}</span>
                         {def.description && (
-                          <span className="block text-[10px] text-muted-foreground/60 truncate">{def.description}</span>
+                          <span className="block text-[10px] text-muted-foreground/60 leading-snug mt-0.5">{def.description}</span>
                         )}
                       </span>
                       <button
