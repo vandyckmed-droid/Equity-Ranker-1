@@ -33,7 +33,7 @@ Signal conventions (all use log returns, rf = 0):
 
   s6 / s12   : mean(r, window) × √252 / σ — windows [t-126:t-22] / [t-252:t-22]
   s1         : mean(r, [t-21:t-2]) × √252 / σ   (reversal; enters α with − sign)
-  res6/res12 : mean(ε, window) × √252 / σ — OLS no-intercept on market+sector ETF
+  res6/res12 : sum(ε, window) — OLS with intercept on market+peer; betas-only residual
   tstat6/12  : OLS t-stat of slope on ln(P) ~ t  over 126/252 days
   lowvol     : −Z(σ_ewma_floored), σ_ewma EWMA vol (λ=0.94, floor 15%)
   OPA        : Operating profitability on assets (cross-sectional z-score)
@@ -680,8 +680,8 @@ def compute_factors_vectorized(prices: pd.DataFrame,
                 adv[t] = price_last[t] * avg_vol
 
     # ── Residual momentum signals (vectorized, reuses log_returns) ───────────
-    # Pass sigma_126_floored so residual Sharpe uses the same vol denominator as s6/s12
-    res_df = _compute_residual_signals(log_returns, tickers, sigma_shared=sigma_126_floored)
+    # meta passed for industry peer selection (min-size rule)
+    res_df = _compute_residual_signals(log_returns, tickers, meta=meta)
 
     df = pd.DataFrame({
         "ticker":               tickers,
@@ -899,31 +899,39 @@ def compute_clustering(d: pd.DataFrame,
 # ─── Residual momentum computation ────────────────────────────────────────────
 
 def _compute_residual_signals(
-    stock_log_ret: pd.DataFrame,       # (T_full, N) — all log returns, already computed
+    stock_log_ret: pd.DataFrame,  # (T_full, N) — all log returns, already computed
     tickers: list,
     w6:  int = 126,
     w12: int = 252,
-    sigma_shared: Optional[pd.Series] = None,  # annualised shared vol, shape (N,), floor applied
+    meta: dict = None,            # {ticker: {"industry": ..., ...}} for peer selection
+    min_industry_size: int = 10,  # minimum group size to use industry peer
 ) -> pd.DataFrame:
     """
-    Vectorized residual momentum for every ticker.
+    Vectorized residual momentum using OLS with intercept + dynamic peer selection.
 
-    Regression model (no intercept — required so mean(ε) ≠ 0 for Sharpe signal):
-      r_stock = β_m·r_market + β_s·r_sector + ε
+    Peer selection (minimum group size rule):
+      ≥ min_industry_size stocks in same industry → equal-weight industry return
+      < min_industry_size (or no industry)        → sector ETF return
+      no sector ETF                               → market-only (VTI)
 
-    For each window (using shared annualised vol σ, same floor as s6/s12):
-      res_k = mean(ε, window) × 252 / σ
+    Regression model (with intercept, for consistent beta estimation):
+      r_i = α + β_m·r_market + β_p·r_peer + ε̃
 
-    Using shared σ instead of std(ε) ensures all Sharpe-style signals are
-    normalised by the same cross-sectional denominator and remain comparable.
+    Residuals are then computed WITHOUT the intercept term, so that the
+    stock's average alpha is retained in the signal (not differenced away):
+      ε = r_i − β_m·r_market − β_p·r_peer
 
-    Windows mirror s6/s12 with true 1-month skip:
-      res6  : last 126 days, skip last 21 → rows [-126:-21]  (~104 obs)
-      res12 : last 252 days, skip last 21 → rows [:-21]      (~230 obs)
+    This avoids the sum-to-zero constraint that would kill cumulative signals
+    while still deriving betas from an unbiased (intercept) regression.
 
+    Signal windows (skip last 21 days — true 1-month reversal skip):
+      res6  = sum(ε, t-126:t-22)  (~104 observations)
+      res12 = sum(ε, t-252:t-22)  (~230 observations)
+
+    Cross-sectionally z-scored in compute_rankings.
     Neutral (0.0) on failure — universe coverage never decreases.
 
-    Returns DataFrame indexed by ticker:
+    Returns DataFrame indexed by tickers:
       columns: res6, res12, reg_type
     """
     global _residual_audit
@@ -937,11 +945,8 @@ def _compute_residual_signals(
         "reg_type": ["none"] * len(tickers),
     }, index=tickers)
 
-    if sm is None or bp is None or bp.empty:
-        _residual_audit = {
-            "status": "skipped",
-            "reason": "sector_map or benchmark_prices not ready",
-        }
+    if bp is None or bp.empty:
+        _residual_audit = {"status": "skipped", "reason": "benchmark_prices not ready"}
         return _no_residuals
 
     t0 = time.time()
@@ -951,125 +956,144 @@ def _compute_residual_signals(
     common_idx    = stock_log_ret.index.intersection(bench_log_ret.index)
 
     if len(common_idx) < 30:
-        _residual_audit = {
-            "status": "skipped",
-            "reason": f"only {len(common_idx)} common dates",
-        }
+        _residual_audit = {"status": "skipped", "reason": f"only {len(common_idx)} common dates"}
         return _no_residuals
 
-    # Use last w12 common dates; fill NaN → 0 (flat day, neutral for regression)
     idx_w12 = common_idx[-w12:]
     T12     = len(idx_w12)
-    T6      = min(w6, T12)
 
     S_mat = (stock_log_ret
              .reindex(index=idx_w12, columns=tickers)
              .fillna(0.0)
-             .values)                                          # (T12, N)
+             .values)                  # (T12, N)
     B_df  = (bench_log_ret
              .reindex(index=idx_w12)
-             .fillna(0.0))                                    # (T12, K)
+             .fillna(0.0))             # (T12, K)
 
     vti = B_df["VTI"].values if "VTI" in B_df.columns else np.zeros(T12)
 
-    # ── Shared sigma array aligned to tickers ─────────────────────────────────
-    # sigma_shared is indexed on log_returns.columns (same as tickers)
-    if sigma_shared is not None:
-        sig_arr_full = sigma_shared.reindex(tickers).values  # (N,) float, NaN for thin history
-    else:
-        sig_arr_full = None
-
-    # ── Vectorized mean-over-sigma residual helper ─────────────────────────────
-    def _batch_resid_sharpe(Y: np.ndarray, X: np.ndarray, sig_ann: np.ndarray) -> np.ndarray:
-        """
-        OLS WITHOUT intercept: r_t = β_m·r_mkt + β_s·r_sec + ε_t
-        Returns mean(ε) × 252 / σ_shared per stock — same vol denominator as s6/s12.
-
-        Note: no intercept is required so that residuals can have a non-zero
-        mean — with an intercept, OLS forces mean(ε)=0 which kills this signal.
-
-        sig_ann : annualised shared vol (N,), floor already applied.
-        Falls back to 0.0 on invalid/missing data — universe coverage never shrinks.
-        """
-        W = Y.shape[0]
-        if W < 10:
-            return np.zeros(Y.shape[1])
-        try:
-            beta, _, _, _ = np.linalg.lstsq(X, Y, rcond=None)   # (K, N)
-            resid = Y - X @ beta                                   # (W, N)
-            mu    = resid.mean(axis=0)                             # (N,)
-            # mean_daily × 252 / sigma_ann ≡ (mean_daily / daily_vol) × sqrt(252)
-            result = np.where(
-                np.isfinite(sig_ann) & (sig_ann > 1e-10),
-                mu * 252 / sig_ann,
-                0.0,
-            )
-            return np.where(np.isfinite(result), result, 0.0)
-        except Exception:
-            return np.zeros(Y.shape[1])
-
-    # ── Group tickers by sector ETF ────────────────────────────────────────────
+    # ── Build industry groups from meta ───────────────────────────────────────
     from collections import defaultdict
-    groups: dict = defaultdict(list)   # etf_name_or_None → [ticker_position, ...]
-    for i, t in enumerate(tickers):
-        etf = (sm.get(t) or {}).get("sector_etf")
-        groups[etf].append(i)
 
+    ticker_industry  = [((meta or {}).get(t) or {}).get("industry") for t in tickers]
+    ticker_sector_etf = [(sm or {}).get(t, {}).get("sector_etf") if sm else None for t in tickers]
+
+    industry_to_idxs: dict = defaultdict(list)
+    for i, ind in enumerate(ticker_industry):
+        if ind:
+            industry_to_idxs[ind].append(i)
+
+    # ── Compute equal-weight industry returns (only for qualifying groups) ─────
+    industry_returns: dict = {}   # industry → (T12,) array
+    for ind, idxs in industry_to_idxs.items():
+        if len(idxs) >= min_industry_size:
+            industry_returns[ind] = S_mat[:, idxs].mean(axis=1)
+
+    # ── Assign each ticker to its peer group ──────────────────────────────────
+    peer_group: list = []   # (peer_type, peer_key) per ticker position
+    for i in range(len(tickers)):
+        ind = ticker_industry[i]
+        etf = ticker_sector_etf[i]
+        if ind and ind in industry_returns:
+            peer_group.append(("industry", ind))
+        elif etf and etf in B_df.columns:
+            peer_group.append(("sector", etf))
+        else:
+            peer_group.append(("market_only", None))
+
+    # Collapse tickers into peer groups for vectorized OLS
+    group_map: dict = defaultdict(list)   # (peer_type, peer_key) → [ticker positions]
+    for i, pg in enumerate(peer_group):
+        group_map[pg].append(i)
+
+    # ── Vectorized OLS + cumulative residuals helper ───────────────────────────
+    ones_col = np.ones((T12, 1))
+
+    def _batch_resid_cumulative(
+        Y: np.ndarray,       # (W, group_N)  — stock returns
+        X_factors: np.ndarray,  # (W, K)     — market + peer returns, NO intercept col
+    ) -> tuple:
+        """
+        Step 1 — Estimate betas using OLS WITH intercept:
+          r = α·1 + X_factors·β + ε̃
+        Step 2 — Compute residuals WITHOUT removing intercept:
+          ε = r − X_factors·β  (= α̂ + ε̃, so the stock's alpha is retained)
+
+        Subtracting β·factors but NOT α ensures cumulative residuals carry
+        the stock-specific alpha component and are not constrained to sum to zero.
+
+        Returns: (r6, r12) — summed residuals over skip-adjusted windows.
+        Falls back to 0.0 on any failure.
+        """
+        W, N = Y.shape
+        if W < 30 or N == 0:
+            return np.zeros(N), np.zeros(N)
+        try:
+            X_int = np.column_stack([ones_col[:W], X_factors[:W]])  # (W, K+1) with intercept
+            beta_int, _, _, _ = np.linalg.lstsq(X_int, Y, rcond=None)  # (K+1, N)
+            beta_slopes = beta_int[1:]                                    # (K, N) — slopes only
+            resid = Y - X_factors[:W] @ beta_slopes                       # (W, N) — alpha retained
+            r6  = resid[-126:-21].sum(axis=0)   # 6m skip-adjusted window
+            r12 = resid[:-21].sum(axis=0)       # 12m skip-adjusted window
+            r6  = np.where(np.isfinite(r6),  r6,  0.0)
+            r12 = np.where(np.isfinite(r12), r12, 0.0)
+            return r6, r12
+        except Exception:
+            return np.zeros(N), np.zeros(N)
+
+    # ── Process each peer group ────────────────────────────────────────────────
     res6_arr  = np.zeros(len(tickers), dtype=np.float64)
     res12_arr = np.zeros(len(tickers), dtype=np.float64)
     reg_types = ["none"] * len(tickers)
 
-    n_sector = 0; n_market = 0
-    n_valid6 = 0; n_valid12 = 0
+    n_industry = 0; n_sector = 0; n_market = 0
 
-    for etf, idxs in groups.items():
-        Y = S_mat[:, idxs]    # (T12, group_N)
+    for (ptype, pkey), idxs in group_map.items():
+        Y = S_mat[:, idxs]           # (T12, group_N)
 
-        if etf and etf in B_df.columns:
-            X     = np.column_stack([vti, B_df[etf].values])  # (T12, 2)
-            rtype = "sector+market"
-            n_sector += len(idxs)
+        if ptype == "industry":
+            peer_ret   = industry_returns[pkey].reshape(-1, 1)       # (T12, 1)
+            X_factors  = np.column_stack([vti, peer_ret])             # (T12, 2)
+            rtype      = f"industry:{pkey[:24]}"
+            n_industry += len(idxs)
+        elif ptype == "sector":
+            sector_ret = B_df[pkey].values.reshape(-1, 1)            # (T12, 1)
+            X_factors  = np.column_stack([vti, sector_ret])          # (T12, 2)
+            rtype      = f"sector:{pkey}"
+            n_sector  += len(idxs)
         else:
-            X     = vti.reshape(-1, 1)                         # (T12, 1)
-            rtype = "market_only"
-            n_market += len(idxs)
+            X_factors  = vti.reshape(-1, 1)                          # (T12, 1)
+            rtype      = "market_only"
+            n_market  += len(idxs)
 
-        # Per-group shared sigma slice (NaN for tickers with < 126d history)
-        sig_group = sig_arr_full[idxs] if sig_arr_full is not None else np.full(len(idxs), 0.15)
-
-        # res6 : window [-126:-21] = skip-adjusted 6-month
-        # res12: window [:-21]     = skip-adjusted 12-month
-        r6  = _batch_resid_sharpe(Y[-126:-21], X[-126:-21], sig_group)
-        r12 = _batch_resid_sharpe(Y[:-21],     X[:-21],     sig_group)
-
+        r6, r12 = _batch_resid_cumulative(Y, X_factors)
         for li, gi in enumerate(idxs):
             res6_arr[gi]  = r6[li]
             res12_arr[gi] = r12[li]
             reg_types[gi] = rtype
-            n_valid6  += 1
-            n_valid12 += 1
 
     elapsed = time.time() - t0
     _timings["residual_signals"] = round(elapsed, 3)
+
+    n_ind_groups = sum(1 for ind, idxs in industry_to_idxs.items() if len(idxs) >= min_industry_size)
 
     _residual_audit = {
         "status":                    "ok",
         "elapsed_s":                 round(elapsed, 3),
         "total_stocks":              len(tickers),
+        "industry_regressions":      n_industry,
         "sector_regressions":        n_sector,
         "market_only_regressions":   n_market,
-        "valid_res6":                n_valid6,
-        "valid_res12":               n_valid12,
+        "qualifying_industry_groups": n_ind_groups,
         "window_6m_days":            min(126, T12) - 21,
         "window_12m_days":           T12 - 21,
-        "method":                    "Sharpe(ε), OLS+intercept, skip-21d",
+        "method":                    "sum(ε), OLS+intercept+peer, betas-only residual, skip-21d",
     }
 
     logger.info(
-        f"residual_signals: {elapsed:.3f}s | "
-        f"N={len(tickers)} | "
-        f"sector_reg={n_sector} market_reg={n_market} | "
-        f"valid6={n_valid6} valid12={n_valid12}"
+        f"residual_signals: {elapsed:.3f}s | N={len(tickers)} | "
+        f"industry={n_industry}({n_ind_groups} groups) "
+        f"sector={n_sector} market={n_market}"
     )
 
     return pd.DataFrame({
