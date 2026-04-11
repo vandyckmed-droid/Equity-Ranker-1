@@ -7,6 +7,7 @@ import {
   GetRankingsParams,
 } from "@workspace/api-client-react";
 import { useHiddenTags } from "@/hooks/use-hidden-tags";
+import { useMobilePrefs } from "@/hooks/use-mobile-prefs";
 import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { usePortfolio } from "@/hooks/use-portfolio";
@@ -245,6 +246,7 @@ export default function MainPage() {
   const { config, orderedVisible, toggleColumn, moveColumn, resetColumns } = useColumnConfig();
   const hiddenColumns = ALL_COLUMN_IDS.filter(id => !config.visible.includes(id));
   const { hiddenTags, toggleHide } = useHiddenTags();
+  const { showGroup, showSuggestedWeight, toggleShowGroup, toggleShowSuggestedWeight } = useMobilePrefs();
 
   const queryClient = useQueryClient();
 
@@ -1039,6 +1041,39 @@ export default function MainPage() {
               </div>
             </div>
 
+            {/* ── Mobile Display ──────────────────────────────────────────── */}
+            <div className="space-y-1">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Mobile Display</h3>
+              {(
+                [
+                  { label: "Group badge", sub: "G1 · #2/27 shown on each row", value: showGroup, toggle: toggleShowGroup },
+                  { label: "Suggested weight", sub: "Position size % for top-25 names", value: showSuggestedWeight, toggle: toggleShowSuggestedWeight },
+                ] as const
+              ).map(({ label, sub, value, toggle }) => (
+                <div key={label} className="flex items-start gap-3 -mx-1 px-2 rounded-lg py-2.5">
+                  <span className="flex-1 text-sm min-w-0">
+                    <span className="block">{label}</span>
+                    <span className="block text-[10px] text-muted-foreground/60 leading-snug mt-0.5">{sub}</span>
+                  </span>
+                  <button
+                    onClick={toggle}
+                    className={cn(
+                      "h-9 w-9 flex items-center justify-center rounded transition-colors shrink-0 mt-0.5",
+                      value ? "text-primary hover:bg-muted" : "text-muted-foreground/40 hover:bg-muted"
+                    )}
+                    aria-label={value ? `Hide ${label}` : `Show ${label}`}
+                    title={value ? "Click to hide" : "Click to show"}
+                  >
+                    {value ? (
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    ) : (
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    )}
+                  </button>
+                </div>
+              ))}
+            </div>
+
             {/* ── Hide by Tag ─────────────────────────────────────────────── */}
             {Object.keys(tagDefinitions).length > 0 && (
               <div className="space-y-1">
@@ -1314,7 +1349,7 @@ export default function MainPage() {
                             return (
                               <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
                                 <span className="font-mono">#{stock.rank ?? "—"}</span>
-                                {stock.cluster != null && (
+                                {showGroup && stock.cluster != null && (
                                   <>
                                     <span className="opacity-40">·</span>
                                     <span className={cn("font-semibold font-mono", clusterText)}>
@@ -1347,7 +1382,7 @@ export default function MainPage() {
                           })()}
 
                           {/* Line 3 (top-25 only): suggested position size */}
-                          {(() => {
+                          {showSuggestedWeight && (() => {
                             const w = suggestedWeights.get(stock.ticker);
                             if (w == null) return null;
                             return (
