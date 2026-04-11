@@ -42,22 +42,47 @@ app.add_middleware(
 # Rules read ONLY final computed fields (alpha, zQ, rank, percentile, etc.).
 # They MUST NOT modify any field or trigger recomputation.
 TAG_DEFINITIONS: dict = {
-    # Zero tags in initial implementation — infrastructure only.
-    # Example (disabled):
-    # "high_quality": {
-    #     "label": "High Quality",
-    #     "shortLabel": "HQ",
-    #     "description": "OPA z-score above +1.0 (top ~16% of universe by profitability)",
-    #     "color": "emerald",
-    #     "_rule": lambda s: (s.get("zQ") or 0) > 1.0,
-    # },
-    # "low_vol": {
-    #     "label": "Low Volatility",
-    #     "shortLabel": "LV",
-    #     "description": "12-month realized volatility below 20%",
-    #     "color": "sky",
-    #     "_rule": lambda s: (s.get("sigma12") or 1) < 0.20,
-    # },
+    # ── Audit: profitability formula is not the primary (op-income) formula ──
+    "fallback_profitability": {
+        "label":       "Fallback Formula",
+        "shortLabel":  "FB",
+        "description": "Profitability uses EBIT or net-income proxy — primary op-income data unavailable",
+        "color":       "amber",
+        # Primary formula key is "op_income/avg_assets".
+        # Trigger when: formula is set (not missing) AND it is NOT the primary.
+        "_rule": lambda s: (
+            s.get("qualityFormula") is not None
+            and s.get("qualityFormula") != "op_income/avg_assets"
+        ),
+    },
+
+    # ── Audit: no valid profitability input at all ────────────────────────────
+    "quality_missing": {
+        "label":       "Q Missing",
+        "shortLabel":  "Q?",
+        "description": "No valid profitability data — quality signal unavailable for this stock",
+        "color":       "slate",
+        "_rule": lambda s: bool(s.get("qualityMissing")),
+    },
+
+    # ── Signal: high-quality business by OPA z-score ─────────────────────────
+    "high_quality": {
+        "label":       "High Quality",
+        "shortLabel":  "HQ",
+        "description": "OPA z-score ≥ +0.75 — top ~23% of universe by profitability (display only)",
+        "color":       "emerald",
+        # zQ is None when quality is missing; treat None as 0 via safe guard.
+        "_rule": lambda s: (s.get("zQ") is not None) and (s["zQ"] >= 0.75),
+    },
+
+    # ── Signal: low-quality business by OPA z-score ──────────────────────────
+    "low_quality": {
+        "label":       "Low Quality",
+        "shortLabel":  "LQ",
+        "description": "OPA z-score ≤ −0.75 — bottom ~23% of universe by profitability (display only)",
+        "color":       "rose",
+        "_rule": lambda s: (s.get("zQ") is not None) and (s["zQ"] <= -0.75),
+    },
 }
 
 

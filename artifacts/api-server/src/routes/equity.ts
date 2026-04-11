@@ -88,6 +88,7 @@ router.get("/equity/rankings", async (req, res): Promise<void> => {
         clusterCount: d.cluster_count || 0,
         cachedAt: d.cached_at || null,
         audit: d.audit || null,
+        tagDefinitions: d.tagDefinitions || {},
       });
     } else {
       res.status(202).json({
