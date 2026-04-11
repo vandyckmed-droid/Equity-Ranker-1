@@ -1039,6 +1039,52 @@ export default function MainPage() {
               </div>
             </div>
 
+            {/* ── Hide by Tag ─────────────────────────────────────────────── */}
+            {Object.keys(tagDefinitions).length > 0 && (
+              <div className="space-y-1">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Hide by Tag</h3>
+                <p className="text-[10px] text-muted-foreground/60 pb-1">Stocks with a hidden tag are removed from the list. Rankings are never changed.</p>
+                {Object.entries(tagDefinitions).map(([key, def]) => {
+                  const isHidden = hiddenTags.has(key);
+                  const colorCls = TAG_COLOR_CLASSES[def.color] ?? TAG_COLOR_CLASSES.slate;
+                  return (
+                    <div
+                      key={key}
+                      className={cn(
+                        "flex items-center gap-3 -mx-1 px-2 rounded-lg h-11 transition-opacity",
+                        isHidden ? "opacity-40" : "opacity-100"
+                      )}
+                    >
+                      <span className={cn("inline-flex items-center rounded border px-1.5 text-[9px] font-semibold tracking-wide leading-4 shrink-0", colorCls)}>
+                        {def.shortLabel}
+                      </span>
+                      <span className="flex-1 text-sm min-w-0">
+                        <span className="block truncate">{def.label}</span>
+                        {def.description && (
+                          <span className="block text-[10px] text-muted-foreground/60 truncate">{def.description}</span>
+                        )}
+                      </span>
+                      <button
+                        onClick={() => toggleHide(key)}
+                        className={cn(
+                          "h-9 w-9 flex items-center justify-center rounded transition-colors shrink-0",
+                          isHidden ? "text-muted-foreground hover:bg-muted" : "text-foreground hover:bg-muted"
+                        )}
+                        aria-label={isHidden ? "Show tag" : "Hide tag"}
+                        title={isHidden ? "Click to show" : "Click to hide"}
+                      >
+                        {isHidden ? (
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                        ) : (
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
           </div>
         </SheetContent>
       </Sheet>
@@ -1126,55 +1172,6 @@ export default function MainPage() {
                 ))}
               </>
             )}
-          {/* ── Hide by Tag ───────────────────────────────────────────────── */}
-          {Object.keys(tagDefinitions).length > 0 && (
-            <>
-              <div className="px-4 pt-4 pb-2 border-t border-border/40 mt-1">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Hide by Tag</p>
-                <p className="text-[10px] text-muted-foreground/60 mt-0.5">Stocks with hidden tags are excluded from the list. Rankings are never changed.</p>
-              </div>
-              {Object.entries(tagDefinitions).map(([key, def]) => {
-                const isHidden = hiddenTags.has(key);
-                const colorCls = TAG_COLOR_CLASSES[def.color] ?? TAG_COLOR_CLASSES.slate;
-                return (
-                  <div
-                    key={key}
-                    className={cn(
-                      "flex items-center gap-3 px-3 mx-1 rounded-lg h-12 transition-opacity",
-                      isHidden ? "opacity-40" : "opacity-100"
-                    )}
-                  >
-                    <span className={cn("inline-flex items-center rounded border px-1.5 text-[9px] font-semibold tracking-wide leading-4 shrink-0", colorCls)}>
-                      {def.shortLabel}
-                    </span>
-                    <span className="flex-1 text-sm min-w-0">
-                      <span className="block truncate">{def.label}</span>
-                      {def.description && (
-                        <span className="block text-[10px] text-muted-foreground/60 truncate">{def.description}</span>
-                      )}
-                    </span>
-                    <button
-                      onClick={() => toggleHide(key)}
-                      className={cn(
-                        "h-10 w-9 flex items-center justify-center rounded transition-colors text-sm shrink-0",
-                        isHidden
-                          ? "text-muted-foreground hover:bg-muted"
-                          : "text-foreground hover:bg-muted"
-                      )}
-                      aria-label={isHidden ? "Show tag" : "Hide tag"}
-                      title={isHidden ? "Click to show" : "Click to hide"}
-                    >
-                      {isHidden ? (
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                      ) : (
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                      )}
-                    </button>
-                  </div>
-                );
-              })}
-            </>
-          )}
         </div>
 
           <div className="px-4 py-3 border-t border-border">
