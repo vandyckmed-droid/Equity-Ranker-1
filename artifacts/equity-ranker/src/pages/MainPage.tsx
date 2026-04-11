@@ -7,6 +7,9 @@ import {
   GetRankingsParams,
 } from "@workspace/api-client-react";
 import { useMobilePrefs } from "@/hooks/use-mobile-prefs";
+import { useAlphaBasket } from "@/hooks/use-alpha-basket";
+import { AlphaBasketPanel } from "@/components/AlphaBasketPanel";
+import { AlphaBasketButton } from "@/components/AlphaBasketButton";
 import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { usePortfolio } from "@/hooks/use-portfolio";
@@ -50,9 +53,6 @@ import {
   RotateCcw,
   X,
 } from "lucide-react";
-import { useAlphaBasket } from "@/hooks/use-alpha-basket";
-import { AlphaBasketButton } from "@/components/AlphaBasketButton";
-
 type SortField = keyof Stock;
 type SortDirection = "asc" | "desc";
 
@@ -253,7 +253,8 @@ export default function MainPage() {
     toggleShowTagFB, toggleShowTagHP, toggleShowTagLP,
   } = useMobilePrefs();
 
-  const { computeAlpha, getContributions, totalWeight: basketTotalWeight, activePresetId } = useAlphaBasket();
+  const alphaBasket = useAlphaBasket();
+  const { computeAlpha, getContributions, totalWeight: basketTotalWeight } = alphaBasket;
 
   const queryClient = useQueryClient();
 
@@ -399,6 +400,7 @@ export default function MainPage() {
   useEffect(() => {
     if (stocks.length > 0) setAllStocks(stocks);
     if (stocks.length > 0) {
+      // Alpha rerank using basket — seeds the portfolio context
       const reranked = stocks
         .map((s: any) => ({ ...s, alpha: computeAlpha(s) }))
         .sort((a, b) => (b.alpha ?? 0) - (a.alpha ?? 0));
@@ -830,6 +832,19 @@ export default function MainPage() {
                 audit={audit as Record<string, unknown> | undefined}
               />
               <Button
+                variant={alphaBasket.panelOpen ? "secondary" : "ghost"}
+                size="sm"
+                className={cn(
+                  "h-7 px-2 gap-1 text-xs",
+                  alphaBasket.panelOpen ? "" : "text-muted-foreground hover:text-foreground"
+                )}
+                onClick={() => alphaBasket.setPanelOpen(true)}
+                title="Alpha Basket — configure factor weights"
+              >
+                <span className="hidden sm:inline">α Basket</span>
+                <span className="sm:hidden">α</span>
+              </Button>
+              <Button
                 variant={controlsOpen ? "secondary" : "ghost"}
                 size="sm"
                 className={cn(
@@ -922,6 +937,14 @@ export default function MainPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Alpha Basket Panel ───────────────────────────────────────────── */}
+      <AlphaBasketPanel
+        open={alphaBasket.panelOpen}
+        onOpenChange={alphaBasket.setPanelOpen}
+        cachedAt={rankingsResult?.cachedAt}
+        basket={alphaBasket}
+      />
 
       {/* ── Filters Sheet ────────────────────────────────────────────────── */}
       <Sheet open={controlsOpen} onOpenChange={setControlsOpen}>
