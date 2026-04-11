@@ -150,6 +150,84 @@ function getAlphaColor(p: number): string {
   }
 }
 
+// ── QualityAuditChip ─────────────────────────────────────────────────────────
+// Lives outside MainPage so it can own its own useState without violating the
+// "no new hooks inside MainPage" HMR rule.
+interface QualityAuditChipProps {
+  qualityCoverage?: string;
+  qualityPct?: number;
+  qualityPrimaryCount?: number;
+  qualityPrimaryPct?: number;
+  qualityEbitFallbackCount?: number;
+  qualityEbitFallbackPct?: number;
+  qualityNetIncomeFallbackCount?: number;
+  qualityNetIncomeFallbackPct?: number;
+  qualityMissingCount?: number;
+  qualityMissingPct?: number;
+}
+
+function QualityAuditChip(p: QualityAuditChipProps) {
+  const [open, setOpen] = useState(false);
+  if (p.qualityPct == null) return null;
+
+  const coveragePct  = p.qualityPct ?? 0;
+  const primaryPct   = p.qualityPrimaryPct ?? 0;
+  const ebitPct      = p.qualityEbitFallbackPct ?? 0;
+  const netPct       = p.qualityNetIncomeFallbackPct ?? 0;
+  const fallbackPct  = Math.round((ebitPct + netPct) * 10) / 10;
+  const missingPct   = p.qualityMissingPct ?? 0;
+
+  const rows: { label: string; count?: number; pct: number; color: string }[] = [
+    { label: "Primary — Op Income / Assets",   count: p.qualityPrimaryCount,           pct: primaryPct,  color: "text-emerald-400" },
+    { label: "Fallback — EBIT / Assets",        count: p.qualityEbitFallbackCount,      pct: ebitPct,     color: "text-amber-400"   },
+    { label: "Fallback — Net Income / Assets",  count: p.qualityNetIncomeFallbackCount, pct: netPct,      color: "text-amber-400"   },
+    { label: "Missing",                          count: p.qualityMissingCount,           pct: missingPct,  color: "text-muted-foreground" },
+  ];
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1 h-5 rounded-full px-2 text-[11px] bg-muted/60 border border-border/40 whitespace-nowrap shrink-0 text-muted-foreground/70 hover:text-foreground hover:border-border/70 transition-colors"
+        title="Profitability data coverage — tap for full breakdown"
+      >
+        <span>OPA {coveragePct % 1 === 0 ? coveragePct.toFixed(0) : coveragePct.toFixed(1)}%</span>
+        {primaryPct > 0  && <span className="text-emerald-400/80">· Primary {primaryPct.toFixed(1)}%</span>}
+        {fallbackPct > 0 && <span className="text-amber-400/70">· Fallback {fallbackPct.toFixed(1)}%</span>}
+      </button>
+
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetContent side="bottom" className="rounded-t-xl pb-8">
+          <SheetHeader className="pb-3 border-b border-border">
+            <SheetTitle className="text-sm font-semibold">Profitability Coverage</SheetTitle>
+          </SheetHeader>
+          <div className="pt-4 space-y-4 text-xs">
+            <div className="flex justify-between items-center font-mono">
+              <span className="text-muted-foreground">Universe coverage</span>
+              <span className="font-semibold tabular-nums">
+                {p.qualityCoverage ?? "—"}&ensp;({coveragePct.toFixed(1)}%)
+              </span>
+            </div>
+            <div className="space-y-2 border-t border-border/40 pt-3">
+              {rows.map(r => (
+                <div key={r.label} className="flex items-center justify-between font-mono gap-4">
+                  <span className={cn("text-[11px]", r.color)}>{r.label}</span>
+                  <span className="tabular-nums shrink-0 text-muted-foreground">
+                    {r.count != null ? r.count.toLocaleString() : "—"} ({r.pct.toFixed(1)}%)
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-muted-foreground/60 border-t border-border/30 pt-3 leading-relaxed">
+              Fallback metrics are less clean and may be less predictive than operating profitability. Missing means no financial data was available for the stock.
+            </p>
+          </div>
+        </SheetContent>
+      </Sheet>
+    </>
+  );
+}
+
 export default function MainPage() {
   const { basket, basketSet, addToBasket, removeFromBasket, setAllStocks, setRankedStocks } = usePortfolio();
   const { config, orderedVisible, toggleColumn, moveColumn, resetColumns } = useColumnConfig();
@@ -808,6 +886,21 @@ export default function MainPage() {
                 <Loader2 className="w-2.5 h-2.5 animate-spin" />
                 loading
               </span>
+            )}
+            {/* OPA coverage chip — tappable, opens detail sheet */}
+            {audit && (
+              <QualityAuditChip
+                qualityCoverage={audit.qualityCoverage}
+                qualityPct={audit.qualityPct}
+                qualityPrimaryCount={audit.qualityPrimaryCount}
+                qualityPrimaryPct={audit.qualityPrimaryPct}
+                qualityEbitFallbackCount={audit.qualityEbitFallbackCount}
+                qualityEbitFallbackPct={audit.qualityEbitFallbackPct}
+                qualityNetIncomeFallbackCount={audit.qualityNetIncomeFallbackCount}
+                qualityNetIncomeFallbackPct={audit.qualityNetIncomeFallbackPct}
+                qualityMissingCount={audit.qualityMissingCount}
+                qualityMissingPct={audit.qualityMissingPct}
+              />
             )}
           </div>
         </div>
