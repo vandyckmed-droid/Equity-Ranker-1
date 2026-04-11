@@ -60,18 +60,6 @@ export interface Stock {
   /** @nullable */
   adv?: number | null;
   /** @nullable */
-  m6?: number | null;
-  /** @nullable */
-  m12?: number | null;
-  /** @nullable */
-  r1?: number | null;
-  /** @nullable */
-  sigma1?: number | null;
-  /** @nullable */
-  sigma6?: number | null;
-  /** @nullable */
-  sigma12?: number | null;
-  /** @nullable */
   s1?: number | null;
   /** @nullable */
   s6?: number | null;
@@ -104,7 +92,7 @@ export interface Stock {
   /** @nullable */
   zS1?: number | null;
   /** @nullable */
-  zInvVol?: number | null;
+  zLowVol?: number | null;
   /** @nullable */
   zOPA?: number | null;
   /** @nullable */

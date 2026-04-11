@@ -1,0 +1,211 @@
+Refactor and standardize the Alpha Formula implementation for correctness, consistency, and auditability. Do NOT change architecture (server computes signals, client applies weights). Do NOT change UI behavior. This is a math/definition cleanup + full system audit.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CORE OBJECTIVES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Enforce consistent mathematical definitions across all signals
+- Remove ambiguity in formulas and windows
+- Improve numerical stability and robustness
+- Ensure full auditability (every number traceable)
+- Optimize for performance, speed, and simplicity
+- Standardize structure across backend + frontend
+- Eliminate redundant or inconsistent logic
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SIGNAL STANDARDIZATION (REQUIRED)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1) RETURNS — USE LOG RETURNS EVERYWHERE
+
+Replace all uses of “daily_ret” with:
+  r_t = ln(P_t / P_{t-1})
+
+Apply consistently to:
+- s1, s6, s12
+- residual momentum regressions
+- volatility (EWMA input)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+2) SKIP LOGIC — TRUE 1-MONTH SKIP
+
+Momentum windows must exclude most recent 21 trading days:
+
+s6:
+  r_t over t-126 → t-22
+
+s12:
+  r_t over t-252 → t-22
+
+s1 (reversal):
+  keep t-21 → t-2
+
+Ensure NO overlap between s1 and s6/s12.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+3) SHARPE DEFINITIONS — STANDARDIZE
+
+For all Sharpe-like signals:
+
+  s_k = mean(r_window) / std(r_window) × √252
+
+Where:
+- mean and std use identical window
+- rf = 0 (implicit)
+
+Apply to:
+- s1, s6, s12
+- res6, res12
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+4) RESIDUAL MOMENTUM — MULTI-FACTOR REGRESSION
+
+Replace sector-only regression with:
+
+  r_stock = α + β_m·r_market + β_s·r_sector + ε
+
+Then:
+  res_k = Sharpe(ε over window k)
+
+Use same windows as s6/s12 (with skip month).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+5) TREND (T-STATS) — LOG PRICE REGRESSION
+
+Replace:
+  price ~ time
+
+With:
+  ln(P_t) = a + b·t + u_t
+
+Then:
+  tstat_k = t-statistic of slope b
+
+Apply for:
+- 126 days
+- 252 days
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+6) WINSORIZATION — PERCENTILE BASED
+
+For each signal cross-sectionally:
+- clamp to 2nd percentile
+- clamp to 98th percentile
+
+Then:
+  Z = (x − μ) / σ
+
+Apply uniformly across all signals.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+7) VOLATILITY SIGNAL — SIMPLIFY + STABILIZE
+
+Replace:
+  Z(1 / σ_ewma)
+
+With:
+  lowvol = -Z(σ_ewma)
+
+Where:
+  σ_ewma = √(EWMA variance × 252), λ = 0.94
+
+Apply floor BEFORE z-score:
+  σ = max(σ_ewma, 0.10)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+8) MISSING DATA HANDLING
+
+- Compute signals with NaN where unavailable
+- Exclude NaNs from cross-sectional stats
+- After z-scoring, assign missing Z = 0
+
+Ensure no distortion of mean/std.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+9) OPA — NO FORMULA CHANGE
+
+Keep hierarchy:
+- Operating Income / Avg Assets
+- fallback EBIT
+- fallback Net Income
+
+Keep:
+- cross-sectional z-score across full universe
+- no sector normalization (for now)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+10) COMPOSITE — NO CHANGE
+
+Keep:
+  α = Σ(w_i · signed Z_i) / Σw
+
+Keep default weights unchanged.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FULL SYSTEM AUDIT (ADDITIONAL REQUIREMENT)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Perform a complete audit of the entire app (backend + frontend) with focus on:
+
+A) CONSISTENCY
+- All signals use identical conventions (returns, windows, annualization)
+- No duplicate or conflicting implementations
+- Same definitions used everywhere (no drift between modules)
+
+B) TRANSPARENCY
+- Every displayed metric is traceable to raw inputs
+- Add explicit formula documentation inline in code
+- Ensure audit/debug outputs can reconstruct any score
+
+C) ORGANIZATION
+- Centralize all signal definitions in a single module
+- Remove scattered or duplicated logic
+- Enforce clean separation:
+  data → signals → normalization → scoring → UI
+
+D) SIMPLIFICATION
+- Remove unnecessary transformations
+- Eliminate redundant calculations
+- Prefer single canonical implementation per concept
+
+E) PERFORMANCE & SPEED
+- Avoid recomputation of identical values
+- Cache reusable intermediate results (returns, vol, regressions)
+- Minimize loops and repeated passes over universe
+- Ensure batch operations where possible
+
+F) AUDITABILITY
+- Add optional “debug mode” output per stock:
+  - raw signals
+  - winsorized values
+  - z-scores
+  - final weighted contributions
+- Ensure exact reproducibility of α
+
+G) STRUCTURED OUTPUT FORMAT
+- Ensure all API responses follow a clean, consistent schema
+- Standardize naming conventions across backend and frontend
+- Align field names with mathematical definitions
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DELIVERABLE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Fully standardized signal computation pipeline
+- Clean, centralized formula definitions
+- Improved numerical stability and consistency
+- Faster, more efficient computation
+- Clear audit trail from raw data → α
+- No UI changes, no change in user workflow
+
+Goal:
+Institutional-grade, internally consistent, fully auditable, high-performance ranking engine with minimal complexity and zero ambiguity.

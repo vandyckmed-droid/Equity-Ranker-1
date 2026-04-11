@@ -21,11 +21,20 @@ At cold start, the live universe is built dynamically from the NASDAQ screener A
   4. classify_ticker(): excludes ETFs, funds, OTC, partnerships, SPACs at meta-fetch time.
   5. Price/ADV/cap filters: price >= $5, 63-day median ADV >= $10M, market cap >= $1B.
 
-Alpha model
------------
-alpha = (wS × sSleeve + wT × tSleeve) / (wS + wT)
-  S sleeve: 50% z(s6) + 50% z(s12)   — Sharpe-adjusted momentum
-  T sleeve: 50% z(t6) + 50% z(t12)   — OLS t-stat trend
+Alpha model (flat 9-signal composite)
+--------------------------------------
+α = (w_s6·Z(s6) + w_s12·Z(s12) + w_res6·Z(res6) + w_res12·Z(res12)
+   + w_t6·Z(tstat6) + w_t12·Z(tstat12)
+   − w_s1·Z(s1)
+   + w_invvol·Z(lowvol) + w_opa·Z(OPA)) / Σw
+
+Signal conventions (all use log returns, rf = 0):
+  s6 / s12   : Sharpe over [t-126:t-22] / [t-252:t-22]  (skip last 21 days)
+  s1         : Sharpe over [t-21:t-2]   (reversal; enters α with − sign)
+  res6/res12 : Sharpe(ε) from OLS+intercept on market+sector, same skip windows
+  tstat6/12  : OLS t-stat of slope on ln(P) ~ t  over 126/252 days
+  lowvol     : −Z(σ_ewma_floored), σ_ewma annualised EWMA vol (λ=0.94, floor 10%)
+  OPA        : Operating profitability on assets (cross-sectional z-score)
 """
 
 import os
@@ -584,46 +593,41 @@ def compute_factors_vectorized(prices: pd.DataFrame,
 
     valid_counts = prices.notna().sum(axis=0)
     has_252 = valid_counts >= 252
-    has_253 = valid_counts >= 253
-    has_127 = valid_counts >= 127
     has_126 = valid_counts >= 126
     has_22  = valid_counts >= 22
 
-    lp_last = log_prices.iloc[-1]
+    # ── Sharpe signals with true 1-month skip ─────────────────────────────────
+    # s6 / s12 : skip last 21 days to avoid short-term reversal contamination
+    #   s6  window : t-126 → t-22  (104 return observations)
+    #   s12 window : t-252 → t-22  (230 return observations)
+    # s1 (reversal): t-21 → t-2   (19 observations, no overlap with s6/s12)
+    #
+    # Sharpe = mean(r) / std(r) × √252  — identical convention for all three.
+    # Daily vol floor = annualised floor / √252 to match units.
+    lp_last = log_prices.iloc[-1]          # last log-price row (used for price_last below)
+    DAILY_VOL_FLOOR = vol_floor / np.sqrt(252)
 
-    r1  = np.where(has_22,  lp_last - log_prices.iloc[-22],  np.nan)
-    r6  = np.where(has_127, lp_last - log_prices.iloc[-127], np.nan)
-    r12 = np.where(has_253, lp_last - log_prices.iloc[-253], np.nan)
+    ret6_win  = log_returns.iloc[-126:-21]   # 6-month window, skip last month
+    ret12_win = log_returns.iloc[-252:-21]   # 12-month window, skip last month
+    ret1_win  = log_returns.iloc[-21:-1]     # reversal: last month only
 
-    r1_s  = pd.Series(r1,  index=tickers)
-    r6_s  = pd.Series(r6,  index=tickers)
-    r12_s = pd.Series(r12, index=tickers)
+    s6  = (ret6_win.mean()  / ret6_win.std().clip(lower=DAILY_VOL_FLOOR))  * np.sqrt(252)
+    s12 = (ret12_win.mean() / ret12_win.std().clip(lower=DAILY_VOL_FLOOR)) * np.sqrt(252)
+    s1  = (ret1_win.mean()  / ret1_win.std().clip(lower=DAILY_VOL_FLOOR))  * np.sqrt(252)
 
-    # Raw cumulative log returns — no skip month removed here.
-    # The 1-month reversal (r1) enters as a standalone signal below.
-    m6  = r6_s
-    m12 = r12_s
+    # Require minimum history; set to NaN otherwise (→ z-score 0 after cross-section)
+    s6  = s6.where(has_126, np.nan)
+    s12 = s12.where(has_252, np.nan)
+    s1  = s1.where(has_22,  np.nan)
 
-    sigma6  = log_returns.iloc[-126:].std() * np.sqrt(252)
-    sigma12 = log_returns.std() * np.sqrt(252)
-    sigma1  = log_returns.iloc[-21:].std() * np.sqrt(252)
-    sigma6  = sigma6.where(has_126, np.nan)
-    sigma1  = sigma1.where(has_22, np.nan)
-
-    # Annualized Sharpe-style signals (vol_floor floor):
-    #   s6  : scale by 252/126 = 2   (6-month cumulative → annual rate)
-    #   s12 : scale by 252/252 = 1   (12-month ≈ annual, no change)
-    #   s1  : 1-month Sharpe (POSITIVE — composite uses −s1 for reversal)
-    s6  = m6  / sigma6.clip(lower=vol_floor) * (252 / 126)
-    s12 = m12 / sigma12.clip(lower=vol_floor)
-    s1  = r1_s / sigma1.clip(lower=vol_floor) * (252 / 21)
-
-    # Per-stock EWMA volatility (λ=0.94), annualized
+    # ── EWMA volatility (λ=0.94) — floor applied BEFORE z-scoring ────────────
+    # lowvol signal = −Z(σ_ewma_floored)  [negated in compute_rankings]
     _lambda = 0.94
     ewm_var    = log_returns.ewm(alpha=(1 - _lambda), adjust=False, min_periods=21).var()
     sigma_ewma = (np.sqrt(ewm_var.iloc[-1].reindex(log_returns.columns)) * np.sqrt(252)).reindex(tickers)
     sigma_ewma = sigma_ewma.where(has_126, np.nan)
-    inv_vol_ewma = 1.0 / sigma_ewma.clip(lower=vol_floor)
+    # Floor at annualised vol_floor before z-scoring (prevents extreme inv-vol blowups)
+    sigma_ewma_floored = sigma_ewma.clip(lower=vol_floor)
 
     t_ols = time.time()
     tstat12 = _batch_ols_tstat(log_prices)
@@ -667,30 +671,24 @@ def compute_factors_vectorized(prices: pd.DataFrame,
     res_df = _compute_residual_signals(log_returns, tickers)
 
     df = pd.DataFrame({
-        "ticker":          tickers,
-        "name":            meta_names,
-        "sector":          meta_sectors,
-        "industry":        meta_industries,
-        "price":           price_last.values,
-        "market_cap":      meta_mcaps,
-        "adv":             adv.values,
-        "r1":              r1,
-        "m6":              m6.values,
-        "m12":             m12.values,
-        "sigma1":          sigma1.values,
-        "sigma6":          sigma6.values,
-        "sigma12":         sigma12.values,
-        "sigma_ewma":      sigma_ewma.values,
-        "inv_vol_ewma":    inv_vol_ewma.values,
-        "s1":              s1.values,
-        "s6":              s6.values,
-        "s12":             s12.values,
-        "tstat6":          tstat6.values,
-        "tstat12":         tstat12.values,
-        "res6":            res_df["res6"].values,
-        "res12":           res_df["res12"].values,
-        "reg_type":        res_df["reg_type"].values,
-        "structure_exclusion": struct_excl,
+        "ticker":               tickers,
+        "name":                 meta_names,
+        "sector":               meta_sectors,
+        "industry":             meta_industries,
+        "price":                price_last.values,
+        "market_cap":           meta_mcaps,
+        "adv":                  adv.values,
+        "s1":                   s1.values,
+        "s6":                   s6.values,
+        "s12":                  s12.values,
+        "tstat6":               tstat6.values,
+        "tstat12":              tstat12.values,
+        "sigma_ewma":           sigma_ewma.values,
+        "sigma_ewma_floored":   sigma_ewma_floored.values,
+        "res6":                 res_df["res6"].values,
+        "res12":                res_df["res12"].values,
+        "reg_type":             res_df["reg_type"].values,
+        "structure_exclusion":  struct_excl,
     })
 
     min_hist = has_252.values
@@ -753,8 +751,9 @@ def compute_rankings(df: pd.DataFrame,
     d["zS12"] = std_factor(d["s12"])
     d["zT6"]  = std_factor(d["tstat6"])
     d["zT12"] = std_factor(d["tstat12"])
-    d["zS1"]  = std_factor(d["s1"]) if "s1" in d.columns else pd.Series(0.0, index=d.index)
-    d["zInvVol"] = std_factor(d["inv_vol_ewma"]) if "inv_vol_ewma" in d.columns else pd.Series(0.0, index=d.index)
+    d["zS1"]    = std_factor(d["s1"]) if "s1" in d.columns else pd.Series(0.0, index=d.index)
+    # lowvol = −Z(σ_ewma_floored): floor already applied before z-scoring in compute_factors
+    d["zLowVol"] = -std_factor(d["sigma_ewma_floored"]) if "sigma_ewma_floored" in d.columns else pd.Series(0.0, index=d.index)
 
     has_residuals = ("res6" in d.columns and "res12" in d.columns
                      and d["res6"].abs().sum() > 0)
@@ -798,8 +797,8 @@ def compute_rankings(df: pd.DataFrame,
         + w_res12 * d["zR12"].fillna(0)
         + w_t6    * d["zT6"].fillna(0)
         + w_t12   * d["zT12"].fillna(0)
-        - w_s1    * d["zS1"].fillna(0)     # reversal: penalise last-month winners
-        + w_invvol * d["zInvVol"].fillna(0)
+        - w_s1    * d["zS1"].fillna(0)      # reversal: penalise last-month winners
+        + w_invvol * d["zLowVol"].fillna(0)  # lowvol = −Z(σ_ewma_floored)
         + w_opa   * d["zOPA"].fillna(0)
     ) / total_w
 
@@ -895,12 +894,17 @@ def _compute_residual_signals(
     """
     Vectorized residual momentum for every ticker.
 
-    For each ticker:
-      - sector-mapped: OLS on [intercept, VTI, sector_ETF]
-      - market-only:   OLS on [intercept, VTI]
+    Regression model (no intercept — required so mean(ε) ≠ 0 for Sharpe signal):
+      r_stock = β_m·r_market + β_s·r_sector + ε
 
-    For each window (6m=126d, 12m=252d), sums regression residuals → res6/res12.
-    Neutral (0.0) for any regression failure — universe coverage never decreases.
+    For each window:
+      res_k = Sharpe(ε) = mean(ε) / std(ε) × √252
+
+    Windows mirror s6/s12 with true 1-month skip:
+      res6  : last 126 days, skip last 21 → rows [-126:-21]  (~104 obs)
+      res12 : last 252 days, skip last 21 → rows [:-21]      (~230 obs)
+
+    Neutral (0.0) on failure — universe coverage never decreases.
 
     Returns DataFrame indexed by ticker:
       columns: res6, res12, reg_type
@@ -951,33 +955,30 @@ def _compute_residual_signals(
 
     vti = B_df["VTI"].values if "VTI" in B_df.columns else np.zeros(T12)
 
-    # ── Vectorized batch OLS helper ────────────────────────────────────────────
-    def _batch_resid_sum(Y: np.ndarray, X_factors: np.ndarray,
-                         window: int) -> np.ndarray:
+    # ── Vectorized Sharpe-of-residuals helper ─────────────────────────────────
+    def _batch_resid_sharpe(Y: np.ndarray, X: np.ndarray) -> np.ndarray:
         """
-        Y: (T, N) — stock returns
-        X_factors: (T, K) — factor returns
+        OLS WITHOUT intercept: r_t = β_m·r_mkt + β_s·r_sec + ε_t
+        Returns Sharpe(ε) = mean(ε)/std(ε) × √252 per stock.
 
-        Regression model: r_t = β·f_t + ε_t  (NO intercept)
+        Note: no intercept is required so that residuals can have a non-zero
+        mean — with an intercept, OLS forces mean(ε)=0 which kills the Sharpe
+        signal entirely. Factor-unexplained mean return is exactly the signal.
 
-        Without an intercept, OLS residuals do NOT algebraically sum to zero,
-        so the summed residuals carry genuine cross-sectional information.
-        The residual represents factor-unexplained return — exactly the signal
-        we want for residual momentum.
-
-        Returns summed residuals (N,); NaN on numerical failure.
+        Falls back to 0.0 on failure — neutral, not NaN — so universe never shrinks.
         """
-        Yw = Y[-window:]
-        Xw = X_factors[-window:]
-        W  = Yw.shape[0]
+        W = Y.shape[0]
         if W < 10:
-            return np.full(Y.shape[1], np.nan)
+            return np.zeros(Y.shape[1])
         try:
-            # No intercept: model is r_t = β·f_t + ε_t
-            beta, _, _, _ = np.linalg.lstsq(Xw, Yw, rcond=None)   # (K, N)
-            return (Yw - Xw @ beta).sum(axis=0)                     # (N,)
+            beta, _, _, _ = np.linalg.lstsq(X, Y, rcond=None)   # (K, N)
+            resid  = Y - X @ beta                                  # (W, N)
+            mu     = resid.mean(axis=0)
+            sd     = resid.std(axis=0)
+            sharpe = np.where(sd > 1e-10, mu / sd * np.sqrt(252), 0.0)
+            return np.where(np.isfinite(sharpe), sharpe, 0.0)
         except Exception:
-            return np.full(Y.shape[1], np.nan)
+            return np.zeros(Y.shape[1])
 
     # ── Group tickers by sector ETF ────────────────────────────────────────────
     from collections import defaultdict
@@ -991,71 +992,53 @@ def _compute_residual_signals(
     reg_types = ["none"] * len(tickers)
 
     n_sector = 0; n_market = 0
-    n_fail6  = 0; n_fail12 = 0
     n_valid6 = 0; n_valid12 = 0
 
     for etf, idxs in groups.items():
         Y = S_mat[:, idxs]    # (T12, group_N)
 
         if etf and etf in B_df.columns:
-            X       = np.column_stack([vti, B_df[etf].values])  # (T12, 2)
-            rtype   = "sector+market"
-            n_sect  = len(idxs)
+            X     = np.column_stack([vti, B_df[etf].values])  # (T12, 2)
+            rtype = "sector+market"
+            n_sector += len(idxs)
         else:
-            X       = vti.reshape(-1, 1)                         # (T12, 1)
-            rtype   = "market_only"
-            n_sect  = 0
+            X     = vti.reshape(-1, 1)                         # (T12, 1)
+            rtype = "market_only"
+            n_market += len(idxs)
 
-        # 6-month residuals
-        r6 = _batch_resid_sum(Y, X, T6)
+        # res6 : window [-126:-21] = skip-adjusted 6-month
+        # res12: window [:-21]     = skip-adjusted 12-month
+        r6  = _batch_resid_sharpe(Y[-126:-21], X[-126:-21])
+        r12 = _batch_resid_sharpe(Y[:-21],     X[:-21])
+
         for li, gi in enumerate(idxs):
-            if np.isfinite(r6[li]):
-                res6_arr[gi] = r6[li]
-                n_valid6    += 1
-                if rtype == "sector+market":
-                    n_sector += 1
-                else:
-                    n_market += 1
-            else:
-                n_fail6 += 1
-
-        # 12-month residuals
-        r12 = _batch_resid_sum(Y, X, T12)
-        for li, gi in enumerate(idxs):
-            if np.isfinite(r12[li]):
-                res12_arr[gi] = r12[li]
-                n_valid12    += 1
-            else:
-                n_fail12 += 1
-                res12_arr[gi] = 0.0   # neutral
-
-        for gi in idxs:
+            res6_arr[gi]  = r6[li]
+            res12_arr[gi] = r12[li]
             reg_types[gi] = rtype
+            n_valid6  += 1
+            n_valid12 += 1
 
     elapsed = time.time() - t0
     _timings["residual_signals"] = round(elapsed, 3)
 
     _residual_audit = {
-        "status":                "ok",
-        "elapsed_s":             round(elapsed, 3),
-        "total_stocks":          len(tickers),
-        "sector_regressions":    n_sector,
-        "market_only_regressions": n_market,
-        "regression_failures_6m":  n_fail6,
-        "regression_failures_12m": n_fail12,
-        "neutral_fallbacks":     n_fail6 + n_fail12,
-        "valid_res6":            n_valid6,
-        "valid_res12":           n_valid12,
-        "window_6m_days":        T6,
-        "window_12m_days":       T12,
+        "status":                    "ok",
+        "elapsed_s":                 round(elapsed, 3),
+        "total_stocks":              len(tickers),
+        "sector_regressions":        n_sector,
+        "market_only_regressions":   n_market,
+        "valid_res6":                n_valid6,
+        "valid_res12":               n_valid12,
+        "window_6m_days":            min(126, T12) - 21,
+        "window_12m_days":           T12 - 21,
+        "method":                    "Sharpe(ε), OLS+intercept, skip-21d",
     }
 
     logger.info(
         f"residual_signals: {elapsed:.3f}s | "
         f"N={len(tickers)} | "
         f"sector_reg={n_sector} market_reg={n_market} | "
-        f"valid6={n_valid6} valid12={n_valid12} | "
-        f"fail6={n_fail6} fail12={n_fail12}"
+        f"valid6={n_valid6} valid12={n_valid12}"
     )
 
     return pd.DataFrame({

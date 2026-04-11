@@ -410,7 +410,7 @@ export default function MainPage() {
             wRes6  * (s.zR6    ?? 0) + wRes12  * (s.zR12   ?? 0) +
             wT6    * (s.zT6    ?? 0) + wT12    * (s.zT12   ?? 0) -
             wS1    * (s.zS1    ?? 0) +
-            wInvVol * (s.zInvVol ?? 0) +
+            wInvVol * (s.zLowVol ?? 0) +
             wOpa   * (s.zOPA   ?? 0)
           ) / totalW;
           return { ...s, alpha };
@@ -438,7 +438,7 @@ export default function MainPage() {
         wRes6  * (s.zR6    ?? 0) + wRes12  * (s.zR12   ?? 0) +
         wT6    * (s.zT6    ?? 0) + wT12    * (s.zT12   ?? 0) -
         wS1    * (s.zS1    ?? 0) +
-        wInvVol * (s.zInvVol ?? 0) +
+        wInvVol * (s.zLowVol ?? 0) +
         wOpa   * (s.zOPA   ?? 0)
       ) / totalW;
       return { ...s, alpha };
@@ -991,7 +991,7 @@ export default function MainPage() {
                   <div className="space-y-2">
                     <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Other</p>
                     {row("−s1",      "wS1")}
-                    {row("1/σ_ewma", "wInvVol")}
+                    {row("lowvol",  "wInvVol")}
                     {row("OPA",      "wOpa")}
                   </div>
                   <button
@@ -1545,8 +1545,8 @@ export default function MainPage() {
                           { label: "zT12",  z: s.zT12,   w: wT12,  contrib: contrib(wT12,  s.zT12) },
                         ];
                         const otherRows: SignalRow[] = [
-                          { label: "−zS1",  z: s.zS1 != null ? -s.zS1 : null, w: wS1, contrib: s.zS1 != null ? -(wS1 / totalW) * s.zS1 : null },
-                          { label: "zInvVol",z: s.zInvVol, w: wInvVol, contrib: contrib(wInvVol, s.zInvVol) },
+                          { label: "−zS1",   z: s.zS1    != null ? -s.zS1    : null, w: wS1,    contrib: s.zS1    != null ? -(wS1    / totalW) * s.zS1    : null },
+                          { label: "zLowVol",z: s.zLowVol != null ?  s.zLowVol : null, w: wInvVol, contrib: contrib(wInvVol, s.zLowVol) },
                           { label: "zOPA",  z: s.zOPA,   w: wOpa,  contrib: contrib(wOpa,  s.zOPA)  },
                         ];
 

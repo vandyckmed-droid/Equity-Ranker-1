@@ -284,18 +284,6 @@ components:
           type: ["number", "null"]
         adv:
           type: ["number", "null"]
-        m6:
-          type: ["number", "null"]
-        m12:
-          type: ["number", "null"]
-        r1:
-          type: ["number", "null"]
-        sigma1:
-          type: ["number", "null"]
-        sigma6:
-          type: ["number", "null"]
-        sigma12:
-          type: ["number", "null"]
         s1:
           type: ["number", "null"]
         s6:
@@ -328,7 +316,7 @@ components:
           type: ["number", "null"]
         zS1:
           type: ["number", "null"]
-        zInvVol:
+        zLowVol:
           type: ["number", "null"]
         zOPA:
           type: ["number", "null"]
