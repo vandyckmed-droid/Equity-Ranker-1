@@ -21,19 +21,21 @@ At cold start, the live universe is built dynamically from the NASDAQ screener A
   4. classify_ticker(): excludes ETFs, funds, OTC, partnerships, SPACs at meta-fetch time.
   5. Price/ADV/cap filters: price >= $5, 63-day median ADV >= $10M, market cap >= $1B.
 
-Alpha model (flat 9-signal composite)
+Alpha model (5-composite model)
 --------------------------------------
-α = (w_s6·Z(s6) + w_s12·Z(s12) + w_res6·Z(res6) + w_res12·Z(res12)
-   + w_t6·Z(tstat6) + w_t12·Z(tstat12)
-   − w_s1·Z(s1)
-   + w_invvol·Z(lowvol) + w_opa·Z(OPA)) / Σw
+  M  = ¼(zS6 + zS12 + zT6 + zT12)
+  RM = 0.4·zR6 + 0.6·zR12
+  α  = (wM·M + wRM·RM + wR·(−zS1) + wLV·zLowVol + wQ·zOPA) / Σw
 
 Signal conventions (all use log returns, rf = 0):
-  s6 / s12   : Sharpe over [t-126:t-22] / [t-252:t-22]  (skip last 21 days)
-  s1         : Sharpe over [t-21:t-2]   (reversal; enters α with − sign)
-  res6/res12 : Sharpe(ε) from OLS+intercept on market+sector, same skip windows
+  Shared volatility (all Sharpe-style signals):
+    σ = max(std(daily log-ret, t-126:t-1) × √252, 0.15)
+
+  s6 / s12   : mean(r, window) × √252 / σ — windows [t-126:t-22] / [t-252:t-22]
+  s1         : mean(r, [t-21:t-2]) × √252 / σ   (reversal; enters α with − sign)
+  res6/res12 : mean(ε, window) × √252 / σ — OLS no-intercept on market+sector ETF
   tstat6/12  : OLS t-stat of slope on ln(P) ~ t  over 126/252 days
-  lowvol     : −Z(σ_ewma_floored), σ_ewma annualised EWMA vol (λ=0.94, floor 10%)
+  lowvol     : −Z(σ_ewma_floored), σ_ewma EWMA vol (λ=0.94, floor 15%)
   OPA        : Operating profitability on assets (cross-sectional z-score)
 """
 
@@ -596,38 +598,48 @@ def compute_factors_vectorized(prices: pd.DataFrame,
     has_126 = valid_counts >= 126
     has_22  = valid_counts >= 22
 
-    # ── Sharpe signals with true 1-month skip ─────────────────────────────────
-    # s6 / s12 : skip last 21 days to avoid short-term reversal contamination
-    #   s6  window : t-126 → t-22  (104 return observations)
-    #   s12 window : t-252 → t-22  (230 return observations)
-    # s1 (reversal): t-21 → t-2   (19 observations, no overlap with s6/s12)
-    #
-    # Sharpe = mean(r) / std(r) × √252  — identical convention for all three.
-    # Daily vol floor = annualised floor / √252 to match units.
+    # ── Shared volatility for all Sharpe-style signals ────────────────────────
+    # σ_126 = std(daily log-returns over last 126 days) × √252, floor = 0.15
+    # One consistent denominator for s6, s12, s1, res6, res12 — eliminates
+    # horizon-specific vol and makes all signals directly comparable.
+    SHARPE_VOL_FLOOR = 0.15
     lp_last = log_prices.iloc[-1]          # last log-price row (used for price_last below)
-    DAILY_VOL_FLOOR = vol_floor / np.sqrt(252)
 
+    sigma_126 = log_returns.iloc[-126:].std() * np.sqrt(252)   # annualised, shape (N,)
+    sigma_126 = sigma_126.where(has_126, np.nan)               # NaN for thin histories
+    sigma_126_floored = sigma_126.clip(lower=SHARPE_VOL_FLOOR) # apply floor (NaN→NaN)
+
+    # ── Sharpe signals with true 1-month skip ─────────────────────────────────
+    # Sharpe = mean(r, window) × √252 / σ_shared  (annualised mean / annualised vol)
+    # Equivalent to (mean_daily / (σ_shared/√252)) × √252 = mean_daily × 252 / σ_shared
+    #
+    #   s6  window : [t-126:t-22]  (104 return observations)
+    #   s12 window : [t-252:t-22]  (230 return observations)
+    #   s1  window : [t-21:t-2]    (reversal, no overlap with s6/s12)
     ret6_win  = log_returns.iloc[-126:-21]   # 6-month window, skip last month
     ret12_win = log_returns.iloc[-252:-21]   # 12-month window, skip last month
     ret1_win  = log_returns.iloc[-21:-1]     # reversal: last month only
 
-    s6  = (ret6_win.mean()  / ret6_win.std().clip(lower=DAILY_VOL_FLOOR))  * np.sqrt(252)
-    s12 = (ret12_win.mean() / ret12_win.std().clip(lower=DAILY_VOL_FLOOR)) * np.sqrt(252)
-    s1  = (ret1_win.mean()  / ret1_win.std().clip(lower=DAILY_VOL_FLOOR))  * np.sqrt(252)
+    s6  = ret6_win.mean()  * 252 / sigma_126_floored
+    s12 = ret12_win.mean() * 252 / sigma_126_floored
+    s1  = ret1_win.mean()  * 252 / sigma_126_floored
 
     # Require minimum history; set to NaN otherwise (→ z-score 0 after cross-section)
+    # sigma_126_floored is already NaN for has_126=False, so s6/s1 propagate naturally;
+    # s12 needs explicit masking as sigma may be valid (126d) but 12m window is not.
     s6  = s6.where(has_126, np.nan)
     s12 = s12.where(has_252, np.nan)
-    s1  = s1.where(has_22,  np.nan)
+    s1  = s1.where(has_126, np.nan)
 
-    # ── EWMA volatility (λ=0.94) — floor applied BEFORE z-scoring ────────────
-    # lowvol signal = −Z(σ_ewma_floored)  [negated in compute_rankings]
+    # ── EWMA volatility (λ=0.94) — used only for zLowVol signal ──────────────
+    # lowvol = −Z(σ_ewma_floored)  [negated in compute_rankings]
+    # Floor raised to 0.15 to match the shared Sharpe vol floor.
+    EWMA_VOL_FLOOR = 0.15
     _lambda = 0.94
     ewm_var    = log_returns.ewm(alpha=(1 - _lambda), adjust=False, min_periods=21).var()
     sigma_ewma = (np.sqrt(ewm_var.iloc[-1].reindex(log_returns.columns)) * np.sqrt(252)).reindex(tickers)
     sigma_ewma = sigma_ewma.where(has_126, np.nan)
-    # Floor at annualised vol_floor before z-scoring (prevents extreme inv-vol blowups)
-    sigma_ewma_floored = sigma_ewma.clip(lower=vol_floor)
+    sigma_ewma_floored = sigma_ewma.clip(lower=EWMA_VOL_FLOOR)
 
     t_ols = time.time()
     tstat12 = _batch_ols_tstat(log_prices)
@@ -668,7 +680,8 @@ def compute_factors_vectorized(prices: pd.DataFrame,
                 adv[t] = price_last[t] * avg_vol
 
     # ── Residual momentum signals (vectorized, reuses log_returns) ───────────
-    res_df = _compute_residual_signals(log_returns, tickers)
+    # Pass sigma_126_floored so residual Sharpe uses the same vol denominator as s6/s12
+    res_df = _compute_residual_signals(log_returns, tickers, sigma_shared=sigma_126_floored)
 
     df = pd.DataFrame({
         "ticker":               tickers,
@@ -886,10 +899,11 @@ def compute_clustering(d: pd.DataFrame,
 # ─── Residual momentum computation ────────────────────────────────────────────
 
 def _compute_residual_signals(
-    stock_log_ret: pd.DataFrame,  # (T_full, N) — all log returns, already computed
+    stock_log_ret: pd.DataFrame,       # (T_full, N) — all log returns, already computed
     tickers: list,
     w6:  int = 126,
     w12: int = 252,
+    sigma_shared: Optional[pd.Series] = None,  # annualised shared vol, shape (N,), floor applied
 ) -> pd.DataFrame:
     """
     Vectorized residual momentum for every ticker.
@@ -897,8 +911,11 @@ def _compute_residual_signals(
     Regression model (no intercept — required so mean(ε) ≠ 0 for Sharpe signal):
       r_stock = β_m·r_market + β_s·r_sector + ε
 
-    For each window:
-      res_k = Sharpe(ε) = mean(ε) / std(ε) × √252
+    For each window (using shared annualised vol σ, same floor as s6/s12):
+      res_k = mean(ε, window) × 252 / σ
+
+    Using shared σ instead of std(ε) ensures all Sharpe-style signals are
+    normalised by the same cross-sectional denominator and remain comparable.
 
     Windows mirror s6/s12 with true 1-month skip:
       res6  : last 126 days, skip last 21 → rows [-126:-21]  (~104 obs)
@@ -955,28 +972,39 @@ def _compute_residual_signals(
 
     vti = B_df["VTI"].values if "VTI" in B_df.columns else np.zeros(T12)
 
-    # ── Vectorized Sharpe-of-residuals helper ─────────────────────────────────
-    def _batch_resid_sharpe(Y: np.ndarray, X: np.ndarray) -> np.ndarray:
+    # ── Shared sigma array aligned to tickers ─────────────────────────────────
+    # sigma_shared is indexed on log_returns.columns (same as tickers)
+    if sigma_shared is not None:
+        sig_arr_full = sigma_shared.reindex(tickers).values  # (N,) float, NaN for thin history
+    else:
+        sig_arr_full = None
+
+    # ── Vectorized mean-over-sigma residual helper ─────────────────────────────
+    def _batch_resid_sharpe(Y: np.ndarray, X: np.ndarray, sig_ann: np.ndarray) -> np.ndarray:
         """
         OLS WITHOUT intercept: r_t = β_m·r_mkt + β_s·r_sec + ε_t
-        Returns Sharpe(ε) = mean(ε)/std(ε) × √252 per stock.
+        Returns mean(ε) × 252 / σ_shared per stock — same vol denominator as s6/s12.
 
         Note: no intercept is required so that residuals can have a non-zero
-        mean — with an intercept, OLS forces mean(ε)=0 which kills the Sharpe
-        signal entirely. Factor-unexplained mean return is exactly the signal.
+        mean — with an intercept, OLS forces mean(ε)=0 which kills this signal.
 
-        Falls back to 0.0 on failure — neutral, not NaN — so universe never shrinks.
+        sig_ann : annualised shared vol (N,), floor already applied.
+        Falls back to 0.0 on invalid/missing data — universe coverage never shrinks.
         """
         W = Y.shape[0]
         if W < 10:
             return np.zeros(Y.shape[1])
         try:
             beta, _, _, _ = np.linalg.lstsq(X, Y, rcond=None)   # (K, N)
-            resid  = Y - X @ beta                                  # (W, N)
-            mu     = resid.mean(axis=0)
-            sd     = resid.std(axis=0)
-            sharpe = np.where(sd > 1e-10, mu / sd * np.sqrt(252), 0.0)
-            return np.where(np.isfinite(sharpe), sharpe, 0.0)
+            resid = Y - X @ beta                                   # (W, N)
+            mu    = resid.mean(axis=0)                             # (N,)
+            # mean_daily × 252 / sigma_ann ≡ (mean_daily / daily_vol) × sqrt(252)
+            result = np.where(
+                np.isfinite(sig_ann) & (sig_ann > 1e-10),
+                mu * 252 / sig_ann,
+                0.0,
+            )
+            return np.where(np.isfinite(result), result, 0.0)
         except Exception:
             return np.zeros(Y.shape[1])
 
@@ -1006,10 +1034,13 @@ def _compute_residual_signals(
             rtype = "market_only"
             n_market += len(idxs)
 
+        # Per-group shared sigma slice (NaN for tickers with < 126d history)
+        sig_group = sig_arr_full[idxs] if sig_arr_full is not None else np.full(len(idxs), 0.15)
+
         # res6 : window [-126:-21] = skip-adjusted 6-month
         # res12: window [:-21]     = skip-adjusted 12-month
-        r6  = _batch_resid_sharpe(Y[-126:-21], X[-126:-21])
-        r12 = _batch_resid_sharpe(Y[:-21],     X[:-21])
+        r6  = _batch_resid_sharpe(Y[-126:-21], X[-126:-21], sig_group)
+        r12 = _batch_resid_sharpe(Y[:-21],     X[:-21],     sig_group)
 
         for li, gi in enumerate(idxs):
             res6_arr[gi]  = r6[li]
