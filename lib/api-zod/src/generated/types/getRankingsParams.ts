@@ -28,9 +28,9 @@ export type GetRankingsParams = {
    */
   w12?: number;
   /**
-   * Weight on quality factor (default 0.2)
+   * Weight on reversal sleeve (default 0.2)
    */
-  wQuality?: number;
+  wRev?: number;
   /**
    * Volatility floor (default 0.05)
    */

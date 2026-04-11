@@ -26,9 +26,13 @@ export interface Stock {
   /** @nullable */
   r1?: number | null;
   /** @nullable */
+  sigma1?: number | null;
+  /** @nullable */
   sigma6?: number | null;
   /** @nullable */
   sigma12?: number | null;
+  /** @nullable */
+  s1?: number | null;
   /** @nullable */
   s6?: number | null;
   /** @nullable */
@@ -59,6 +63,8 @@ export interface Stock {
   sSleeve?: number | null;
   /** @nullable */
   tSleeve?: number | null;
+  /** @nullable */
+  revSleeve?: number | null;
   /** @nullable */
   qSleeve?: number | null;
   /** @nullable */

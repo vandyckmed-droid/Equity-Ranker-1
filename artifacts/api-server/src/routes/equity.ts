@@ -67,6 +67,7 @@ router.get("/equity/rankings", async (req, res): Promise<void> => {
         const mappings: Record<string, string> = {
           volAdjust: "vol_adjust",
           useTstats: "use_tstats",
+          wRev: "w_rev",
           volFloor: "vol_floor",
           winsorP: "winsor_p",
           clusterN: "cluster_n",

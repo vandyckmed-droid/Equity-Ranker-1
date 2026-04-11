@@ -282,7 +282,7 @@ export default function MainPage() {
     movedTimerRef.current = setTimeout(() => setRecentlyMoved(null), 600);
   }, [moveColumn]);
 
-  const CONTROLS_KEY = "qt:controls-v3";
+  const CONTROLS_KEY = "qt:controls-v4";
 
   const loadControlsFromStorage = () => {
     try {
@@ -296,7 +296,7 @@ export default function MainPage() {
   const [serverParams, setServerParams] = useState(() => {
     const saved = loadControlsFromStorage();
     return {
-      volFloor: saved?.volFloor ?? 0.05,
+      volFloor: saved?.volFloor ?? 0.10,
       winsorP: saved?.winsorP ?? 2,
       clusterN: saved?.clusterN ?? 100,
       clusterK: saved?.clusterK ?? 10,
@@ -318,6 +318,10 @@ export default function MainPage() {
   const [localW12, setLocalW12] = useState(() => {
     const saved = loadControlsFromStorage();
     return saved?.localW12 ?? 0.5;
+  });
+  const [localWRev, setLocalWRev] = useState(() => {
+    const saved = loadControlsFromStorage();
+    return saved?.localWRev ?? 0.2;
   });
   const [mcapFilter, setMcapFilter] = useState<McapFilter>(() => {
     const saved = loadControlsFromStorage();
@@ -342,9 +346,9 @@ export default function MainPage() {
   // Persist controls to localStorage whenever they change
   useEffect(() => {
     try {
-      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, localW6, localW12, mcapFilter, sortField, sortDir, alphaMode }));
+      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, localW6, localW12, localWRev, mcapFilter, sortField, sortDir, alphaMode }));
     } catch {}
-  }, [serverParams, localW6, localW12, mcapFilter, sortField, sortDir, alphaMode]);
+  }, [serverParams, localW6, localW12, localWRev, mcapFilter, sortField, sortDir, alphaMode]);
 
   const params: GetRankingsParams = useMemo(() => {
     const p: GetRankingsParams = {
@@ -352,6 +356,7 @@ export default function MainPage() {
       useTstats: false,
       w6: 0.5,
       w12: 0.5,
+      wRev: localWRev,
       volFloor: debouncedServerParams.volFloor,
       winsorP: debouncedServerParams.winsorP,
       clusterN: debouncedServerParams.clusterN,
@@ -359,7 +364,7 @@ export default function MainPage() {
       clusterLookback: debouncedServerParams.clusterLookback,
     };
     return p;
-  }, [debouncedServerParams]);
+  }, [debouncedServerParams, localWRev]);
 
   // Session-only UI state (not persisted)
   const [search, setSearch] = useState("");
@@ -407,11 +412,11 @@ export default function MainPage() {
     if (stocks.length > 0) {
       // Inline alpha rerank (mirrors clientAlphaStocks) — seeds the portfolio context
       // with the current ranked+filtered universe without a forward ref to the useMemo below.
-      const wS = localW6, wT = localW12;
-      const totalW = (wS + wT) || 1;
+      const wS = localW6, wT = localW12, wR = localWRev;
+      const totalW = (wS + wT + wR) || 1;
       const reranked = stocks
         .map((s) => {
-          const alpha = (wS * ((s as any).sSleeve ?? 0) + wT * ((s as any).tSleeve ?? 0)) / totalW;
+          const alpha = (wS * ((s as any).sSleeve ?? 0) + wT * ((s as any).tSleeve ?? 0) + wR * ((s as any).revSleeve ?? 0)) / totalW;
           return { ...s, alpha };
         })
         .sort((a, b) => (b.alpha ?? 0) - (a.alpha ?? 0));
@@ -422,7 +427,7 @@ export default function MainPage() {
           : reranked
       );
     }
-  }, [stocks, localW6, localW12, mcapFilter, setAllStocks, setRankedStocks]);
+  }, [stocks, localW6, localW12, localWRev, mcapFilter, setAllStocks, setRankedStocks]);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -430,10 +435,11 @@ export default function MainPage() {
     if (!stocks.length) return stocks;
     const wS = localW6;
     const wT = localW12;
-    const totalW = (wS + wT) || 1;
+    const wR = localWRev;
+    const totalW = (wS + wT + wR) || 1;
 
     const reranked = stocks.map((s: Stock) => {
-      const alpha = (wS * ((s as any).sSleeve ?? 0) + wT * ((s as any).tSleeve ?? 0)) / totalW;
+      const alpha = (wS * ((s as any).sSleeve ?? 0) + wT * ((s as any).tSleeve ?? 0) + wR * ((s as any).revSleeve ?? 0)) / totalW;
       return { ...s, alpha };
     });
 
@@ -443,7 +449,7 @@ export default function MainPage() {
       rank: i + 1,
       percentile: 100 * (1 - i / reranked.length),
     }));
-  }, [stocks, localW6, localW12]);
+  }, [stocks, localW6, localW12, localWRev]);
 
   // Filtering and Sorting
   const processedStocks = useMemo(() => {
@@ -960,6 +966,11 @@ export default function MainPage() {
                   <Label className="text-xs">T Sleeve — wT ({formatNumber(localW12 * 100, 0)}%)</Label>
                   <Slider value={[localW12 * 100]} min={0} max={100} step={5}
                     onValueChange={(v) => setLocalW12(v[0] / 100)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Rev Sleeve — wRev ({formatNumber(localWRev * 100, 0)}%)</Label>
+                  <Slider value={[localWRev * 100]} min={0} max={100} step={5}
+                    onValueChange={(v) => setLocalWRev(v[0] / 100)} />
                 </div>
               </div>
             </div>
@@ -1526,6 +1537,10 @@ export default function MainPage() {
                                       <p className="flex items-center gap-2">
                                         <span className="text-muted-foreground w-10">T sleeve</span>
                                         <span className="font-semibold" style={heat(stock.tSleeve)}>{fmt2(stock.tSleeve)}</span>
+                                      </p>
+                                      <p className="flex items-center gap-2">
+                                        <span className="text-muted-foreground w-10">Rev sleeve</span>
+                                        <span className="font-semibold" style={heat((stock as any).revSleeve)}>{fmt2((stock as any).revSleeve)}</span>
                                       </p>
                                     </div>
                                   );

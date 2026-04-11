@@ -8,6 +8,7 @@ import { PortfolioProvider } from "@/hooks/use-portfolio";
 import MainPage from "@/pages/MainPage";
 import PortfolioPage from "@/pages/PortfolioPage";
 import MethodologyPage from "@/pages/MethodologyPage";
+import FormulasPage from "@/pages/FormulasPage";
 import NotFound from "@/pages/not-found";
 
 class HMRErrorBoundary extends React.Component<{ children: React.ReactNode }, { crashed: boolean }> {
@@ -51,6 +52,7 @@ function Router() {
         <Route path="/" component={MainPage} />
         <Route path="/portfolio" component={PortfolioPage} />
         <Route path="/methodology" component={MethodologyPage} />
+        <Route path="/formulas" component={FormulasPage} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

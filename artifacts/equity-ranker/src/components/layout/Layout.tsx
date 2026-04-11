@@ -1,12 +1,13 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { BarChart3, LineChart, Terminal } from "lucide-react";
+import { BarChart3, LineChart, Terminal, FlaskConical } from "lucide-react";
 import { usePortfolio } from "@/hooks/use-portfolio";
 
 const TABS = [
   { href: "/", label: "Rankings", icon: BarChart3 },
   { href: "/portfolio", label: "Portfolio", icon: LineChart },
+  { href: "/formulas", label: "Formulas", icon: FlaskConical },
 ] as const;
 
 function MobileTabBar() {
@@ -55,6 +56,7 @@ function DesktopSidebar() {
   const NAV = [
     { href: "/", label: "Universe Rankings", icon: BarChart3 },
     { href: "/portfolio", label: "Portfolio & Risk", icon: LineChart },
+    { href: "/formulas", label: "Formulas", icon: FlaskConical },
   ] as const;
 
   return (

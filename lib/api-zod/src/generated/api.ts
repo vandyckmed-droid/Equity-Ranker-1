@@ -54,10 +54,10 @@ export const GetRankingsQueryParams = zod.object({
     .number()
     .optional()
     .describe("Weight on 12-month momentum (default 0.4)"),
-  wQuality: zod.coerce
+  wRev: zod.coerce
     .number()
     .optional()
-    .describe("Weight on quality factor (default 0.2)"),
+    .describe("Weight on reversal sleeve (default 0.2)"),
   volFloor: zod.coerce
     .number()
     .optional()
@@ -105,8 +105,10 @@ export const GetRankingsResponse = zod.object({
       m6: zod.number().nullish(),
       m12: zod.number().nullish(),
       r1: zod.number().nullish(),
+      sigma1: zod.number().nullish(),
       sigma6: zod.number().nullish(),
       sigma12: zod.number().nullish(),
+      s1: zod.number().nullish(),
       s6: zod.number().nullish(),
       s12: zod.number().nullish(),
       tstat6: zod.number().nullish(),
@@ -122,6 +124,7 @@ export const GetRankingsResponse = zod.object({
       zQ: zod.number().nullish(),
       sSleeve: zod.number().nullish(),
       tSleeve: zod.number().nullish(),
+      revSleeve: zod.number().nullish(),
       qSleeve: zod.number().nullish(),
       alpha: zod.number().nullish(),
       rank: zod.number().nullish(),
@@ -216,7 +219,7 @@ export const ApplyUniverseFiltersBody = zod.object({
   useTstats: zod.boolean().optional(),
   w6: zod.number().optional(),
   w12: zod.number().optional(),
-  wQuality: zod.number().optional(),
+  wRev: zod.number().optional(),
   volFloor: zod.number().optional(),
   winsorP: zod.number().optional(),
   clusterN: zod.number().optional(),
@@ -237,8 +240,10 @@ export const ApplyUniverseFiltersResponse = zod.object({
       m6: zod.number().nullish(),
       m12: zod.number().nullish(),
       r1: zod.number().nullish(),
+      sigma1: zod.number().nullish(),
       sigma6: zod.number().nullish(),
       sigma12: zod.number().nullish(),
+      s1: zod.number().nullish(),
       s6: zod.number().nullish(),
       s12: zod.number().nullish(),
       tstat6: zod.number().nullish(),
@@ -254,6 +259,7 @@ export const ApplyUniverseFiltersResponse = zod.object({
       zQ: zod.number().nullish(),
       sSleeve: zod.number().nullish(),
       tSleeve: zod.number().nullish(),
+      revSleeve: zod.number().nullish(),
       qSleeve: zod.number().nullish(),
       alpha: zod.number().nullish(),
       rank: zod.number().nullish(),

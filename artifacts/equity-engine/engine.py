@@ -599,15 +599,24 @@ def compute_factors_vectorized(prices: pd.DataFrame,
     r6_s  = pd.Series(r6,  index=tickers)
     r12_s = pd.Series(r12, index=tickers)
 
-    m6  = r6_s  - r1_s
-    m12 = r12_s - r1_s
+    # Raw cumulative log returns — no skip month removed here.
+    # The 1-month reversal (r1) enters as a standalone signal below.
+    m6  = r6_s
+    m12 = r12_s
 
     sigma6  = log_returns.iloc[-126:].std() * np.sqrt(252)
     sigma12 = log_returns.std() * np.sqrt(252)
+    sigma1  = log_returns.iloc[-21:].std() * np.sqrt(252)
     sigma6  = sigma6.where(has_126, np.nan)
+    sigma1  = sigma1.where(has_22, np.nan)
 
-    s6  = m6  / sigma6.clip(lower=vol_floor)
+    # Annualized Sharpe-style signals (10% vol floor):
+    #   s6  : scale by 252/126 = 2   (6-month cumulative → annual rate)
+    #   s12 : scale by 252/252 = 1   (12-month ≈ annual, no change)
+    #   s1  : reversal = −(252/21) × r1/σ1  (negative: mean-reversion)
+    s6  = m6  / sigma6.clip(lower=vol_floor) * (252 / 126)
     s12 = m12 / sigma12.clip(lower=vol_floor)
+    s1  = -r1_s / sigma1.clip(lower=vol_floor) * (252 / 21)
 
     t_ols = time.time()
     tstat12 = _batch_ols_tstat(log_prices)
@@ -661,8 +670,10 @@ def compute_factors_vectorized(prices: pd.DataFrame,
         "r1":              r1,
         "m6":              m6.values,
         "m12":             m12.values,
+        "sigma1":          sigma1.values,
         "sigma6":          sigma6.values,
         "sigma12":         sigma12.values,
+        "s1":              s1.values,
         "s6":              s6.values,
         "s12":             s12.values,
         "tstat6":          tstat6.values,
@@ -697,11 +708,12 @@ def compute_rankings(df: pd.DataFrame,
                      use_tstats: bool = False,
                      w6: float = 0.5,
                      w12: float = 0.5,
+                     w_rev: float = 0.2,
                      winsor_p: float = 2.0,
-                     vol_floor: float = 0.05) -> pd.DataFrame:
+                     vol_floor: float = 0.10) -> pd.DataFrame:
     """
-    Cross-sectionally standardize S and T factors, compute 2-sleeve alpha.
-    alpha = (wS × sSleeve + wT × tSleeve) / (wS + wT)
+    Cross-sectionally standardize S, T, and reversal factors; compute 3-sleeve alpha.
+    alpha = (wS×sSleeve + wT×tSleeve + wRev×revSleeve) / (wS + wT + wRev)
     Clustering is handled separately by compute_clustering().
     """
     if df.empty:
@@ -745,11 +757,16 @@ def compute_rankings(df: pd.DataFrame,
 
     d["tSleeve"] = 0.5 * d["zT6"].fillna(0) + 0.5 * d["zT12"].fillna(0)
 
+    # ── Reversal sleeve (standalone 1-month mean-reversion signal) ────────────
+    d["zRev"]     = std_factor(d["s1"]) if "s1" in d.columns else pd.Series(0.0, index=d.index)
+    d["revSleeve"] = d["zRev"].fillna(0)
+
     wS      = w6
     wT      = w12
-    total_w = (wS + wT) or 1.0
+    wRev    = w_rev
+    total_w = (wS + wT + wRev) or 1.0
 
-    d["alpha"]        = (wS * d["sSleeve"] + wT * d["tSleeve"]) / total_w
+    d["alpha"]        = (wS * d["sSleeve"] + wT * d["tSleeve"] + wRev * d["revSleeve"]) / total_w
     d["alpha_formula"] = alpha_formula
 
     d = d.sort_values("alpha", ascending=False)
@@ -1176,10 +1193,11 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
         return None, {}
 
     t0 = time.time()
-    vol_floor        = params.get("vol_floor", 0.05)
+    vol_floor        = params.get("vol_floor", 0.10)
     winsor_p         = params.get("winsor_p", 2.0)
     w6               = params.get("w6", 0.5)
     w12              = params.get("w12", 0.5)
+    w_rev            = params.get("w_rev", 0.2)
     use_tstats       = params.get("use_tstats", False)
     vol_adjust       = params.get("vol_adjust", True)
     cluster_n        = params.get("cluster_n", 100)
@@ -1193,7 +1211,7 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
                       "xs":        sorted(exclude_sectors) if exclude_sectors else [],
                       "has_bench": bool(get_benchmark_prices() is not None)},
                      sort_keys=True)
-    rk = json.dumps({"fk": fk, "w6": w6, "w12": w12,
+    rk = json.dumps({"fk": fk, "w6": w6, "w12": w12, "w_rev": w_rev,
                       "ut": use_tstats, "va": vol_adjust,
                       "wp": winsor_p}, sort_keys=True)
     ck = json.dumps({"rk": rk, "cn": cluster_n, "ck": cluster_k,
@@ -1247,7 +1265,7 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
                 factors_filtered,
                 vol_adjust=vol_adjust,
                 use_tstats=use_tstats,
-                w6=w6, w12=w12,
+                w6=w6, w12=w12, w_rev=w_rev,
                 winsor_p=winsor_p, vol_floor=vol_floor,
             )
             _ranking_cache = ranked

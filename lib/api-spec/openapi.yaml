@@ -75,11 +75,11 @@ paths:
           schema:
             type: number
           description: Weight on 12-month momentum (default 0.4)
-        - name: wQuality
+        - name: wRev
           in: query
           schema:
             type: number
-          description: Weight on quality factor (default 0.2)
+          description: Weight on reversal sleeve (default 0.2)
         - name: volFloor
           in: query
           schema:
@@ -305,9 +305,13 @@ components:
           type: ["number", "null"]
         r1:
           type: ["number", "null"]
+        sigma1:
+          type: ["number", "null"]
         sigma6:
           type: ["number", "null"]
         sigma12:
+          type: ["number", "null"]
+        s1:
           type: ["number", "null"]
         s6:
           type: ["number", "null"]
@@ -338,6 +342,8 @@ components:
         sSleeve:
           type: ["number", "null"]
         tSleeve:
+          type: ["number", "null"]
+        revSleeve:
           type: ["number", "null"]
         qSleeve:
           type: ["number", "null"]
@@ -504,7 +510,7 @@ components:
           type: number
         w12:
           type: number
-        wQuality:
+        wRev:
           type: number
         volFloor:
           type: number
