@@ -1508,147 +1508,129 @@ export default function MainPage() {
                       </TableRow>
 
                       {expandedTicker === stock.ticker && (() => {
+                        const s = stock as any;
                         const fmt2 = (v: number | null | undefined) =>
                           v == null ? "—" : (v > 0 ? "+" : "") + v.toFixed(2);
                         const heat = (v: number | null | undefined): React.CSSProperties => {
                           if (v == null) return { color: "hsl(var(--muted-foreground))" };
                           const x = Math.max(-3, Math.min(3, v)) / 3;
                           if (x >= 0) {
-                            const s = Math.round(25 + x * 46);
+                            const ss = Math.round(25 + x * 46);
                             const l = Math.round(48 + x * 10);
-                            return { color: `hsl(142 ${s}% ${l}%)` };
+                            return { color: `hsl(142 ${ss}% ${l}%)` };
                           } else {
                             const ax = Math.abs(x);
-                            const s = Math.round(25 + ax * 48);
+                            const ss = Math.round(25 + ax * 48);
                             const l = Math.round(48 + ax * 7);
-                            return { color: `hsl(0 ${s}% ${l}%)` };
+                            return { color: `hsl(0 ${ss}% ${l}%)` };
                           }
                         };
+
+                        const { wS6, wS12, wRes6, wRes12, wT6, wT12, wS1, wInvVol, wOpa } = weights;
+                        const totalW = (wS6 + wS12 + wRes6 + wRes12 + wT6 + wT12 + wS1 + wInvVol + wOpa) || 1;
+                        const wPct = (w: number) => ((w / totalW) * 100).toFixed(0) + "%";
+
+                        type SignalRow = { label: string; z: number | null | undefined; w: number; contrib: number | null };
+                        const contrib = (w: number, z: number | null | undefined) =>
+                          z != null ? (w / totalW) * z : null;
+
+                        const momentumRows: SignalRow[] = [
+                          { label: "zS6",   z: s.zS6,    w: wS6,   contrib: contrib(wS6,   s.zS6)  },
+                          { label: "zS12",  z: s.zS12,   w: wS12,  contrib: contrib(wS12,  s.zS12) },
+                          { label: "zRes6", z: s.zR6,    w: wRes6, contrib: contrib(wRes6, s.zR6)  },
+                          { label: "zRes12",z: s.zR12,   w: wRes12,contrib: contrib(wRes12,s.zR12) },
+                        ];
+                        const trendRows: SignalRow[] = [
+                          { label: "zT6",   z: s.zT6,    w: wT6,   contrib: contrib(wT6,   s.zT6)  },
+                          { label: "zT12",  z: s.zT12,   w: wT12,  contrib: contrib(wT12,  s.zT12) },
+                        ];
+                        const otherRows: SignalRow[] = [
+                          { label: "−zS1",  z: s.zS1 != null ? -s.zS1 : null, w: wS1, contrib: s.zS1 != null ? -(wS1 / totalW) * s.zS1 : null },
+                          { label: "zInvVol",z: s.zInvVol, w: wInvVol, contrib: contrib(wInvVol, s.zInvVol) },
+                          { label: "zOPA",  z: s.zOPA,   w: wOpa,  contrib: contrib(wOpa,  s.zOPA)  },
+                        ];
+
+                        const SigGroup = ({ title, rows }: { title: string; rows: SignalRow[] }) => (
+                          <div className="space-y-1 min-w-[160px]">
+                            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">{title}</p>
+                            {rows.map((r) => (
+                              <div key={r.label} className="flex items-center gap-1.5">
+                                <span className="text-muted-foreground/70 w-[52px] shrink-0">{r.label}</span>
+                                <span className="font-semibold w-10 text-right" style={heat(r.z)}>{fmt2(r.z)}</span>
+                                <span className="text-muted-foreground/40 text-[9px] w-7 text-right">{wPct(r.w)}</span>
+                                {r.contrib != null && (
+                                  <span className="text-[9px] w-9 text-right" style={{ ...heat(r.contrib), opacity: 0.7 }}>
+                                    {r.contrib > 0 ? "+" : ""}{r.contrib.toFixed(2)}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        );
+
+                        const qFormula = stock.qualityFormula;
+                        const formulaMap: Record<string, { label: string; primary: boolean }> = {
+                          "op_income/avg_assets": { label: "Op Income / Avg Assets", primary: true },
+                          "ebit/avg_assets":      { label: "EBIT / Avg Assets",       primary: false },
+                          "net_income/avg_assets":{ label: "Net Income / Avg Assets", primary: false },
+                        };
+                        const formulaInfo = qFormula ? formulaMap[qFormula] ?? null : null;
+
                         return (
                           <TableRow key={`${stock.ticker}-audit`} className="bg-muted/20 border-b-border/20">
-                            <TableCell colSpan={activeColumns.length + 2} className="px-3 py-2">
-                              <div className="flex flex-wrap gap-x-8 gap-y-2 text-[10px] font-mono">
+                            <TableCell colSpan={activeColumns.length + 2} className="px-3 py-3">
+                              <div className="flex flex-wrap gap-x-6 gap-y-3 text-[10px] font-mono">
 
-                                {/* ── Sleeves ── */}
-                                {(() => {
-                                  const zR6  = (stock as any).zR6  as number | null | undefined;
-                                  const zR12 = (stock as any).zR12 as number | null | undefined;
-                                  const zS6  = (stock as any).zS6  as number | null | undefined;
-                                  const zS12 = (stock as any).zS12 as number | null | undefined;
-                                  const hasResid = zR6 != null && zR12 != null && (Math.abs(zR6) + Math.abs(zR12)) > 0.0001;
-                                  const momComp = hasResid && zS6 != null && zS12 != null
-                                    ? 0.7 * (0.5 * zS6 + 0.5 * zS12)
-                                    : null;
-                                  const resComp = hasResid
-                                    ? 0.3 * (0.5 * (zR6 ?? 0) + 0.5 * (zR12 ?? 0))
-                                    : null;
-                                  return (
-                                    <div className="space-y-1">
-                                      <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Momentum</p>
-                                      <p className="flex items-center gap-2">
-                                        <span className="text-muted-foreground w-10">S sleeve</span>
-                                        <span className="font-semibold" style={heat(stock.sSleeve)}>{fmt2(stock.sSleeve)}</span>
-                                      </p>
-                                      {hasResid && momComp != null && resComp != null && (
-                                        <>
-                                          <p className="flex items-center gap-1 pl-2">
-                                            <span className="text-muted-foreground/60 w-1">·</span>
-                                            <span className="text-muted-foreground/70 w-12">0.7× Mom</span>
-                                            <span className="text-[9px]" style={heat(momComp)}>{fmt2(momComp)}</span>
-                                          </p>
-                                          <p className="flex items-center gap-1 pl-2">
-                                            <span className="text-muted-foreground/60 w-1">·</span>
-                                            <span className="text-muted-foreground/70 w-12">0.3× Res</span>
-                                            <span className="text-[9px]" style={heat(resComp)}>{fmt2(resComp)}</span>
-                                          </p>
-                                        </>
-                                      )}
-                                      <p className="flex items-center gap-2">
-                                        <span className="text-muted-foreground w-10">T sleeve</span>
-                                        <span className="font-semibold" style={heat(stock.tSleeve)}>{fmt2(stock.tSleeve)}</span>
-                                      </p>
-                                      <p className="flex items-center gap-2">
-                                        <span className="text-muted-foreground w-10">Rev sleeve</span>
-                                        <span className="font-semibold" style={heat((stock as any).revSleeve)}>{fmt2((stock as any).revSleeve)}</span>
-                                      </p>
-                                    </div>
-                                  );
-                                })()}
+                                <SigGroup title="Momentum" rows={momentumRows} />
+                                <SigGroup title="Trend" rows={trendRows} />
+                                <SigGroup title="Other" rows={otherRows} />
 
-                                {/* ── Composite ── */}
-                                <div className="space-y-1">
+                                {/* divider */}
+                                <div className="hidden sm:block w-px self-stretch bg-border/30 mx-1" />
+
+                                {/* Composite */}
+                                <div className="space-y-1 min-w-[100px]">
                                   <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Composite</p>
-                                  <p className="flex items-center gap-2">
-                                    <span className="text-muted-foreground w-10">Alpha</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-muted-foreground/70 w-10">Alpha</span>
                                     <span className="font-bold" style={heat(stock.alpha)}>{fmt2(stock.alpha)}</span>
-                                  </p>
-                                  <p className="flex items-center gap-2">
-                                    <span className="text-muted-foreground w-10">Rank</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-muted-foreground/70 w-10">Rank</span>
                                     <span className="text-foreground">#{stock.rank}</span>
-                                  </p>
-                                  <p className="flex items-center gap-2">
-                                    <span className="text-muted-foreground w-10">Pct</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-muted-foreground/70 w-10">Pct</span>
                                     <span className="text-foreground">{stock.percentile != null ? stock.percentile.toFixed(1) + "%" : "—"}</span>
-                                  </p>
-                                </div>
+                                  </div>
 
-                                {/* ── Profitability ── */}
-                                {(() => {
-                                  const rawOpa = stock.quality;
-                                  const zQ = stock.zQ;
-                                  const qMissing = stock.qualityMissing;
-                                  const qFormula = stock.qualityFormula;
-                                  const qReason = stock.qualityMissingReason;
-                                  const formulaMap: Record<string, { label: string; primary: boolean }> = {
-                                    "op_income/avg_assets": { label: "Op Income / Avg Assets", primary: true },
-                                    "ebit/avg_assets":      { label: "EBIT / Avg Assets",       primary: false },
-                                    "net_income/avg_assets":{ label: "Net Income / Avg Assets", primary: false },
-                                  };
-                                  const formulaInfo = qFormula ? formulaMap[qFormula] ?? null : null;
-                                  return (
-                                    <div className="space-y-1">
-                                      <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Profitability</p>
-                                      <p className="flex items-center gap-2">
-                                        <span className="text-muted-foreground w-10">OPA</span>
-                                        <span className="font-semibold" style={heat(zQ)}>
-                                          {rawOpa != null ? (rawOpa * 100).toFixed(2) + "%" : "—"}
-                                        </span>
-                                      </p>
-                                      <p className="flex items-center gap-2">
-                                        <span className="text-muted-foreground w-10">zQ</span>
-                                        <span style={heat(zQ)}>{zQ != null ? fmt2(zQ) : "—"}</span>
-                                      </p>
-                                      {formulaInfo && (
-                                        <p className="flex items-center gap-2 flex-wrap">
-                                          <span className="text-muted-foreground w-10">Formula</span>
-                                          <span className="text-muted-foreground/70 text-[9px]">
-                                            {formulaInfo.primary ? "Primary" : "Fallback"} ({formulaInfo.label})
-                                          </span>
-                                          {formulaInfo.primary ? (
-                                            <span
-                                              className="text-[8px] px-1 py-0.5 rounded font-semibold tracking-wide bg-emerald-950/50 text-emerald-400/80"
-                                            >
-                                              Primary
-                                            </span>
-                                          ) : (
-                                            <span
-                                              className="text-[8px] px-1 py-0.5 rounded font-semibold tracking-wide bg-amber-950/50 text-amber-400/80 cursor-help"
-                                              title="Fallback metrics are less clean and may be less predictive than operating profitability."
-                                            >
-                                              Fallback
-                                            </span>
-                                          )}
-                                        </p>
-                                      )}
-                                      {qMissing && qReason && (
-                                        <p className="flex items-center gap-2">
-                                          <span className="text-muted-foreground w-10">Note</span>
-                                          <span className="text-muted-foreground/60 text-[9px]">{qReason}</span>
-                                        </p>
-                                      )}
+                                  {/* OPA raw + formula */}
+                                  <div className="pt-1.5 space-y-1">
+                                    <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1">OPA</p>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-muted-foreground/70 w-10">Raw</span>
+                                      <span style={heat(s.zOPA)}>
+                                        {stock.quality != null ? (stock.quality * 100).toFixed(2) + "%" : "—"}
+                                      </span>
                                     </div>
-                                  );
-                                })()}
+                                    {formulaInfo && (
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="text-muted-foreground/50 text-[9px]">{formulaInfo.label}</span>
+                                        {formulaInfo.primary ? (
+                                          <span className="text-[8px] px-1 py-0.5 rounded font-semibold tracking-wide bg-emerald-950/50 text-emerald-400/80">Primary</span>
+                                        ) : (
+                                          <span className="text-[8px] px-1 py-0.5 rounded font-semibold tracking-wide bg-amber-950/50 text-amber-400/80 cursor-help"
+                                            title="Fallback metrics are less clean and may be less predictive than operating profitability.">
+                                            Fallback
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                    {stock.qualityMissing && stock.qualityMissingReason && (
+                                      <div className="text-muted-foreground/50 text-[9px]">{stock.qualityMissingReason}</div>
+                                    )}
+                                  </div>
+                                </div>
 
                               </div>
                             </TableCell>
