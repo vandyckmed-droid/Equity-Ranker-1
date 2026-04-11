@@ -26,13 +26,15 @@ import {
 import { cn } from "@/lib/utils";
 import {
   useAlphaBasket,
-  ALPHA_PARTS,
   ALPHA_PRESETS,
+} from "@/hooks/use-alpha-basket";
+import {
+  ALPHA_PARTS,
   ALPHA_PARTS_MAP,
   type AlphaPart,
   type PartStatus,
   type PartCategory,
-} from "@/hooks/use-alpha-basket";
+} from "@/hooks/alpha-parts-library";
 
 // ─── Status badge config ──────────────────────────────────────────────────────
 
@@ -135,7 +137,7 @@ function ActiveBasketTab() {
 
   const finalFormula = activeItems
     .map((item) => {
-      const part = ALPHA_PARTS_MAP[item.partId];
+      const part = ALPHA_PARTS_MAP.get(item.partId);
       if (!part) return "";
       const pct = Math.round((item.weight / totalW) * 100);
       return `${pct}%·${part.shortLabel}`;
@@ -146,7 +148,7 @@ function ActiveBasketTab() {
 
   const plainSummary = (() => {
     if (activeCount === 0) return "No parts active — all stocks will rank equally.";
-    const parts = activeItems.map((i) => ALPHA_PARTS_MAP[i.partId]?.label ?? i.partId);
+    const parts = activeItems.map((i) => ALPHA_PARTS_MAP.get(i.partId)?.label ?? i.partId);
     if (parts.length === 1) return `Ranking purely on ${parts[0]}.`;
     const last = parts.pop();
     return `Ranking on ${parts.join(", ")} and ${last}.`;
@@ -170,7 +172,7 @@ function ActiveBasketTab() {
       ) : (
         <div className="space-y-2">
           {basket.map((item, idx) => {
-            const part = ALPHA_PARTS_MAP[item.partId];
+            const part = ALPHA_PARTS_MAP.get(item.partId);
             if (!part || !item.active) return null;
             const pct = ((item.weight / totalW) * 100).toFixed(0);
             const isFirst = idx === 0 || !basket.slice(0, idx).some((i) => i.active);
@@ -251,7 +253,7 @@ function ActiveBasketTab() {
           </p>
           <div className="flex flex-wrap gap-1.5">
             {inactiveItems.map((item) => {
-              const part = ALPHA_PARTS_MAP[item.partId];
+              const part = ALPHA_PARTS_MAP.get(item.partId);
               if (!part) return null;
               return (
                 <button
@@ -442,7 +444,7 @@ function PresetsTab() {
               {preset.items
                 .filter((i) => i.active)
                 .map((i) => {
-                  const part = ALPHA_PARTS_MAP[i.partId];
+                  const part = ALPHA_PARTS_MAP.get(i.partId);
                   return (
                     <span
                       key={i.partId}
