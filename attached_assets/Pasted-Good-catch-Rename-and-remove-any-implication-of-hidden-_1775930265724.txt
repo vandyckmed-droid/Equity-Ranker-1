@@ -1,0 +1,170 @@
+Good catch. Rename and remove any implication of hidden scaling. Below is a fully explicit, no-hidden-steps definition. Every transformation is shown.
+
+⸻
+
+Core Principle
+	•	No implicit volatility scaling
+	•	No hidden normalization
+	•	Only operations shown: sum → winsorize → z-score
+
+Rename:
+	•	zS → zM (Momentum)
+	•	zS1 → zM1
+
+⸻
+
+Momentum
+
+zM12 — 12–1 Momentum (Institutional Core)
+
+r_t = \ln\left(\frac{P_t}{P_{t-1}}\right)
+
+r_{12} = \sum_{t-252}^{t} r_t
+\quad,\quad
+r_1 = \sum_{t-21}^{t} r_t
+
+m_{12} = r_{12} - r_1
+
+m_{12}^{win} = \text{winsorize}(m_{12}, 2\%, 98\%)
+
+zM12 = Z(m_{12}^{win})
+
+No division by σ anywhere
+
+⸻
+
+zM6 — 6–1 Momentum (Research Extension)
+
+r_6 = \sum_{t-126}^{t} r_t
+
+m_6 = r_6 - r_1
+
+m_6^{win} = \text{winsorize}(m_6, 2\%, 98\%)
+
+zM6 = Z(m_6^{win})
+
+⸻
+
+Trend Quality (explicit, separate concept)
+
+zT12 — 12m Trend T-stat
+
+Regression:
+
+\ln(P_t) = \alpha + \beta t + \epsilon
+
+T_{12} = \frac{\hat{\beta}}{SE(\hat{\beta})}
+
+T_{12}^{win} = \text{winsorize}(T_{12}, 2\%, 98\%)
+
+zT12 = Z(T_{12}^{win})
+
+⸻
+
+zT6 — 6m Trend T-stat
+
+zT6 = Z\big(\text{winsorize}(T_6)\big)
+
+⸻
+
+Residual Momentum
+
+zR12 — 12–1 Residual Momentum (Institutional Approximation)
+
+Regression:
+
+r_i = \alpha + \beta_m r_{mkt} + \epsilon
+
+Residual:
+
+\epsilon_t = r_i - \beta_m r_{mkt,t}
+
+res_{12} = \sum_{t-252}^{t-22} \epsilon_t
+
+res_{12}^{win} = \text{winsorize}(res_{12}, 2\%, 98\%)
+
+zR12 = Z(res_{12}^{win})
+
+No volatility scaling
+
+⸻
+
+zR6 — 6–1 Residual Momentum
+
+res_6 = \sum_{t-126}^{t-22} \epsilon_t
+
+zR6 = Z(\text{winsorize}(res_6))
+
+⸻
+
+Short-Term Return (Reversal input)
+
+zM1 — 1m Return
+
+r_1 = \sum_{t-21}^{t} r_t
+
+r_1^{win} = \text{winsorize}(r_1, 2\%, 98\%)
+
+zM1 = Z(r_1^{win})
+
+⸻
+
+Low Volatility
+
+zLowVol — Volatility Signal
+
+\sigma_{60} = \text{std}(r_{t-59:t}) \cdot \sqrt{252}
+
+\sigma_{60}^{win} = \text{winsorize}(\sigma_{60}, 2\%, 98\%)
+
+zLowVol = -Z(\sigma_{60}^{win})
+
+(Sign flipped so higher = better)
+
+⸻
+
+Profitability
+
+zOPA — Operating Profitability
+
+OPA = \frac{\text{Operating Income}}{\text{Average Total Assets}}
+
+OPA^{win} = \text{winsorize}(OPA, 2\%, 98\%)
+
+zOPA = Z(OPA^{win})
+
+⸻
+
+Global Rules (explicit)
+
+For every signal:
+	1.	Compute raw metric
+	2.	Winsorize at 2nd / 98th percentile
+	3.	Compute cross-sectional z-score across full universe
+
+Nothing else is applied.
+
+⸻
+
+Naming clarity (important)
+	•	zM12 / zM6 / zM1 = returns only
+	•	zT = regression quality
+	•	zR = residual returns
+	•	zLowVol = volatility
+	•	zOPA = profitability
+
+No variable name implies Sharpe or volatility scaling.
+
+⸻
+
+Final sanity check
+
+There is:
+	•	no division by σ in momentum
+	•	no hidden normalization
+	•	no mixed concepts inside a signal
+
+Each signal is:
+→ one idea, one transformation chain, fully visible
+
+This is now fully aligned with your requirement for transparency and institutional clarity.

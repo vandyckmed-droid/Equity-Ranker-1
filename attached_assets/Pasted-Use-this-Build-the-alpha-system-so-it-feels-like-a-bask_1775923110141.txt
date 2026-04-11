@@ -1,0 +1,160 @@
+Use this:
+
+Build the alpha system so it feels like a basket of clean, rigidly defined alpha parts that I can add to or subtract from the recipe without rewriting core code. I do not want a slider-heavy settings panel. I want a neat, transparent, user-friendly system where each part of alpha is a well-defined building block, while the selection and weighting of those parts remains adjustable. The system should guide me toward a simple institutional default, while clearly acknowledging current limitations and leaving room to expand later.
+
+Conceptually, treat alpha as a basket of parts:
+	•	each part has a strict definition
+	•	each part can be included or excluded
+	•	each included part has a weight
+	•	the final score is just the weighted combination of the active parts
+
+Each alpha part should be small enough to be rigidly defined and auditable, but flexible enough to be combined into different recipes. I want this to feel more like assembling a portfolio of signals than editing tangled formula code.
+
+Architecturally, separate the system into three layers:
+	1.	Signal Parts Library — fixed definitions of each alpha component
+	2.	Recipe Engine — chooses which parts are active and how they are weighted
+	3.	UI Layer — displays the active basket, formulas, weights, and audit details
+
+Do not let formula logic live in the UI.
+
+Each alpha part should live in its own module and expose:
+	•	id
+	•	label
+	•	category
+	•	description
+	•	display_formula
+	•	variable_definitions
+	•	required_inputs
+	•	default_weight
+	•	institutional_status (institutional_core, institutional_approximation, research_extension)
+	•	future_expansion_note
+	•	compute()
+
+The UI should feel like a clean basket builder, not a quant cockpit. No sliders unless absolutely necessary. Prefer:
+	•	checkbox to include/exclude part
+	•	small numeric input for weight
+	•	drag handle to reorder
+	•	one-click preset buttons
+	•	clean formula display
+	•	simple audit badges
+
+Build four tabs only:
+	•	Active Basket
+	•	Alpha Parts
+	•	Presets
+	•	Audit
+
+Active Basket
+
+Show:
+	•	current active alpha parts
+	•	each part’s weight
+	•	each part’s exact formula
+	•	weighted contribution format
+	•	final combined score formula
+	•	plain-language description of what this basket currently represents
+
+This should read like:
+	•	Core Momentum 12–1
+	•	Residual Momentum 12–1
+	•	Profitability Proxy
+
+with weights beside each, and then the final formula underneath.
+
+Alpha Parts
+
+Show all available parts, including inactive ones. Group them by:
+	•	Momentum
+	•	Residual
+	•	Quality
+	•	Value
+	•	Risk / Diagnostics
+	•	Research Extensions
+
+Each part should have a visible badge:
+	•	Institutional Core
+	•	Institutional Approximation
+	•	Research Extension
+
+This is important because I want the system itself to gently steer me toward the more institutional build while preserving optional research signals.
+
+Presets
+
+Include at least:
+	•	Institutional Default
+	•	Institutional + Quality Proxy
+	•	Institutional + Research Overlay
+	•	Momentum Only
+	•	Full Research Basket
+
+The default preset should be intentionally simple and institutional in spirit, while clearly stating what is still missing.
+
+Audit
+
+Show:
+	•	total weight
+	•	active parts
+	•	inactive stored parts
+	•	coverage by part
+	•	missing input warnings
+	•	last refresh timestamp
+	•	note describing how close the current basket is to a more canonical institutional model
+
+This matters because I want the system to acknowledge limitations rather than pretend the framework is already complete.
+
+Desired product behavior
+
+The default mode should be simple, neat, and institutional-facing:
+	•	use a small number of core parts
+	•	clearly define each part
+	•	clearly show what is included
+	•	clearly show what is not yet built
+
+For example, the default basket today may be something like:
+	•	Core Momentum 12–1
+	•	Market Residual Momentum 12–1
+	•	Profitability Proxy
+
+But the app should explicitly state that:
+	•	profitability is only a partial quality implementation
+	•	residual momentum is only an institutional approximation for now
+	•	value is not yet integrated
+	•	fuller quality construction is still to come
+	•	fuller residual construction may later include broader factor neutralization
+
+I want the system to be aware that this is an evolving institutional build, not a finished one.
+
+Important design philosophy
+
+I am changing alpha often, and that is currently creating code mess. The new system should make it easy to:
+	•	keep old signal parts without deleting them
+	•	move parts in and out of the active basket safely
+	•	simplify toward institutional defaults
+	•	expand later without restructuring everything
+
+For example:
+	•	I may eventually expand quality beyond profitability
+	•	I may eventually add value components
+	•	I may eventually upgrade residual momentum into a fuller institutional framework
+	•	I may keep research signals like t-stat, reversal, or vol-adjusted momentum in the library without letting them clutter the default institutional basket
+
+So the app should support a distinction between:
+	•	core active alpha parts
+	•	stored but inactive research parts
+	•	diagnostic-only parts
+
+Implementation requirement
+
+Recipes must be data-driven, not hard-coded. Store recipes and active basket definitions persistently so changing alpha composition does not require editing formula code. The engine should build the final score dynamically from the active parts and their weights.
+
+Overall goal
+
+I want a clean Alpha Basket system where:
+	•	alpha is broken into small, rigidly defined parts
+	•	parts can be added or removed from the basket easily
+	•	weights can be adjusted cleanly
+	•	the default experience stays simple and institutionally grounded
+	•	the app clearly acknowledges what is approximate today and what still needs to be built
+	•	future expansion into fuller quality, value, and institutional residual models is already structurally supported
+
+If helpful, rename “recipe” in the UI to Alpha Basket or Alpha Construction so it feels more intuitive and less technical.
