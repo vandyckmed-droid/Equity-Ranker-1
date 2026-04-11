@@ -3,8 +3,10 @@ import {
   useGetDataStatus,
   useGetRankings,
   Stock,
+  TagDefinition,
   GetRankingsParams,
 } from "@workspace/api-client-react";
+import { useHiddenTags } from "@/hooks/use-hidden-tags";
 import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { usePortfolio } from "@/hooks/use-portfolio";
@@ -150,6 +152,16 @@ function getAlphaColor(p: number): string {
   }
 }
 
+// ── Tag badge color map ───────────────────────────────────────────────────────
+const TAG_COLOR_CLASSES: Record<string, string> = {
+  emerald: "bg-emerald-900/50 text-emerald-400 border-emerald-700/40",
+  amber:   "bg-amber-900/50 text-amber-400 border-amber-700/40",
+  sky:     "bg-sky-900/50 text-sky-400 border-sky-700/40",
+  rose:    "bg-rose-900/50 text-rose-400 border-rose-700/40",
+  violet:  "bg-violet-900/50 text-violet-400 border-violet-700/40",
+  slate:   "bg-slate-800/60 text-slate-400 border-slate-600/40",
+};
+
 // ── QualityAuditChip ─────────────────────────────────────────────────────────
 // Lives outside MainPage so it can own its own useState without violating the
 // "no new hooks inside MainPage" HMR rule.
@@ -232,6 +244,7 @@ export default function MainPage() {
   const { basket, basketSet, addToBasket, removeFromBasket, setAllStocks, setRankedStocks } = usePortfolio();
   const { config, orderedVisible, toggleColumn, moveColumn, resetColumns } = useColumnConfig();
   const hiddenColumns = ALL_COLUMN_IDS.filter(id => !config.visible.includes(id));
+  const { hiddenTags, toggleHide } = useHiddenTags();
 
   const queryClient = useQueryClient();
 
@@ -359,6 +372,8 @@ export default function MainPage() {
   const rankingsResult = rankingsData && "stocks" in rankingsData ? rankingsData : null;
   const freshStocks = rankingsResult?.stocks || [];
   const audit = rankingsResult?.audit;
+  // tagDefinitions is {} until backend has tags defined — infrastructure ready
+  const tagDefinitions: Record<string, TagDefinition> = rankingsResult?.tagDefinitions ?? {};
 
   // Persist fresh API data to localStorage so next startup is instant
   useEffect(() => {
@@ -464,8 +479,15 @@ export default function MainPage() {
       });
     }
 
+    // ── Tag hide (client-side only, never affects zQ or rankings) ────────────
+    // Stocks are removed from display only. They remain in memory and in the
+    // full dataset. This is NOT filtering — it does not change any computed value.
+    if (hiddenTags.size > 0) {
+      result = result.filter(s => !(s.tags ?? []).some(t => hiddenTags.has(t)));
+    }
+
     return result;
-  }, [clientAlphaStocks, mcapFilter, search, sortField, sortDir]);
+  }, [clientAlphaStocks, mcapFilter, search, sortField, sortDir, hiddenTags]);
 
   const virtualizer = useVirtualizer({
     count: processedStocks.length,
@@ -1104,7 +1126,56 @@ export default function MainPage() {
                 ))}
               </>
             )}
-          </div>
+          {/* ── Hide by Tag ───────────────────────────────────────────────── */}
+          {Object.keys(tagDefinitions).length > 0 && (
+            <>
+              <div className="px-4 pt-4 pb-2 border-t border-border/40 mt-1">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Hide by Tag</p>
+                <p className="text-[10px] text-muted-foreground/60 mt-0.5">Stocks with hidden tags are excluded from the list. Rankings are never changed.</p>
+              </div>
+              {Object.entries(tagDefinitions).map(([key, def]) => {
+                const isHidden = hiddenTags.has(key);
+                const colorCls = TAG_COLOR_CLASSES[def.color] ?? TAG_COLOR_CLASSES.slate;
+                return (
+                  <div
+                    key={key}
+                    className={cn(
+                      "flex items-center gap-3 px-3 mx-1 rounded-lg h-12 transition-opacity",
+                      isHidden ? "opacity-40" : "opacity-100"
+                    )}
+                  >
+                    <span className={cn("inline-flex items-center rounded border px-1.5 text-[9px] font-semibold tracking-wide leading-4 shrink-0", colorCls)}>
+                      {def.shortLabel}
+                    </span>
+                    <span className="flex-1 text-sm min-w-0">
+                      <span className="block truncate">{def.label}</span>
+                      {def.description && (
+                        <span className="block text-[10px] text-muted-foreground/60 truncate">{def.description}</span>
+                      )}
+                    </span>
+                    <button
+                      onClick={() => toggleHide(key)}
+                      className={cn(
+                        "h-10 w-9 flex items-center justify-center rounded transition-colors text-sm shrink-0",
+                        isHidden
+                          ? "text-muted-foreground hover:bg-muted"
+                          : "text-foreground hover:bg-muted"
+                      )}
+                      aria-label={isHidden ? "Show tag" : "Hide tag"}
+                      title={isHidden ? "Click to show" : "Click to hide"}
+                    >
+                      {isHidden ? (
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                      ) : (
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
 
           <div className="px-4 py-3 border-t border-border">
             <Button variant="outline" size="sm" className="w-full gap-2 text-xs" onClick={resetColumns}>
@@ -1288,6 +1359,26 @@ export default function MainPage() {
                               </div>
                             );
                           })()}
+
+                          {/* Tag badges — display-only, post-calculation */}
+                          {(stock.tags ?? []).length > 0 && (
+                            <div className="flex items-center gap-1 mt-1 flex-wrap">
+                              {(stock.tags ?? []).slice(0, 3).map(tagKey => {
+                                const def = tagDefinitions[tagKey];
+                                if (!def) return null;
+                                const cls = TAG_COLOR_CLASSES[def.color] ?? TAG_COLOR_CLASSES.slate;
+                                return (
+                                  <span
+                                    key={tagKey}
+                                    className={cn("inline-flex items-center rounded border px-1 text-[9px] font-semibold tracking-wide leading-4", cls)}
+                                    title={def.description}
+                                  >
+                                    {def.shortLabel}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
                         </TableCell>
 
                         {/* ── Desktop: ticker (hidden on mobile) ── */}
@@ -1296,12 +1387,32 @@ export default function MainPage() {
                           onClick={() => setExpandedTicker(prev => prev === stock.ticker ? null : stock.ticker)}
                           title="Click to audit alpha components"
                         >
-                          <span className="flex items-center gap-1.5">
-                            <span className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", dotColor)} />
-                            <span>{stock.ticker}</span>
-                            {expandedTicker === stock.ticker
-                              ? <ChevronDown className="w-2.5 h-2.5 text-muted-foreground ml-0.5" />
-                              : <ChevronRight className="w-2.5 h-2.5 text-muted-foreground ml-0.5 opacity-0 group-hover:opacity-100" />}
+                          <span className="flex flex-col gap-0.5">
+                            <span className="flex items-center gap-1.5">
+                              <span className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", dotColor)} />
+                              <span>{stock.ticker}</span>
+                              {expandedTicker === stock.ticker
+                                ? <ChevronDown className="w-2.5 h-2.5 text-muted-foreground ml-0.5" />
+                                : <ChevronRight className="w-2.5 h-2.5 text-muted-foreground ml-0.5 opacity-0 group-hover:opacity-100" />}
+                            </span>
+                            {(stock.tags ?? []).length > 0 && (
+                              <span className="flex items-center gap-0.5 pl-3">
+                                {(stock.tags ?? []).slice(0, 3).map(tagKey => {
+                                  const def = tagDefinitions[tagKey];
+                                  if (!def) return null;
+                                  const cls = TAG_COLOR_CLASSES[def.color] ?? TAG_COLOR_CLASSES.slate;
+                                  return (
+                                    <span
+                                      key={tagKey}
+                                      className={cn("inline-flex items-center rounded border px-1 text-[8px] font-semibold tracking-wide leading-3.5", cls)}
+                                      title={def.description}
+                                    >
+                                      {def.shortLabel}
+                                    </span>
+                                  );
+                                })}
+                              </span>
+                            )}
                           </span>
                         </TableCell>
 

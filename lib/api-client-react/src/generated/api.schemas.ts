@@ -143,6 +143,9 @@ export interface Stock {
   hasLeverageBucket?: boolean | null;
   /** @nullable */
   qualityBucketCount?: number | null;
+  /** Post-calculation display tags assigned after all ranking and z-score computations. Tags never affect rankings, alpha, or any formula.
+   */
+  tags?: string[];
 }
 
 export type UniverseAuditExclusions = { [key: string]: number };
@@ -167,6 +170,27 @@ export interface UniverseAudit {
   activeFilters?: string[];
 }
 
+/**
+ * Display metadata for a single tag. Tags are post-calculation signals that never affect rankings, alpha, or any formula.
+
+ */
+export interface TagDefinition {
+  /** Full human-readable name (e.g. "High Quality") */
+  label: string;
+  /** Compact badge text, 1–3 characters (e.g. "HQ") */
+  shortLabel: string;
+  /** Tooltip / help text shown to the user */
+  description: string;
+  /** Color key: emerald | amber | sky | rose | violet | slate */
+  color: string;
+}
+
+/**
+ * Map of tag key → TagDefinition for all active tags. Empty object when no tags are defined.
+
+ */
+export type RankingsResponseTagDefinitions = { [key: string]: TagDefinition };
+
 export interface RankingsResponse {
   stocks: Stock[];
   total: number;
@@ -174,6 +198,9 @@ export interface RankingsResponse {
   cachedAt?: string | null;
   clusterCount: number;
   audit?: UniverseAudit;
+  /** Map of tag key → TagDefinition for all active tags. Empty object when no tags are defined.
+   */
+  tagDefinitions?: RankingsResponseTagDefinitions;
 }
 
 export interface UniverseFilters {

@@ -1,0 +1,152 @@
+Implement a Tags system that is completely independent from ranking, filtering, and cross-sectional calculations.
+
+Goal:
+Create a lightweight, high-performance tagging system that is:
+- iPhone/mobile optimized
+- visually organized and easy to scan
+- computationally minimal (no performance impact)
+- fully reliable and deterministic
+- strictly non-invasive to all calculations
+
+--------------------------------
+CORE PRINCIPLES
+--------------------------------
+
+1. Separation of concerns
+- Tags are applied AFTER all calculations
+- Tags NEVER affect:
+  - rankings
+  - z-scores
+  - percentiles
+  - any formulas
+
+2. Mobile-first design
+- Must be clean, compact, and glanceable on iPhone
+- No clutter, no text overflow, minimal taps
+
+3. Performance
+- O(N) computation only
+- No additional API calls
+- Minimal payload increase
+
+4. Reliability
+- Tag logic must be deterministic and reproducible
+- Same inputs → same tags every time
+
+5. Accuracy
+- Tags must read final computed values only (zQ, MasterScore, etc.)
+- No approximations or recomputation
+
+--------------------------------
+1. Data Model
+--------------------------------
+
+Add to each stock in /rankings response:
+
+tags: string[]  // example: ["high_quality", "low_vol"]
+
+Add global definitions:
+
+tagDefinitions: {
+  tag_key: {
+    label: string,
+    shortLabel: string,   // for mobile badge (e.g. "HQ")
+    description: string,
+    color: string
+  }
+}
+
+--------------------------------
+2. Tag Engine (Backend)
+--------------------------------
+
+Add a dedicated step:
+
+compute_rankings()
+→ compute_z_scores()
+→ compute_tags()
+
+Requirements:
+- Tags read only final computed fields
+- Tags do NOT modify any values
+- Tags do NOT trigger recomputation
+- Keep logic simple and fast
+
+--------------------------------
+3. UI (iPhone Optimized)
+--------------------------------
+
+Row display:
+- Show small, compact badges (2–3 max visible per row)
+- Use shortLabel (1–3 characters max)
+- Consistent color coding
+
+Interaction:
+- Tap badge → tooltip with full description
+- No long text in rows
+
+Layout:
+- Must not break row height or scrolling performance
+- Must not compete visually with rank/price
+
+--------------------------------
+4. Hide (NOT Filter)
+--------------------------------
+
+Add UI toggle:
+- “Hide stocks with tag X”
+
+Behavior:
+- Hiding is CLIENT-SIDE ONLY
+- Does NOT trigger backend call
+- Does NOT recompute anything
+
+Hidden stocks:
+- removed from display only
+- still exist in memory
+
+--------------------------------
+5. Strict Separation from Filters
+--------------------------------
+
+Filters:
+- applied BEFORE computation
+- change universe → affect z-scores
+
+Tags:
+- applied AFTER computation
+- NEVER change universe
+
+This separation must be explicit in code.
+
+--------------------------------
+6. Performance Constraints
+--------------------------------
+
+- No noticeable latency increase
+- No re-renders beyond necessary rows
+- Avoid large tag payloads
+
+--------------------------------
+7. Initial State
+--------------------------------
+
+- Implement system with ZERO tags defined
+- Only infrastructure
+
+--------------------------------
+8. Validation
+--------------------------------
+
+Add debug checks:
+- z-scores and ranks identical with tags ON vs OFF
+- hiding does not change any computed values
+
+--------------------------------
+Outcome:
+A fast, mobile-first tagging system that enables:
+- visual signals (badges)
+- optional hiding
+- future factor overlays
+
+WITHOUT ever contaminating ranking math.

@@ -5,6 +5,7 @@
  * Equity Ranking and Risk API
  * OpenAPI spec version: 0.1.0
  */
+import type { RankingsResponseTagDefinitions } from "./rankingsResponseTagDefinitions";
 import type { Stock } from "./stock";
 import type { UniverseAudit } from "./universeAudit";
 
@@ -15,4 +16,7 @@ export interface RankingsResponse {
   cachedAt?: string | null;
   clusterCount: number;
   audit?: UniverseAudit;
+  /** Map of tag key → TagDefinition for all active tags. Empty object when no tags are defined.
+   */
+  tagDefinitions?: RankingsResponseTagDefinitions;
 }

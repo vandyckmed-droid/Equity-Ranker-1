@@ -26,6 +26,59 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Tag system ────────────────────────────────────────────────────────────────
+# Tags are applied AFTER all ranking, z-score, and quality computations.
+# They are purely decorative signals — they never affect rankings or formulas.
+#
+# To define a tag, add an entry to TAG_DEFINITIONS:
+#   "tag_key": {
+#       "label":       "Human-readable name",
+#       "shortLabel":  "HQ",   # 1–3 chars, shown in mobile badge
+#       "description": "Tooltip text shown to the user",
+#       "color":       "emerald",  # emerald | amber | sky | rose | violet | slate
+#       "_rule":       lambda s: bool(condition_on_stock_dict),  # stripped before JSON
+#   }
+#
+# Rules read ONLY final computed fields (alpha, zQ, rank, percentile, etc.).
+# They MUST NOT modify any field or trigger recomputation.
+TAG_DEFINITIONS: dict = {
+    # Zero tags in initial implementation — infrastructure only.
+    # Example (disabled):
+    # "high_quality": {
+    #     "label": "High Quality",
+    #     "shortLabel": "HQ",
+    #     "description": "OPA z-score above +1.0 (top ~16% of universe by profitability)",
+    #     "color": "emerald",
+    #     "_rule": lambda s: (s.get("zQ") or 0) > 1.0,
+    # },
+    # "low_vol": {
+    #     "label": "Low Volatility",
+    #     "shortLabel": "LV",
+    #     "description": "12-month realized volatility below 20%",
+    #     "color": "sky",
+    #     "_rule": lambda s: (s.get("sigma12") or 1) < 0.20,
+    # },
+}
+
+
+def _apply_tags(stock: dict) -> list:
+    """
+    Assign tags to a single stock by reading its final computed values only.
+    Called AFTER all rankings, z-scores, and quality computations are complete.
+    NEVER modifies any value. NEVER affects ranking math.
+    """
+    tags = []
+    for key, defn in TAG_DEFINITIONS.items():
+        rule = defn.get("_rule")
+        if callable(rule):
+            try:
+                if rule(stock):
+                    tags.append(key)
+            except Exception:
+                pass  # malformed rule — silently skip, never crash rankings
+    return tags
+
+
 # Start background data load on startup
 @app.on_event("startup")
 def startup():
@@ -383,12 +436,26 @@ def get_rankings(
     audit["qualityMissingCount"]           = _q_missing_count
     audit["qualityMissingPct"]             = _pct(_q_missing_count)
 
+    # ── Tag system (post-calculation, display-only) ──────────────────────────
+    # Applied AFTER all rankings, z-scores, alpha, and quality computations.
+    # Tags NEVER modify any computed value. NEVER affect rankings or z-scores.
+    # Add entries to TAG_DEFINITIONS to activate tags.
+    for s in stocks:
+        s["tags"] = _apply_tags(s)
+
+    # Strip internal _rule callables before serializing tagDefinitions to JSON
+    tag_defs_public = {
+        k: {kk: vv for kk, vv in v.items() if not kk.startswith("_")}
+        for k, v in TAG_DEFINITIONS.items()
+    }
+
     return {
         "stocks": stocks,
         "total": len(stocks),
         "cluster_count": cluster_count,
         "cached_at": status.get("cached_at"),
         "audit": audit,
+        "tagDefinitions": tag_defs_public,
     }
 
 

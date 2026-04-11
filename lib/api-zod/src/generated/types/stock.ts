@@ -103,4 +103,7 @@ export interface Stock {
   hasLeverageBucket?: boolean | null;
   /** @nullable */
   qualityBucketCount?: number | null;
+  /** Post-calculation display tags assigned after all ranking and z-score computations. Tags never affect rankings, alpha, or any formula.
+   */
+  tags?: string[];
 }

@@ -144,6 +144,12 @@ export const GetRankingsResponse = zod.object({
       hasMarginBucket: zod.boolean().nullish(),
       hasLeverageBucket: zod.boolean().nullish(),
       qualityBucketCount: zod.number().nullish(),
+      tags: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+          "Post-calculation display tags assigned after all ranking and z-score computations. Tags never affect rankings, alpha, or any formula.\n",
+        ),
     }),
   ),
   total: zod.number(),
@@ -168,6 +174,34 @@ export const GetRankingsResponse = zod.object({
       activeFilters: zod.array(zod.string()).optional(),
     })
     .optional(),
+  tagDefinitions: zod
+    .record(
+      zod.string(),
+      zod
+        .object({
+          label: zod
+            .string()
+            .describe('Full human-readable name (e.g. \"High Quality\")'),
+          shortLabel: zod
+            .string()
+            .describe('Compact badge text, 1–3 characters (e.g. \"HQ\")'),
+          description: zod
+            .string()
+            .describe("Tooltip \/ help text shown to the user"),
+          color: zod
+            .string()
+            .describe(
+              "Color key: emerald | amber | sky | rose | violet | slate",
+            ),
+        })
+        .describe(
+          "Display metadata for a single tag. Tags are post-calculation signals that never affect rankings, alpha, or any formula.\n",
+        ),
+    )
+    .optional()
+    .describe(
+      "Map of tag key → TagDefinition for all active tags. Empty object when no tags are defined.\n",
+    ),
 });
 
 /**
@@ -242,6 +276,12 @@ export const ApplyUniverseFiltersResponse = zod.object({
       hasMarginBucket: zod.boolean().nullish(),
       hasLeverageBucket: zod.boolean().nullish(),
       qualityBucketCount: zod.number().nullish(),
+      tags: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+          "Post-calculation display tags assigned after all ranking and z-score computations. Tags never affect rankings, alpha, or any formula.\n",
+        ),
     }),
   ),
   total: zod.number(),
@@ -266,6 +306,34 @@ export const ApplyUniverseFiltersResponse = zod.object({
       activeFilters: zod.array(zod.string()).optional(),
     })
     .optional(),
+  tagDefinitions: zod
+    .record(
+      zod.string(),
+      zod
+        .object({
+          label: zod
+            .string()
+            .describe('Full human-readable name (e.g. \"High Quality\")'),
+          shortLabel: zod
+            .string()
+            .describe('Compact badge text, 1–3 characters (e.g. \"HQ\")'),
+          description: zod
+            .string()
+            .describe("Tooltip \/ help text shown to the user"),
+          color: zod
+            .string()
+            .describe(
+              "Color key: emerald | amber | sky | rose | violet | slate",
+            ),
+        })
+        .describe(
+          "Display metadata for a single tag. Tags are post-calculation signals that never affect rankings, alpha, or any formula.\n",
+        ),
+    )
+    .optional()
+    .describe(
+      "Map of tag key → TagDefinition for all active tags. Empty object when no tags are defined.\n",
+    ),
 });
 
 /**
