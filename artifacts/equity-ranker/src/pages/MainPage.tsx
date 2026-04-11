@@ -282,8 +282,8 @@ export default function MainPage() {
     movedTimerRef.current = setTimeout(() => setRecentlyMoved(null), 600);
   }, [moveColumn]);
 
-  const CONTROLS_KEY = "qt:controls-v5";
-  const DEFAULT_WEIGHTS = { wS6: 1, wS12: 1, wRes6: 2, wRes12: 3, wT6: 1, wT12: 1, wS1: 1, wInvVol: 2, wOpa: 2 } as const;
+  const CONTROLS_KEY = "qt:controls-v6";
+  const DEFAULT_WEIGHTS = { wM: 4, wRM: 3, wR: 1, wLV: 2, wQ: 2 } as const;
 
   const loadControlsFromStorage = () => {
     try {
@@ -401,18 +401,13 @@ export default function MainPage() {
     if (stocks.length > 0) setAllStocks(stocks);
     if (stocks.length > 0) {
       // Inline alpha rerank — seeds the portfolio context
-      const { wS6, wS12, wRes6, wRes12, wT6, wT12, wS1, wInvVol, wOpa } = weights;
-      const totalW = (wS6 + wS12 + wRes6 + wRes12 + wT6 + wT12 + wS1 + wInvVol + wOpa) || 1;
+      const { wM, wRM, wR, wLV, wQ } = weights;
+      const totalW = (wM + wRM + wR + wLV + wQ) || 1;
       const reranked = stocks
         .map((s: any) => {
-          const alpha = (
-            wS6    * (s.zS6    ?? 0) + wS12   * (s.zS12   ?? 0) +
-            wRes6  * (s.zR6    ?? 0) + wRes12  * (s.zR12   ?? 0) +
-            wT6    * (s.zT6    ?? 0) + wT12    * (s.zT12   ?? 0) -
-            wS1    * (s.zS1    ?? 0) +
-            wInvVol * (s.zLowVol ?? 0) +
-            wOpa   * (s.zOPA   ?? 0)
-          ) / totalW;
+          const M  = 0.25*(s.zS6  ?? 0) + 0.25*(s.zS12 ?? 0) + 0.25*(s.zT6 ?? 0) + 0.25*(s.zT12 ?? 0);
+          const RM = 0.4 *(s.zR6  ?? 0) + 0.6 *(s.zR12 ?? 0);
+          const alpha = (wM*M + wRM*RM + wR*(-(s.zS1 ?? 0)) + wLV*(s.zLowVol ?? 0) + wQ*(s.zOPA ?? 0)) / totalW;
           return { ...s, alpha };
         })
         .sort((a, b) => (b.alpha ?? 0) - (a.alpha ?? 0));
@@ -429,18 +424,13 @@ export default function MainPage() {
 
   const clientAlphaStocks: Stock[] = useMemo(() => {
     if (!stocks.length) return stocks;
-    const { wS6, wS12, wRes6, wRes12, wT6, wT12, wS1, wInvVol, wOpa } = weights;
-    const totalW = (wS6 + wS12 + wRes6 + wRes12 + wT6 + wT12 + wS1 + wInvVol + wOpa) || 1;
+    const { wM, wRM, wR, wLV, wQ } = weights;
+    const totalW = (wM + wRM + wR + wLV + wQ) || 1;
 
     const reranked = stocks.map((s: any) => {
-      const alpha = (
-        wS6    * (s.zS6    ?? 0) + wS12   * (s.zS12   ?? 0) +
-        wRes6  * (s.zR6    ?? 0) + wRes12  * (s.zR12   ?? 0) +
-        wT6    * (s.zT6    ?? 0) + wT12    * (s.zT12   ?? 0) -
-        wS1    * (s.zS1    ?? 0) +
-        wInvVol * (s.zLowVol ?? 0) +
-        wOpa   * (s.zOPA   ?? 0)
-      ) / totalW;
+      const M  = 0.25*(s.zS6  ?? 0) + 0.25*(s.zS12 ?? 0) + 0.25*(s.zT6 ?? 0) + 0.25*(s.zT12 ?? 0);
+      const RM = 0.4 *(s.zR6  ?? 0) + 0.6 *(s.zR12 ?? 0);
+      const alpha = (wM*M + wRM*RM + wR*(-(s.zS1 ?? 0)) + wLV*(s.zLowVol ?? 0) + wQ*(s.zOPA ?? 0)) / totalW;
       return { ...s, alpha };
     });
 
@@ -960,9 +950,12 @@ export default function MainPage() {
               const pct = (k: keyof typeof DEFAULT_WEIGHTS) => ((weights[k] / totalW) * 100).toFixed(1) + "%";
               const setW = (k: keyof typeof DEFAULT_WEIGHTS, v: number) =>
                 setWeights((prev) => ({ ...prev, [k]: Math.max(0, Math.round(v)) }));
-              const row = (label: string, k: keyof typeof DEFAULT_WEIGHTS) => (
+              const row = (label: string, sub: string, k: keyof typeof DEFAULT_WEIGHTS) => (
                 <div key={k} className="flex items-center gap-2">
-                  <span className="text-[11px] text-muted-foreground w-24 shrink-0">{label}</span>
+                  <div className="w-28 shrink-0">
+                    <span className="text-[11px] text-muted-foreground">{label}</span>
+                    {sub && <span className="block text-[9px] text-muted-foreground/40 leading-tight">{sub}</span>}
+                  </div>
                   <input
                     type="number" min={0} step={1}
                     value={weights[k]}
@@ -978,21 +971,14 @@ export default function MainPage() {
                   <p className="text-[10px] text-muted-foreground/60">Enter integers — auto-normalises to 100%</p>
                   <div className="space-y-2">
                     <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Momentum</p>
-                    {row("s6",   "wS6")}
-                    {row("s12",  "wS12")}
-                    {row("res6", "wRes6")}
-                    {row("res12","wRes12")}
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Trend</p>
-                    {row("tstat6",  "wT6")}
-                    {row("tstat12", "wT12")}
+                    {row("Core Momentum", "M = ¼(zS6+zS12+zT6+zT12)", "wM")}
+                    {row("Residual Mom",  "RM = 0.4·zR6 + 0.6·zR12",  "wRM")}
                   </div>
                   <div className="space-y-2">
                     <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Other</p>
-                    {row("−s1",      "wS1")}
-                    {row("lowvol",  "wInvVol")}
-                    {row("OPA",      "wOpa")}
+                    {row("Reversal",  "R = −zS1",    "wR")}
+                    {row("Low Vol",   "LV = zLowVol", "wLV")}
+                    {row("Quality",   "Q = zOPA",     "wQ")}
                   </div>
                   <button
                     className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground underline underline-offset-2"
@@ -1526,41 +1512,64 @@ export default function MainPage() {
                           }
                         };
 
-                        const { wS6, wS12, wRes6, wRes12, wT6, wT12, wS1, wInvVol, wOpa } = weights;
-                        const totalW = (wS6 + wS12 + wRes6 + wRes12 + wT6 + wT12 + wS1 + wInvVol + wOpa) || 1;
+                        const { wM, wRM, wR, wLV, wQ } = weights;
+                        const totalW = (wM + wRM + wR + wLV + wQ) || 1;
                         const wPct = (w: number) => ((w / totalW) * 100).toFixed(0) + "%";
 
-                        type SignalRow = { label: string; z: number | null | undefined; w: number; contrib: number | null };
-                        const contrib = (w: number, z: number | null | undefined) =>
-                          z != null ? (w / totalW) * z : null;
+                        const M  = 0.25*(s.zS6  ?? 0) + 0.25*(s.zS12 ?? 0) + 0.25*(s.zT6 ?? 0) + 0.25*(s.zT12 ?? 0);
+                        const RM = 0.4 *(s.zR6  ?? 0) + 0.6 *(s.zR12 ?? 0);
+                        const R  = -(s.zS1 ?? 0);
+                        const LV = s.zLowVol ?? 0;
+                        const Q  = s.zOPA ?? 0;
 
-                        const momentumRows: SignalRow[] = [
-                          { label: "zS6",   z: s.zS6,    w: wS6,   contrib: contrib(wS6,   s.zS6)  },
-                          { label: "zS12",  z: s.zS12,   w: wS12,  contrib: contrib(wS12,  s.zS12) },
-                          { label: "zRes6", z: s.zR6,    w: wRes6, contrib: contrib(wRes6, s.zR6)  },
-                          { label: "zRes12",z: s.zR12,   w: wRes12,contrib: contrib(wRes12,s.zR12) },
+                        type CompositeRow = { label: string; composite: number; w: number; subs: { label: string; z: number | null | undefined }[] };
+                        type SignalRow    = { label: string; z: number | null | undefined; w: number };
+
+                        const compositeRows: CompositeRow[] = [
+                          { label: "M — Core Mom",  composite: M,  w: wM,  subs: [{ label: "zS6", z: s.zS6 }, { label: "zS12", z: s.zS12 }, { label: "zT6", z: s.zT6 }, { label: "zT12", z: s.zT12 }] },
+                          { label: "RM — Resid Mom", composite: RM, w: wRM, subs: [{ label: "zR6", z: s.zR6 }, { label: "zR12", z: s.zR12 }] },
                         ];
-                        const trendRows: SignalRow[] = [
-                          { label: "zT6",   z: s.zT6,    w: wT6,   contrib: contrib(wT6,   s.zT6)  },
-                          { label: "zT12",  z: s.zT12,   w: wT12,  contrib: contrib(wT12,  s.zT12) },
+                        const singleRows: SignalRow[] = [
+                          { label: "R = −zS1",    z: R,  w: wR  },
+                          { label: "LV = zLowVol",z: LV, w: wLV },
+                          { label: "Q = zOPA",    z: Q,  w: wQ  },
                         ];
-                        const otherRows: SignalRow[] = [
-                          { label: "−zS1",   z: s.zS1    != null ? -s.zS1    : null, w: wS1,    contrib: s.zS1    != null ? -(wS1    / totalW) * s.zS1    : null },
-                          { label: "zLowVol",z: s.zLowVol != null ?  s.zLowVol : null, w: wInvVol, contrib: contrib(wInvVol, s.zLowVol) },
-                          { label: "zOPA",  z: s.zOPA,   w: wOpa,  contrib: contrib(wOpa,  s.zOPA)  },
-                        ];
+
+                        const CompositeGroup = ({ rows }: { rows: CompositeRow[] }) => (
+                          <div className="space-y-2.5 min-w-[180px]">
+                            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Momentum</p>
+                            {rows.map((r) => (
+                              <div key={r.label} className="space-y-0.5">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-muted-foreground/80 font-medium w-[90px] shrink-0 text-[10px]">{r.label}</span>
+                                  <span className="font-bold w-10 text-right" style={heat(r.composite)}>{r.composite.toFixed(2)}</span>
+                                  <span className="text-muted-foreground/40 text-[9px] w-7 text-right">{wPct(r.w)}</span>
+                                  <span className="text-[9px] w-9 text-right" style={{ ...heat((r.w / totalW) * r.composite), opacity: 0.7 }}>
+                                    {((r.w / totalW) * r.composite) > 0 ? "+" : ""}{((r.w / totalW) * r.composite).toFixed(2)}
+                                  </span>
+                                </div>
+                                {r.subs.map((sub) => (
+                                  <div key={sub.label} className="flex items-center gap-1.5 pl-2">
+                                    <span className="text-muted-foreground/40 text-[9px] w-[82px] shrink-0">{sub.label}</span>
+                                    <span className="text-[9px] w-10 text-right" style={heat(sub.z)}>{fmt2(sub.z)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        );
 
                         const SigGroup = ({ title, rows }: { title: string; rows: SignalRow[] }) => (
                           <div className="space-y-1 min-w-[160px]">
                             <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">{title}</p>
                             {rows.map((r) => (
                               <div key={r.label} className="flex items-center gap-1.5">
-                                <span className="text-muted-foreground/70 w-[52px] shrink-0">{r.label}</span>
+                                <span className="text-muted-foreground/70 w-[80px] shrink-0">{r.label}</span>
                                 <span className="font-semibold w-10 text-right" style={heat(r.z)}>{fmt2(r.z)}</span>
                                 <span className="text-muted-foreground/40 text-[9px] w-7 text-right">{wPct(r.w)}</span>
-                                {r.contrib != null && (
-                                  <span className="text-[9px] w-9 text-right" style={{ ...heat(r.contrib), opacity: 0.7 }}>
-                                    {r.contrib > 0 ? "+" : ""}{r.contrib.toFixed(2)}
+                                {r.z != null && (
+                                  <span className="text-[9px] w-9 text-right" style={{ ...heat((r.w / totalW) * r.z), opacity: 0.7 }}>
+                                    {(r.w / totalW) * r.z > 0 ? "+" : ""}{((r.w / totalW) * r.z).toFixed(2)}
                                   </span>
                                 )}
                               </div>
@@ -1581,9 +1590,8 @@ export default function MainPage() {
                             <TableCell colSpan={activeColumns.length + 2} className="px-3 py-3">
                               <div className="flex flex-wrap gap-x-6 gap-y-3 text-[10px] font-mono">
 
-                                <SigGroup title="Momentum" rows={momentumRows} />
-                                <SigGroup title="Trend" rows={trendRows} />
-                                <SigGroup title="Other" rows={otherRows} />
+                                <CompositeGroup rows={compositeRows} />
+                                <SigGroup title="Other" rows={singleRows} />
 
                                 {/* divider */}
                                 <div className="hidden sm:block w-px self-stretch bg-border/30 mx-1" />
