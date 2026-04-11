@@ -50,6 +50,8 @@ import {
   RotateCcw,
   X,
 } from "lucide-react";
+import { useAlphaBasket } from "@/hooks/use-alpha-basket";
+import { AlphaBasketButton } from "@/components/AlphaBasketButton";
 
 type SortField = keyof Stock;
 type SortDirection = "asc" | "desc";
@@ -251,6 +253,8 @@ export default function MainPage() {
     toggleShowTagFB, toggleShowTagHP, toggleShowTagLP,
   } = useMobilePrefs();
 
+  const { computeAlpha, getContributions, totalWeight: basketTotalWeight, activePresetId } = useAlphaBasket();
+
   const queryClient = useQueryClient();
 
   // ── localStorage snapshot (warm-start) ──────────────────────────────────
@@ -282,8 +286,7 @@ export default function MainPage() {
     movedTimerRef.current = setTimeout(() => setRecentlyMoved(null), 600);
   }, [moveColumn]);
 
-  const CONTROLS_KEY = "qt:controls-v6";
-  const DEFAULT_WEIGHTS = { wM: 4, wRM: 3, wR: 1, wLV: 2, wQ: 2 } as const;
+  const CONTROLS_KEY = "qt:controls-v7";
 
   const loadControlsFromStorage = () => {
     try {
@@ -312,10 +315,6 @@ export default function MainPage() {
   }, [serverParams]);
 
   // Local params: handled client-side (instant, no API call)
-  const [weights, setWeights] = useState<typeof DEFAULT_WEIGHTS>(() => {
-    const saved = loadControlsFromStorage();
-    return saved?.weights ?? { ...DEFAULT_WEIGHTS };
-  });
   const [mcapFilter, setMcapFilter] = useState<McapFilter>(() => {
     const saved = loadControlsFromStorage();
     const v = saved?.mcapFilter;
@@ -336,12 +335,12 @@ export default function MainPage() {
     return s?.alphaMode === 'pct' ? 'pct' : 'z';
   });
 
-  // Persist controls to localStorage whenever they change
+  // Persist controls to localStorage whenever they change (weights now in qt:basket-v2)
   useEffect(() => {
     try {
-      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, weights, mcapFilter, sortField, sortDir, alphaMode }));
+      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, mcapFilter, sortField, sortDir, alphaMode }));
     } catch {}
-  }, [serverParams, weights, mcapFilter, sortField, sortDir, alphaMode]);
+  }, [serverParams, mcapFilter, sortField, sortDir, alphaMode]);
 
   const params: GetRankingsParams = useMemo(() => {
     const p: GetRankingsParams = {
@@ -400,16 +399,8 @@ export default function MainPage() {
   useEffect(() => {
     if (stocks.length > 0) setAllStocks(stocks);
     if (stocks.length > 0) {
-      // Inline alpha rerank — seeds the portfolio context
-      const { wM, wRM, wR, wLV, wQ } = weights;
-      const totalW = (wM + wRM + wR + wLV + wQ) || 1;
       const reranked = stocks
-        .map((s: any) => {
-          const M  = 0.25*(s.zM6  ?? 0) + 0.25*(s.zM12 ?? 0) + 0.25*(s.zT6 ?? 0) + 0.25*(s.zT12 ?? 0);
-          const RM = 0.4 *(s.zR6  ?? 0) + 0.6 *(s.zR12 ?? 0);
-          const alpha = (wM*M + wRM*RM + wR*(-(s.zM1 ?? 0)) + wLV*(s.zLowVol ?? 0) + wQ*(s.zOPA ?? 0)) / totalW;
-          return { ...s, alpha };
-        })
+        .map((s: any) => ({ ...s, alpha: computeAlpha(s) }))
         .sort((a, b) => (b.alpha ?? 0) - (a.alpha ?? 0));
       const threshold = MCAP_THRESHOLDS[mcapFilter];
       setRankedStocks(
@@ -418,29 +409,20 @@ export default function MainPage() {
           : reranked
       );
     }
-  }, [stocks, weights, mcapFilter, setAllStocks, setRankedStocks]);
+  }, [stocks, computeAlpha, mcapFilter, setAllStocks, setRankedStocks]);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const clientAlphaStocks: Stock[] = useMemo(() => {
     if (!stocks.length) return stocks;
-    const { wM, wRM, wR, wLV, wQ } = weights;
-    const totalW = (wM + wRM + wR + wLV + wQ) || 1;
-
-    const reranked = stocks.map((s: any) => {
-      const M  = 0.25*(s.zM6  ?? 0) + 0.25*(s.zM12 ?? 0) + 0.25*(s.zT6 ?? 0) + 0.25*(s.zT12 ?? 0);
-      const RM = 0.4 *(s.zR6  ?? 0) + 0.6 *(s.zR12 ?? 0);
-      const alpha = (wM*M + wRM*RM + wR*(-(s.zM1 ?? 0)) + wLV*(s.zLowVol ?? 0) + wQ*(s.zOPA ?? 0)) / totalW;
-      return { ...s, alpha };
-    });
-
+    const reranked = stocks.map((s: any) => ({ ...s, alpha: computeAlpha(s) }));
     reranked.sort((a: any, b: any) => (b.alpha ?? 0) - (a.alpha ?? 0));
     return reranked.map((s: any, i: number) => ({
       ...s,
       rank: i + 1,
       percentile: 100 * (1 - i / reranked.length),
     }));
-  }, [stocks, weights]);
+  }, [stocks, computeAlpha]);
 
   // Filtering and Sorting
   const processedStocks = useMemo(() => {
@@ -842,6 +824,11 @@ export default function MainPage() {
               >
                 α·{alphaMode === 'z' ? 'Z' : '%'}
               </Button>
+              <AlphaBasketButton
+                stockCount={clientAlphaStocks.length}
+                lastRefresh={rankingsResult?.cachedAt}
+                audit={audit as Record<string, unknown> | undefined}
+              />
               <Button
                 variant={controlsOpen ? "secondary" : "ghost"}
                 size="sm"
@@ -943,52 +930,6 @@ export default function MainPage() {
             <SheetTitle className="text-sm font-semibold">Filters &amp; Controls</SheetTitle>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
-
-            {/* Factor Weights */}
-            {(() => {
-              const totalW = Object.values(weights).reduce((a, b) => a + b, 0) || 1;
-              const pct = (k: keyof typeof DEFAULT_WEIGHTS) => ((weights[k] / totalW) * 100).toFixed(1) + "%";
-              const setW = (k: keyof typeof DEFAULT_WEIGHTS, v: number) =>
-                setWeights((prev) => ({ ...prev, [k]: Math.max(0, Math.round(v)) }));
-              const row = (label: string, sub: string, k: keyof typeof DEFAULT_WEIGHTS) => (
-                <div key={k} className="flex items-center gap-2">
-                  <div className="w-28 shrink-0">
-                    <span className="text-[11px] text-muted-foreground">{label}</span>
-                    {sub && <span className="block text-[9px] text-muted-foreground/40 leading-tight">{sub}</span>}
-                  </div>
-                  <input
-                    type="number" min={0} step={1}
-                    value={weights[k]}
-                    onChange={(e) => setW(k, Number(e.target.value))}
-                    className="w-14 bg-muted border border-border rounded px-2 py-1 text-xs text-center text-foreground [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  />
-                  <span className="text-[10px] text-muted-foreground/60 w-10 text-right">{pct(k)}</span>
-                </div>
-              );
-              return (
-                <div className="space-y-3">
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Factor Weights</h3>
-                  <p className="text-[10px] text-muted-foreground/60">Enter integers — auto-normalises to 100%</p>
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Momentum</p>
-                    {row("Core Momentum", "M = ¼(zM6+zM12+zT6+zT12)", "wM")}
-                    {row("Residual Mom",  "RM = 0.4·zR6 + 0.6·zR12",  "wRM")}
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Other</p>
-                    {row("Reversal",  "R = −zM1",    "wR")}
-                    {row("Low Vol",   "LV = zLowVol", "wLV")}
-                    {row("Quality",   "Q = zOPA",     "wQ")}
-                  </div>
-                  <button
-                    className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground underline underline-offset-2"
-                    onClick={() => setWeights({ ...DEFAULT_WEIGHTS })}
-                  >
-                    Reset to defaults
-                  </button>
-                </div>
-              );
-            })()}
 
             {/* Universe Filters */}
             <div className="space-y-3">
@@ -1512,70 +1453,10 @@ export default function MainPage() {
                           }
                         };
 
-                        const { wM, wRM, wR, wLV, wQ } = weights;
-                        const totalW = (wM + wRM + wR + wLV + wQ) || 1;
+                        // Basket contributions — driven by useAlphaBasket()
+                        const contributions = getContributions(s);
+                        const totalW = basketTotalWeight || 1;
                         const wPct = (w: number) => ((w / totalW) * 100).toFixed(0) + "%";
-
-                        const M  = 0.25*(s.zM6  ?? 0) + 0.25*(s.zM12 ?? 0) + 0.25*(s.zT6 ?? 0) + 0.25*(s.zT12 ?? 0);
-                        const RM = 0.4 *(s.zR6  ?? 0) + 0.6 *(s.zR12 ?? 0);
-                        const R  = -(s.zM1 ?? 0);
-                        const LV = s.zLowVol ?? 0;
-                        const Q  = s.zOPA ?? 0;
-
-                        type CompositeRow = { label: string; composite: number; w: number; subs: { label: string; z: number | null | undefined }[] };
-                        type SignalRow    = { label: string; z: number | null | undefined; w: number };
-
-                        const compositeRows: CompositeRow[] = [
-                          { label: "M — Core Mom",  composite: M,  w: wM,  subs: [{ label: "zM6", z: s.zM6 }, { label: "zM12", z: s.zM12 }, { label: "zT6", z: s.zT6 }, { label: "zT12", z: s.zT12 }] },
-                          { label: "RM — Resid Mom", composite: RM, w: wRM, subs: [{ label: "zR6", z: s.zR6 }, { label: "zR12", z: s.zR12 }] },
-                        ];
-                        const singleRows: SignalRow[] = [
-                          { label: "R = −zM1",    z: R,  w: wR  },
-                          { label: "LV = zLowVol",z: LV, w: wLV },
-                          { label: "Q = zOPA",    z: Q,  w: wQ  },
-                        ];
-
-                        const CompositeGroup = ({ rows }: { rows: CompositeRow[] }) => (
-                          <div className="space-y-2.5 min-w-[180px]">
-                            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Momentum</p>
-                            {rows.map((r) => (
-                              <div key={r.label} className="space-y-0.5">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-muted-foreground/80 font-medium w-[90px] shrink-0 text-[10px]">{r.label}</span>
-                                  <span className="font-bold w-10 text-right" style={heat(r.composite)}>{r.composite.toFixed(2)}</span>
-                                  <span className="text-muted-foreground/40 text-[9px] w-7 text-right">{wPct(r.w)}</span>
-                                  <span className="text-[9px] w-9 text-right" style={{ ...heat((r.w / totalW) * r.composite), opacity: 0.7 }}>
-                                    {((r.w / totalW) * r.composite) > 0 ? "+" : ""}{((r.w / totalW) * r.composite).toFixed(2)}
-                                  </span>
-                                </div>
-                                {r.subs.map((sub) => (
-                                  <div key={sub.label} className="flex items-center gap-1.5 pl-2">
-                                    <span className="text-muted-foreground/40 text-[9px] w-[82px] shrink-0">{sub.label}</span>
-                                    <span className="text-[9px] w-10 text-right" style={heat(sub.z)}>{fmt2(sub.z)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            ))}
-                          </div>
-                        );
-
-                        const SigGroup = ({ title, rows }: { title: string; rows: SignalRow[] }) => (
-                          <div className="space-y-1 min-w-[160px]">
-                            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">{title}</p>
-                            {rows.map((r) => (
-                              <div key={r.label} className="flex items-center gap-1.5">
-                                <span className="text-muted-foreground/70 w-[80px] shrink-0">{r.label}</span>
-                                <span className="font-semibold w-10 text-right" style={heat(r.z)}>{fmt2(r.z)}</span>
-                                <span className="text-muted-foreground/40 text-[9px] w-7 text-right">{wPct(r.w)}</span>
-                                {r.z != null && (
-                                  <span className="text-[9px] w-9 text-right" style={{ ...heat((r.w / totalW) * r.z), opacity: 0.7 }}>
-                                    {(r.w / totalW) * r.z > 0 ? "+" : ""}{((r.w / totalW) * r.z).toFixed(2)}
-                                  </span>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        );
 
                         const qFormula = stock.qualityFormula;
                         const formulaMap: Record<string, { label: string; primary: boolean }> = {
@@ -1590,8 +1471,31 @@ export default function MainPage() {
                             <TableCell colSpan={activeColumns.length + 2} className="px-3 py-3">
                               <div className="flex flex-wrap gap-x-6 gap-y-3 text-[10px] font-mono">
 
-                                <CompositeGroup rows={compositeRows} />
-                                <SigGroup title="Other" rows={singleRows} />
+                                {/* Alpha parts breakdown — from basket */}
+                                <div className="space-y-2.5 min-w-[180px]">
+                                  <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Alpha Parts</p>
+                                  {contributions.filter(c => c.active && c.weight > 0).map((c) => (
+                                    <div key={c.part.id} className="space-y-0.5">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-muted-foreground/80 font-medium w-[90px] shrink-0 text-[10px]">{c.part.shortLabel}</span>
+                                        <span className="font-bold w-10 text-right" style={heat(c.score)}>{c.score.toFixed(2)}</span>
+                                        <span className="text-muted-foreground/40 text-[9px] w-7 text-right">{wPct(c.weight)}</span>
+                                        <span className="text-[9px] w-9 text-right" style={{ ...heat(c.contribution), opacity: 0.7 }}>
+                                          {c.contribution > 0 ? "+" : ""}{c.contribution.toFixed(2)}
+                                        </span>
+                                      </div>
+                                      {c.part.subSignals?.map(ss => {
+                                        const zVal = (s as Record<string, number | null | undefined>)[ss.key];
+                                        return (
+                                          <div key={ss.key} className="flex items-center gap-1.5 pl-2">
+                                            <span className="text-muted-foreground/40 text-[9px] w-[82px] shrink-0">{ss.label}</span>
+                                            <span className="text-[9px] w-10 text-right" style={heat(zVal)}>{fmt2(zVal)}</span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ))}
+                                </div>
 
                                 {/* divider */}
                                 <div className="hidden sm:block w-px self-stretch bg-border/30 mx-1" />
