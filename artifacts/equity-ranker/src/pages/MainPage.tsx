@@ -405,9 +405,9 @@ export default function MainPage() {
       const totalW = (wM + wRM + wR + wLV + wQ) || 1;
       const reranked = stocks
         .map((s: any) => {
-          const M  = 0.25*(s.zS6  ?? 0) + 0.25*(s.zS12 ?? 0) + 0.25*(s.zT6 ?? 0) + 0.25*(s.zT12 ?? 0);
+          const M  = 0.25*(s.zM6  ?? 0) + 0.25*(s.zM12 ?? 0) + 0.25*(s.zT6 ?? 0) + 0.25*(s.zT12 ?? 0);
           const RM = 0.4 *(s.zR6  ?? 0) + 0.6 *(s.zR12 ?? 0);
-          const alpha = (wM*M + wRM*RM + wR*(-(s.zS1 ?? 0)) + wLV*(s.zLowVol ?? 0) + wQ*(s.zOPA ?? 0)) / totalW;
+          const alpha = (wM*M + wRM*RM + wR*(-(s.zM1 ?? 0)) + wLV*(s.zLowVol ?? 0) + wQ*(s.zOPA ?? 0)) / totalW;
           return { ...s, alpha };
         })
         .sort((a, b) => (b.alpha ?? 0) - (a.alpha ?? 0));
@@ -428,9 +428,9 @@ export default function MainPage() {
     const totalW = (wM + wRM + wR + wLV + wQ) || 1;
 
     const reranked = stocks.map((s: any) => {
-      const M  = 0.25*(s.zS6  ?? 0) + 0.25*(s.zS12 ?? 0) + 0.25*(s.zT6 ?? 0) + 0.25*(s.zT12 ?? 0);
+      const M  = 0.25*(s.zM6  ?? 0) + 0.25*(s.zM12 ?? 0) + 0.25*(s.zT6 ?? 0) + 0.25*(s.zT12 ?? 0);
       const RM = 0.4 *(s.zR6  ?? 0) + 0.6 *(s.zR12 ?? 0);
-      const alpha = (wM*M + wRM*RM + wR*(-(s.zS1 ?? 0)) + wLV*(s.zLowVol ?? 0) + wQ*(s.zOPA ?? 0)) / totalW;
+      const alpha = (wM*M + wRM*RM + wR*(-(s.zM1 ?? 0)) + wLV*(s.zLowVol ?? 0) + wQ*(s.zOPA ?? 0)) / totalW;
       return { ...s, alpha };
     });
 
@@ -594,17 +594,17 @@ export default function MainPage() {
         );
       case "momentum6":
         return (
-          <TableHead key={colId} className="text-right bg-blue-950/20 cursor-pointer hover:text-foreground" onClick={() => handleSort("s6")}>
-            <div className="flex items-center justify-end" title="S Sleeve — 6M Sharpe (S6)">
-              S6 {getSortIcon("s6")}
+          <TableHead key={colId} className="text-right bg-blue-950/20 cursor-pointer hover:text-foreground" onClick={() => handleSort("m6")}>
+            <div className="flex items-center justify-end" title="6-1 Momentum — cumulative log-return (M6)">
+              M6 {getSortIcon("m6")}
             </div>
           </TableHead>
         );
       case "momentum12":
         return (
-          <TableHead key={colId} className="text-right bg-blue-950/20 cursor-pointer hover:text-foreground" onClick={() => handleSort("s12")}>
-            <div className="flex items-center justify-end" title="S Sleeve — 12M Sharpe (S12)">
-              S12 {getSortIcon("s12")}
+          <TableHead key={colId} className="text-right bg-blue-950/20 cursor-pointer hover:text-foreground" onClick={() => handleSort("m12")}>
+            <div className="flex items-center justify-end" title="12-1 Momentum — cumulative log-return (M12)">
+              M12 {getSortIcon("m12")}
             </div>
           </TableHead>
         );
@@ -668,14 +668,14 @@ export default function MainPage() {
         return <TableCell key={colId} className="text-right text-muted-foreground">{formatCompactCurrency(stock.adv)}</TableCell>;
       case "momentum6":
         return (
-          <TableCell key={colId} className={cn("text-right bg-blue-950/10", (stock.s6 ?? 0) > 0 ? "text-positive" : "text-negative")}>
-            {formatNumber(stock.s6)}
+          <TableCell key={colId} className={cn("text-right bg-blue-950/10", (stock.m6 ?? 0) > 0 ? "text-positive" : "text-negative")}>
+            {formatNumber(stock.m6)}
           </TableCell>
         );
       case "momentum12":
         return (
-          <TableCell key={colId} className={cn("text-right bg-blue-950/10", (stock.s12 ?? 0) > 0 ? "text-positive" : "text-negative")}>
-            {formatNumber(stock.s12)}
+          <TableCell key={colId} className={cn("text-right bg-blue-950/10", (stock.m12 ?? 0) > 0 ? "text-positive" : "text-negative")}>
+            {formatNumber(stock.m12)}
           </TableCell>
         );
       case "vol12":
@@ -971,12 +971,12 @@ export default function MainPage() {
                   <p className="text-[10px] text-muted-foreground/60">Enter integers — auto-normalises to 100%</p>
                   <div className="space-y-2">
                     <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Momentum</p>
-                    {row("Core Momentum", "M = ¼(zS6+zS12+zT6+zT12)", "wM")}
+                    {row("Core Momentum", "M = ¼(zM6+zM12+zT6+zT12)", "wM")}
                     {row("Residual Mom",  "RM = 0.4·zR6 + 0.6·zR12",  "wRM")}
                   </div>
                   <div className="space-y-2">
                     <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Other</p>
-                    {row("Reversal",  "R = −zS1",    "wR")}
+                    {row("Reversal",  "R = −zM1",    "wR")}
                     {row("Low Vol",   "LV = zLowVol", "wLV")}
                     {row("Quality",   "Q = zOPA",     "wQ")}
                   </div>
@@ -1516,9 +1516,9 @@ export default function MainPage() {
                         const totalW = (wM + wRM + wR + wLV + wQ) || 1;
                         const wPct = (w: number) => ((w / totalW) * 100).toFixed(0) + "%";
 
-                        const M  = 0.25*(s.zS6  ?? 0) + 0.25*(s.zS12 ?? 0) + 0.25*(s.zT6 ?? 0) + 0.25*(s.zT12 ?? 0);
+                        const M  = 0.25*(s.zM6  ?? 0) + 0.25*(s.zM12 ?? 0) + 0.25*(s.zT6 ?? 0) + 0.25*(s.zT12 ?? 0);
                         const RM = 0.4 *(s.zR6  ?? 0) + 0.6 *(s.zR12 ?? 0);
-                        const R  = -(s.zS1 ?? 0);
+                        const R  = -(s.zM1 ?? 0);
                         const LV = s.zLowVol ?? 0;
                         const Q  = s.zOPA ?? 0;
 
@@ -1526,11 +1526,11 @@ export default function MainPage() {
                         type SignalRow    = { label: string; z: number | null | undefined; w: number };
 
                         const compositeRows: CompositeRow[] = [
-                          { label: "M — Core Mom",  composite: M,  w: wM,  subs: [{ label: "zS6", z: s.zS6 }, { label: "zS12", z: s.zS12 }, { label: "zT6", z: s.zT6 }, { label: "zT12", z: s.zT12 }] },
+                          { label: "M — Core Mom",  composite: M,  w: wM,  subs: [{ label: "zM6", z: s.zM6 }, { label: "zM12", z: s.zM12 }, { label: "zT6", z: s.zT6 }, { label: "zT12", z: s.zT12 }] },
                           { label: "RM — Resid Mom", composite: RM, w: wRM, subs: [{ label: "zR6", z: s.zR6 }, { label: "zR12", z: s.zR12 }] },
                         ];
                         const singleRows: SignalRow[] = [
-                          { label: "R = −zS1",    z: R,  w: wR  },
+                          { label: "R = −zM1",    z: R,  w: wR  },
                           { label: "LV = zLowVol",z: LV, w: wLV },
                           { label: "Q = zOPA",    z: Q,  w: wQ  },
                         ];

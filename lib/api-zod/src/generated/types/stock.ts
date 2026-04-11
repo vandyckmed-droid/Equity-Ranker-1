@@ -20,11 +20,11 @@ export interface Stock {
   /** @nullable */
   adv?: number | null;
   /** @nullable */
-  s1?: number | null;
+  m1?: number | null;
   /** @nullable */
-  s6?: number | null;
+  m6?: number | null;
   /** @nullable */
-  s12?: number | null;
+  m12?: number | null;
   /** @nullable */
   tstat6?: number | null;
   /** @nullable */
@@ -36,11 +36,9 @@ export interface Stock {
   /** @nullable */
   zM12?: number | null;
   /** @nullable */
+  zM1?: number | null;
+  /** @nullable */
   zQuality?: number | null;
-  /** @nullable */
-  zS6?: number | null;
-  /** @nullable */
-  zS12?: number | null;
   /** @nullable */
   zT6?: number | null;
   /** @nullable */
@@ -50,13 +48,9 @@ export interface Stock {
   /** @nullable */
   zR12?: number | null;
   /** @nullable */
-  zS1?: number | null;
-  /** @nullable */
   zLowVol?: number | null;
   /** @nullable */
   zOPA?: number | null;
-  /** @nullable */
-  sigmaEwma?: number | null;
   /** @nullable */
   zQ?: number | null;
   /** @nullable */

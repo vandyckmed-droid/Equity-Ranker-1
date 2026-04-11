@@ -23,19 +23,18 @@ At cold start, the live universe is built dynamically from the NASDAQ screener A
 
 Alpha model (5-composite model)
 --------------------------------------
-  M  = ¼(zS6 + zS12 + zT6 + zT12)
+  M  = ¼(zM6 + zM12 + zT6 + zT12)
   RM = 0.4·zR6 + 0.6·zR12
-  α  = (wM·M + wRM·RM + wR·(−zS1) + wLV·zLowVol + wQ·zOPA) / Σw
+  α  = (wM·M + wRM·RM + wR·(−zM1) + wLV·zLowVol + wQ·zOPA) / Σw
 
-Signal conventions (all use log returns, rf = 0):
-  Shared volatility (all Sharpe-style signals):
-    σ = max(std(daily log-ret, t-126:t-1) × √252, 0.15)
+Signal conventions (pure: one idea → one transformation chain):
+  Each signal: raw metric → winsorize(2%/98%) → cross-sectional z-score
 
-  s6 / s12   : mean(r, window) × √252 / σ — windows [t-126:t-22] / [t-252:t-22]
-  s1         : mean(r, [t-21:t-2]) × √252 / σ   (reversal; enters α with − sign)
+  m6 / m12   : Σ log_ret — windows [t-126:t-22] / [t-252:t-22]  (cumulative return, no vol division)
+  m1         : Σ log_ret[t-21:t]  (1-month return; enters α with − sign as reversal)
   res6/res12 : sum(ε, window) — OLS with intercept on market+peer; betas-only residual
   tstat6/12  : OLS t-stat of slope on ln(P) ~ t  over 126/252 days
-  lowvol     : −Z(σ_ewma_floored), σ_ewma EWMA vol (λ=0.94, floor 15%)
+  lowvol     : −Z(sigma_60), sigma_60 = std(log_ret[-60:]) × √252  (60-day realized vol)
   OPA        : Operating profitability on assets (cross-sectional z-score)
 """
 
@@ -598,48 +597,25 @@ def compute_factors_vectorized(prices: pd.DataFrame,
     has_126 = valid_counts >= 126
     has_22  = valid_counts >= 22
 
-    # ── Shared volatility for all Sharpe-style signals ────────────────────────
-    # σ_126 = std(daily log-returns over last 126 days) × √252, floor = 0.15
-    # One consistent denominator for s6, s12, s1, res6, res12 — eliminates
-    # horizon-specific vol and makes all signals directly comparable.
-    SHARPE_VOL_FLOOR = 0.15
     lp_last = log_prices.iloc[-1]          # last log-price row (used for price_last below)
 
-    sigma_126 = log_returns.iloc[-126:].std() * np.sqrt(252)   # annualised, shape (N,)
-    sigma_126 = sigma_126.where(has_126, np.nan)               # NaN for thin histories
-    sigma_126_floored = sigma_126.clip(lower=SHARPE_VOL_FLOOR) # apply floor (NaN→NaN)
-
-    # ── Sharpe signals with true 1-month skip ─────────────────────────────────
-    # Sharpe = mean(r, window) × √252 / σ_shared  (annualised mean / annualised vol)
-    # Equivalent to (mean_daily / (σ_shared/√252)) × √252 = mean_daily × 252 / σ_shared
-    #
-    #   s6  window : [t-126:t-22]  (104 return observations)
-    #   s12 window : [t-252:t-22]  (230 return observations)
-    #   s1  window : [t-21:t-2]    (reversal, no overlap with s6/s12)
-    ret6_win  = log_returns.iloc[-126:-21]   # 6-month window, skip last month
-    ret12_win = log_returns.iloc[-252:-21]   # 12-month window, skip last month
-    ret1_win  = log_returns.iloc[-21:-1]     # reversal: last month only
-
-    s6  = ret6_win.mean()  * 252 / sigma_126_floored
-    s12 = ret12_win.mean() * 252 / sigma_126_floored
-    s1  = ret1_win.mean()  * 252 / sigma_126_floored
+    # ── Pure cumulative log-return momentum signals (no vol division) ──────────
+    # m6  = sum(log_ret[t-126:t-22])   — 6-1 momentum
+    # m12 = sum(log_ret[t-252:t-22])   — 12-1 momentum
+    # m1  = sum(log_ret[t-21:t])       — 1-month reversal input
+    m6  = log_returns.iloc[-126:-21].sum()
+    m12 = log_returns.iloc[-252:-21].sum()
+    m1  = log_returns.iloc[-21:].sum()
 
     # Require minimum history; set to NaN otherwise (→ z-score 0 after cross-section)
-    # sigma_126_floored is already NaN for has_126=False, so s6/s1 propagate naturally;
-    # s12 needs explicit masking as sigma may be valid (126d) but 12m window is not.
-    s6  = s6.where(has_126, np.nan)
-    s12 = s12.where(has_252, np.nan)
-    s1  = s1.where(has_126, np.nan)
+    m6  = m6.where(has_126, np.nan)
+    m12 = m12.where(has_252, np.nan)
+    m1  = m1.where(has_22, np.nan)
 
-    # ── EWMA volatility (λ=0.94) — used only for zLowVol signal ──────────────
-    # lowvol = −Z(σ_ewma_floored)  [negated in compute_rankings]
-    # Floor raised to 0.15 to match the shared Sharpe vol floor.
-    EWMA_VOL_FLOOR = 0.15
-    _lambda = 0.94
-    ewm_var    = log_returns.ewm(alpha=(1 - _lambda), adjust=False, min_periods=21).var()
-    sigma_ewma = (np.sqrt(ewm_var.iloc[-1].reindex(log_returns.columns)) * np.sqrt(252)).reindex(tickers)
-    sigma_ewma = sigma_ewma.where(has_126, np.nan)
-    sigma_ewma_floored = sigma_ewma.clip(lower=EWMA_VOL_FLOOR)
+    # ── 60-day realized volatility for zLowVol signal ─────────────────────────
+    # sigma_60 = std(log_ret[-60:]) × √252  (simple rolling std, no EWMA, no floor)
+    sigma_60 = log_returns.iloc[-60:].std() * np.sqrt(252)
+    sigma_60 = sigma_60.where(has_22, np.nan)
 
     t_ols = time.time()
     tstat12 = _batch_ols_tstat(log_prices)
@@ -691,13 +667,12 @@ def compute_factors_vectorized(prices: pd.DataFrame,
         "price":                price_last.values,
         "market_cap":           meta_mcaps,
         "adv":                  adv.values,
-        "s1":                   s1.values,
-        "s6":                   s6.values,
-        "s12":                  s12.values,
+        "m1":                   m1.values,
+        "m6":                   m6.values,
+        "m12":                  m12.values,
         "tstat6":               tstat6.values,
         "tstat12":              tstat12.values,
-        "sigma_ewma":           sigma_ewma.values,
-        "sigma_ewma_floored":   sigma_ewma_floored.values,
+        "sigma_60":             sigma_60.values,
         "res6":                 res_df["res6"].values,
         "res12":                res_df["res12"].values,
         "reg_type":             res_df["reg_type"].values,
@@ -736,13 +711,24 @@ def compute_rankings(df: pd.DataFrame,
                      vol_floor: float = 0.10,
                      opa_dict: dict = None) -> pd.DataFrame:
     """
-    Cross-sectionally z-score all 9 signals, compute flat weighted alpha.
+    Cross-sectionally z-score all 9 signals (winsorize → z-score), compute flat weighted alpha.
 
-    alpha = (w_s6·Z(s6) + w_s12·Z(s12) + w_res6·Z(res6) + w_res12·Z(res12)
-           + w_t6·Z(tstat6) + w_t12·Z(tstat12) − w_s1·Z(s1)
-           + w_invvol·Z(1/σ_ewma) + w_opa·Z(OPA)) / Σw
+    Signal definitions (pure, one idea per signal):
+      zM6     = Z(winsorize(m6))   where m6  = Σ log_ret[t-126:t-22]  (6-1 momentum)
+      zM12    = Z(winsorize(m12))  where m12 = Σ log_ret[t-252:t-22]  (12-1 momentum)
+      zM1     = Z(winsorize(m1))   where m1  = Σ log_ret[t-21:t]      (1m reversal input)
+      zT6     = Z(winsorize(tstat6))   — OLS t-stat, 6m window
+      zT12    = Z(winsorize(tstat12))  — OLS t-stat, 12m window
+      zR6     = Z(winsorize(res6))     — cumulative residual, 6m
+      zR12    = Z(winsorize(res12))    — cumulative residual, 12m
+      zLowVol = −Z(winsorize(sigma_60)) where sigma_60 = std(log_ret[-60:]) × √252
+      zOPA    = Z(winsorize(OPA))
 
-    Note: −s1 applies the reversal (s1 is the positive 1-month Sharpe; we fade it).
+    alpha = (wM·M + wRM·RM + wR·(−zM1) + wLV·zLowVol + wQ·zOPA) / Σw
+      where M  = ¼(zM6 + zM12 + zT6 + zT12)
+            RM = 0.4·zR6 + 0.6·zR12
+
+    Note: −zM1 applies the reversal (zM1 is positive 1-month return; we fade it).
     Clustering handled separately by compute_clustering().
     """
     if df.empty:
@@ -759,14 +745,14 @@ def compute_rankings(df: pd.DataFrame,
         out[s.notna()] = zscore(winsorize(v, winsor_p))
         return out
 
-    # ── Individual z-scores ───────────────────────────────────────────────────
-    d["zS6"]  = std_factor(d["s6"])
-    d["zS12"] = std_factor(d["s12"])
+    # ── Individual z-scores (winsorize → cross-sectional z-score) ────────────
+    d["zM6"]  = std_factor(d["m6"])  if "m6"  in d.columns else pd.Series(0.0, index=d.index)
+    d["zM12"] = std_factor(d["m12"]) if "m12" in d.columns else pd.Series(0.0, index=d.index)
     d["zT6"]  = std_factor(d["tstat6"])
     d["zT12"] = std_factor(d["tstat12"])
-    d["zS1"]    = std_factor(d["s1"]) if "s1" in d.columns else pd.Series(0.0, index=d.index)
-    # lowvol = −Z(σ_ewma_floored): floor already applied before z-scoring in compute_factors
-    d["zLowVol"] = -std_factor(d["sigma_ewma_floored"]) if "sigma_ewma_floored" in d.columns else pd.Series(0.0, index=d.index)
+    d["zM1"]  = std_factor(d["m1"])  if "m1"  in d.columns else pd.Series(0.0, index=d.index)
+    # lowvol = −Z(sigma_60): 60-day realized std × √252, negated so low-vol → high score
+    d["zLowVol"] = -std_factor(d["sigma_60"]) if "sigma_60" in d.columns else pd.Series(0.0, index=d.index)
 
     has_residuals = ("res6" in d.columns and "res12" in d.columns
                      and d["res6"].abs().sum() > 0)
@@ -790,28 +776,28 @@ def compute_rankings(df: pd.DataFrame,
 
     # ── Display sleeves (detail panel only — do not affect alpha) ─────────────
     if has_residuals:
-        d["S6_blend"]  = 0.7 * d["zS6"].fillna(0) + 0.3 * d["zR6"].fillna(0)
-        d["S12_blend"] = 0.7 * d["zS12"].fillna(0) + 0.3 * d["zR12"].fillna(0)
-        d["sSleeve"]   = 0.5 * d["S6_blend"] + 0.5 * d["S12_blend"]
+        d["M6_blend"]  = 0.7 * d["zM6"].fillna(0) + 0.3 * d["zR6"].fillna(0)
+        d["M12_blend"] = 0.7 * d["zM12"].fillna(0) + 0.3 * d["zR12"].fillna(0)
+        d["sSleeve"]   = 0.5 * d["M6_blend"] + 0.5 * d["M12_blend"]
     else:
-        d["S6_blend"]  = d["zS6"].fillna(0)
-        d["S12_blend"] = d["zS12"].fillna(0)
-        d["sSleeve"]   = 0.5 * d["zS6"].fillna(0) + 0.5 * d["zS12"].fillna(0)
+        d["M6_blend"]  = d["zM6"].fillna(0)
+        d["M12_blend"] = d["zM12"].fillna(0)
+        d["sSleeve"]   = 0.5 * d["zM6"].fillna(0) + 0.5 * d["zM12"].fillna(0)
 
     d["tSleeve"]   = 0.5 * d["zT6"].fillna(0) + 0.5 * d["zT12"].fillna(0)
-    d["revSleeve"] = -d["zS1"].fillna(0)   # negative for display (reversal direction)
+    d["revSleeve"] = -d["zM1"].fillna(0)   # negative for display (reversal direction)
 
     # ── Flat alpha ────────────────────────────────────────────────────────────
     total_w = (w_s6 + w_s12 + w_res6 + w_res12 + w_t6 + w_t12 + w_s1 + w_invvol + w_opa) or 1.0
     d["alpha"] = (
-          w_s6    * d["zS6"].fillna(0)
-        + w_s12   * d["zS12"].fillna(0)
+          w_s6    * d["zM6"].fillna(0)
+        + w_s12   * d["zM12"].fillna(0)
         + w_res6  * d["zR6"].fillna(0)
         + w_res12 * d["zR12"].fillna(0)
         + w_t6    * d["zT6"].fillna(0)
         + w_t12   * d["zT12"].fillna(0)
-        - w_s1    * d["zS1"].fillna(0)      # reversal: penalise last-month winners
-        + w_invvol * d["zLowVol"].fillna(0)  # lowvol = −Z(σ_ewma_floored)
+        - w_s1    * d["zM1"].fillna(0)      # reversal: penalise last-month winners
+        + w_invvol * d["zLowVol"].fillna(0)  # lowvol = −Z(sigma_60)
         + w_opa   * d["zOPA"].fillna(0)
     ) / total_w
 
