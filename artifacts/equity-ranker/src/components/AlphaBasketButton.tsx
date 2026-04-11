@@ -46,7 +46,7 @@ const STATUS_CONFIG: Record<
     label: "Institutional Core",
     className: "bg-emerald-900/50 text-emerald-400 border-emerald-700/40",
   },
-  institutional_approx: {
+  institutional_approximation: {
     label: "Approx.",
     className: "bg-amber-900/50 text-amber-400 border-amber-700/40",
   },
@@ -61,18 +61,18 @@ const STATUS_CONFIG: Record<
 };
 
 const CATEGORY_ORDER: PartCategory[] = [
-  "momentum",
-  "residual",
-  "quality",
-  "risk",
-  "research",
+  "Momentum",
+  "Residual",
+  "Quality",
+  "Risk",
+  "Research",
 ];
 const CATEGORY_LABELS: Record<PartCategory, string> = {
-  momentum: "Momentum",
-  residual: "Residual",
-  quality: "Quality",
-  risk: "Risk",
-  research: "Research",
+  Momentum: "Momentum",
+  Residual: "Residual",
+  Quality: "Quality",
+  Risk: "Risk",
+  Research: "Research",
 };
 
 // ─── StatusBadge ─────────────────────────────────────────────────────────────
@@ -121,11 +121,10 @@ function TabBtn({
 
 function ActiveBasketTab() {
   const {
-    basket,
+    entries: basket,
     setWeight,
     togglePart,
-    moveUp,
-    moveDown,
+    reorderPart,
     totalWeight,
     activeCount,
     activePresetId,
@@ -189,14 +188,14 @@ function ActiveBasketTab() {
                   {/* Reorder arrows */}
                   <div className="flex flex-col gap-0.5 mt-0.5 shrink-0">
                     <button
-                      onClick={() => moveUp(item.partId)}
+                      onClick={() => reorderPart(item.partId, "up")}
                       disabled={isFirst}
                       className="w-4 h-4 flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground disabled:opacity-20 disabled:cursor-not-allowed"
                     >
                       <ChevronUp className="w-3 h-3" />
                     </button>
                     <button
-                      onClick={() => moveDown(item.partId)}
+                      onClick={() => reorderPart(item.partId, "down")}
                       disabled={isLast}
                       className="w-4 h-4 flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground disabled:opacity-20 disabled:cursor-not-allowed"
                     >
@@ -293,7 +292,7 @@ function ActiveBasketTab() {
 // ─── Parts Library tab ────────────────────────────────────────────────────────
 
 function PartsLibraryTab() {
-  const { basket, togglePart, setWeight } = useAlphaBasket();
+  const { entries: basket, togglePart, setWeight } = useAlphaBasket();
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const grouped = CATEGORY_ORDER.map((cat) => ({
@@ -482,7 +481,7 @@ function AuditTab({
   lastRefresh?: string;
   audit?: Record<string, unknown>;
 }) {
-  const { basket, totalWeight, activeCount } = useAlphaBasket();
+  const { entries: basket, totalWeight, activeCount } = useAlphaBasket();
   const inactiveCount = basket.filter((i) => !i.active || i.weight === 0).length;
 
   const rows = [
