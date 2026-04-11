@@ -58,6 +58,18 @@ export interface Stock {
   /** @nullable */
   zT12?: number | null;
   /** @nullable */
+  zR6?: number | null;
+  /** @nullable */
+  zR12?: number | null;
+  /** @nullable */
+  zS1?: number | null;
+  /** @nullable */
+  zInvVol?: number | null;
+  /** @nullable */
+  zOPA?: number | null;
+  /** @nullable */
+  sigmaEwma?: number | null;
+  /** @nullable */
   zQ?: number | null;
   /** @nullable */
   sSleeve?: number | null;

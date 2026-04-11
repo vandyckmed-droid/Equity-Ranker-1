@@ -65,21 +65,6 @@ paths:
           schema:
             type: boolean
           description: Include OLS t-stats
-        - name: w6
-          in: query
-          schema:
-            type: number
-          description: Weight on 6-month momentum (default 0.4)
-        - name: w12
-          in: query
-          schema:
-            type: number
-          description: Weight on 12-month momentum (default 0.4)
-        - name: wRev
-          in: query
-          schema:
-            type: number
-          description: Weight on reversal sleeve (default 0.2)
         - name: volFloor
           in: query
           schema:
@@ -337,6 +322,18 @@ components:
           type: ["number", "null"]
         zT12:
           type: ["number", "null"]
+        zR6:
+          type: ["number", "null"]
+        zR12:
+          type: ["number", "null"]
+        zS1:
+          type: ["number", "null"]
+        zInvVol:
+          type: ["number", "null"]
+        zOPA:
+          type: ["number", "null"]
+        sigmaEwma:
+          type: ["number", "null"]
         zQ:
           type: ["number", "null"]
         sSleeve:
@@ -506,12 +503,6 @@ components:
           type: boolean
         useTstats:
           type: boolean
-        w6:
-          type: number
-        w12:
-          type: number
-        wRev:
-          type: number
         volFloor:
           type: number
         winsorP:

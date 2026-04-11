@@ -282,7 +282,8 @@ export default function MainPage() {
     movedTimerRef.current = setTimeout(() => setRecentlyMoved(null), 600);
   }, [moveColumn]);
 
-  const CONTROLS_KEY = "qt:controls-v4";
+  const CONTROLS_KEY = "qt:controls-v5";
+  const DEFAULT_WEIGHTS = { wS6: 1, wS12: 1, wRes6: 2, wRes12: 3, wT6: 1, wT12: 1, wS1: 1, wInvVol: 2, wOpa: 2 } as const;
 
   const loadControlsFromStorage = () => {
     try {
@@ -311,17 +312,9 @@ export default function MainPage() {
   }, [serverParams]);
 
   // Local params: handled client-side (instant, no API call)
-  const [localW6, setLocalW6] = useState(() => {
+  const [weights, setWeights] = useState<typeof DEFAULT_WEIGHTS>(() => {
     const saved = loadControlsFromStorage();
-    return saved?.localW6 ?? 0.5;
-  });
-  const [localW12, setLocalW12] = useState(() => {
-    const saved = loadControlsFromStorage();
-    return saved?.localW12 ?? 0.5;
-  });
-  const [localWRev, setLocalWRev] = useState(() => {
-    const saved = loadControlsFromStorage();
-    return saved?.localWRev ?? 0.2;
+    return saved?.weights ?? { ...DEFAULT_WEIGHTS };
   });
   const [mcapFilter, setMcapFilter] = useState<McapFilter>(() => {
     const saved = loadControlsFromStorage();
@@ -346,17 +339,14 @@ export default function MainPage() {
   // Persist controls to localStorage whenever they change
   useEffect(() => {
     try {
-      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, localW6, localW12, localWRev, mcapFilter, sortField, sortDir, alphaMode }));
+      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, weights, mcapFilter, sortField, sortDir, alphaMode }));
     } catch {}
-  }, [serverParams, localW6, localW12, localWRev, mcapFilter, sortField, sortDir, alphaMode]);
+  }, [serverParams, weights, mcapFilter, sortField, sortDir, alphaMode]);
 
   const params: GetRankingsParams = useMemo(() => {
     const p: GetRankingsParams = {
       volAdjust: true,
       useTstats: false,
-      w6: 0.5,
-      w12: 0.5,
-      wRev: localWRev,
       volFloor: debouncedServerParams.volFloor,
       winsorP: debouncedServerParams.winsorP,
       clusterN: debouncedServerParams.clusterN,
@@ -364,7 +354,7 @@ export default function MainPage() {
       clusterLookback: debouncedServerParams.clusterLookback,
     };
     return p;
-  }, [debouncedServerParams, localWRev]);
+  }, [debouncedServerParams]);
 
   // Session-only UI state (not persisted)
   const [search, setSearch] = useState("");
@@ -410,13 +400,19 @@ export default function MainPage() {
   useEffect(() => {
     if (stocks.length > 0) setAllStocks(stocks);
     if (stocks.length > 0) {
-      // Inline alpha rerank (mirrors clientAlphaStocks) — seeds the portfolio context
-      // with the current ranked+filtered universe without a forward ref to the useMemo below.
-      const wS = localW6, wT = localW12, wR = localWRev;
-      const totalW = (wS + wT + wR) || 1;
+      // Inline alpha rerank — seeds the portfolio context
+      const { wS6, wS12, wRes6, wRes12, wT6, wT12, wS1, wInvVol, wOpa } = weights;
+      const totalW = (wS6 + wS12 + wRes6 + wRes12 + wT6 + wT12 + wS1 + wInvVol + wOpa) || 1;
       const reranked = stocks
-        .map((s) => {
-          const alpha = (wS * ((s as any).sSleeve ?? 0) + wT * ((s as any).tSleeve ?? 0) + wR * ((s as any).revSleeve ?? 0)) / totalW;
+        .map((s: any) => {
+          const alpha = (
+            wS6    * (s.zS6    ?? 0) + wS12   * (s.zS12   ?? 0) +
+            wRes6  * (s.zR6    ?? 0) + wRes12  * (s.zR12   ?? 0) +
+            wT6    * (s.zT6    ?? 0) + wT12    * (s.zT12   ?? 0) -
+            wS1    * (s.zS1    ?? 0) +
+            wInvVol * (s.zInvVol ?? 0) +
+            wOpa   * (s.zOPA   ?? 0)
+          ) / totalW;
           return { ...s, alpha };
         })
         .sort((a, b) => (b.alpha ?? 0) - (a.alpha ?? 0));
@@ -427,29 +423,34 @@ export default function MainPage() {
           : reranked
       );
     }
-  }, [stocks, localW6, localW12, localWRev, mcapFilter, setAllStocks, setRankedStocks]);
+  }, [stocks, weights, mcapFilter, setAllStocks, setRankedStocks]);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const clientAlphaStocks: Stock[] = useMemo(() => {
     if (!stocks.length) return stocks;
-    const wS = localW6;
-    const wT = localW12;
-    const wR = localWRev;
-    const totalW = (wS + wT + wR) || 1;
+    const { wS6, wS12, wRes6, wRes12, wT6, wT12, wS1, wInvVol, wOpa } = weights;
+    const totalW = (wS6 + wS12 + wRes6 + wRes12 + wT6 + wT12 + wS1 + wInvVol + wOpa) || 1;
 
-    const reranked = stocks.map((s: Stock) => {
-      const alpha = (wS * ((s as any).sSleeve ?? 0) + wT * ((s as any).tSleeve ?? 0) + wR * ((s as any).revSleeve ?? 0)) / totalW;
+    const reranked = stocks.map((s: any) => {
+      const alpha = (
+        wS6    * (s.zS6    ?? 0) + wS12   * (s.zS12   ?? 0) +
+        wRes6  * (s.zR6    ?? 0) + wRes12  * (s.zR12   ?? 0) +
+        wT6    * (s.zT6    ?? 0) + wT12    * (s.zT12   ?? 0) -
+        wS1    * (s.zS1    ?? 0) +
+        wInvVol * (s.zInvVol ?? 0) +
+        wOpa   * (s.zOPA   ?? 0)
+      ) / totalW;
       return { ...s, alpha };
     });
 
-    reranked.sort((a: Stock, b: Stock) => (b.alpha ?? 0) - (a.alpha ?? 0));
-    return reranked.map((s: Stock, i: number) => ({
+    reranked.sort((a: any, b: any) => (b.alpha ?? 0) - (a.alpha ?? 0));
+    return reranked.map((s: any, i: number) => ({
       ...s,
       rank: i + 1,
       percentile: 100 * (1 - i / reranked.length),
     }));
-  }, [stocks, localW6, localW12, localWRev]);
+  }, [stocks, weights]);
 
   // Filtering and Sorting
   const processedStocks = useMemo(() => {
@@ -954,26 +955,54 @@ export default function MainPage() {
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
 
             {/* Factor Weights */}
-            <div className="space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Factor Weights</h3>
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">S Sleeve — wS ({formatNumber(localW6 * 100, 0)}%)</Label>
-                  <Slider value={[localW6 * 100]} min={0} max={100} step={5}
-                    onValueChange={(v) => setLocalW6(v[0] / 100)} />
+            {(() => {
+              const totalW = Object.values(weights).reduce((a, b) => a + b, 0) || 1;
+              const pct = (k: keyof typeof DEFAULT_WEIGHTS) => ((weights[k] / totalW) * 100).toFixed(1) + "%";
+              const setW = (k: keyof typeof DEFAULT_WEIGHTS, v: number) =>
+                setWeights((prev) => ({ ...prev, [k]: Math.max(0, Math.round(v)) }));
+              const row = (label: string, k: keyof typeof DEFAULT_WEIGHTS) => (
+                <div key={k} className="flex items-center gap-2">
+                  <span className="text-[11px] text-muted-foreground w-24 shrink-0">{label}</span>
+                  <input
+                    type="number" min={0} step={1}
+                    value={weights[k]}
+                    onChange={(e) => setW(k, Number(e.target.value))}
+                    className="w-14 bg-muted border border-border rounded px-2 py-1 text-xs text-center text-foreground [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                  <span className="text-[10px] text-muted-foreground/60 w-10 text-right">{pct(k)}</span>
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">T Sleeve — wT ({formatNumber(localW12 * 100, 0)}%)</Label>
-                  <Slider value={[localW12 * 100]} min={0} max={100} step={5}
-                    onValueChange={(v) => setLocalW12(v[0] / 100)} />
+              );
+              return (
+                <div className="space-y-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Factor Weights</h3>
+                  <p className="text-[10px] text-muted-foreground/60">Enter integers — auto-normalises to 100%</p>
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Momentum</p>
+                    {row("s6",   "wS6")}
+                    {row("s12",  "wS12")}
+                    {row("res6", "wRes6")}
+                    {row("res12","wRes12")}
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Trend</p>
+                    {row("tstat6",  "wT6")}
+                    {row("tstat12", "wT12")}
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Other</p>
+                    {row("−s1",      "wS1")}
+                    {row("1/σ_ewma", "wInvVol")}
+                    {row("OPA",      "wOpa")}
+                  </div>
+                  <button
+                    className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground underline underline-offset-2"
+                    onClick={() => setWeights({ ...DEFAULT_WEIGHTS })}
+                  >
+                    Reset to defaults
+                  </button>
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Rev Sleeve — wRev ({formatNumber(localWRev * 100, 0)}%)</Label>
-                  <Slider value={[localWRev * 100]} min={0} max={100} step={5}
-                    onValueChange={(v) => setLocalWRev(v[0] / 100)} />
-                </div>
-              </div>
-            </div>
+              );
+            })()}
 
             {/* Universe Filters */}
             <div className="space-y-3">

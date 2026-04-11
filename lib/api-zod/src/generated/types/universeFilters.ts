@@ -13,9 +13,6 @@ export interface UniverseFilters {
   volAdjust?: boolean;
   useQuality?: boolean;
   useTstats?: boolean;
-  w6?: number;
-  w12?: number;
-  wRev?: number;
   volFloor?: number;
   winsorP?: number;
   clusterN?: number;

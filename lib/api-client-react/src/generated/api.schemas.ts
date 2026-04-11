@@ -98,6 +98,18 @@ export interface Stock {
   /** @nullable */
   zT12?: number | null;
   /** @nullable */
+  zR6?: number | null;
+  /** @nullable */
+  zR12?: number | null;
+  /** @nullable */
+  zS1?: number | null;
+  /** @nullable */
+  zInvVol?: number | null;
+  /** @nullable */
+  zOPA?: number | null;
+  /** @nullable */
+  sigmaEwma?: number | null;
+  /** @nullable */
   zQ?: number | null;
   /** @nullable */
   sSleeve?: number | null;
@@ -216,9 +228,6 @@ export interface UniverseFilters {
   volAdjust?: boolean;
   useQuality?: boolean;
   useTstats?: boolean;
-  w6?: number;
-  w12?: number;
-  wRev?: number;
   volFloor?: number;
   winsorP?: number;
   clusterN?: number;
@@ -414,18 +423,6 @@ export type GetRankingsParams = {
    * Include OLS t-stats
    */
   useTstats?: boolean;
-  /**
-   * Weight on 6-month momentum (default 0.4)
-   */
-  w6?: number;
-  /**
-   * Weight on 12-month momentum (default 0.4)
-   */
-  w12?: number;
-  /**
-   * Weight on reversal sleeve (default 0.2)
-   */
-  wRev?: number;
   /**
    * Volatility floor (default 0.05)
    */

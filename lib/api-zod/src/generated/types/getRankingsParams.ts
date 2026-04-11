@@ -20,18 +20,6 @@ export type GetRankingsParams = {
    */
   useTstats?: boolean;
   /**
-   * Weight on 6-month momentum (default 0.4)
-   */
-  w6?: number;
-  /**
-   * Weight on 12-month momentum (default 0.4)
-   */
-  w12?: number;
-  /**
-   * Weight on reversal sleeve (default 0.2)
-   */
-  wRev?: number;
-  /**
    * Volatility floor (default 0.05)
    */
   volFloor?: number;

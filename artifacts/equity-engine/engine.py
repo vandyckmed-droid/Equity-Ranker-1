@@ -610,13 +610,20 @@ def compute_factors_vectorized(prices: pd.DataFrame,
     sigma6  = sigma6.where(has_126, np.nan)
     sigma1  = sigma1.where(has_22, np.nan)
 
-    # Annualized Sharpe-style signals (10% vol floor):
+    # Annualized Sharpe-style signals (vol_floor floor):
     #   s6  : scale by 252/126 = 2   (6-month cumulative → annual rate)
     #   s12 : scale by 252/252 = 1   (12-month ≈ annual, no change)
-    #   s1  : reversal = −(252/21) × r1/σ1  (negative: mean-reversion)
+    #   s1  : 1-month Sharpe (POSITIVE — composite uses −s1 for reversal)
     s6  = m6  / sigma6.clip(lower=vol_floor) * (252 / 126)
     s12 = m12 / sigma12.clip(lower=vol_floor)
-    s1  = -r1_s / sigma1.clip(lower=vol_floor) * (252 / 21)
+    s1  = r1_s / sigma1.clip(lower=vol_floor) * (252 / 21)
+
+    # Per-stock EWMA volatility (λ=0.94), annualized
+    _lambda = 0.94
+    ewm_var    = log_returns.ewm(alpha=(1 - _lambda), adjust=False, min_periods=21).var()
+    sigma_ewma = (np.sqrt(ewm_var.iloc[-1].reindex(log_returns.columns)) * np.sqrt(252)).reindex(tickers)
+    sigma_ewma = sigma_ewma.where(has_126, np.nan)
+    inv_vol_ewma = 1.0 / sigma_ewma.clip(lower=vol_floor)
 
     t_ols = time.time()
     tstat12 = _batch_ols_tstat(log_prices)
@@ -673,6 +680,8 @@ def compute_factors_vectorized(prices: pd.DataFrame,
         "sigma1":          sigma1.values,
         "sigma6":          sigma6.values,
         "sigma12":         sigma12.values,
+        "sigma_ewma":      sigma_ewma.values,
+        "inv_vol_ewma":    inv_vol_ewma.values,
         "s1":              s1.values,
         "s6":              s6.values,
         "s12":             s12.values,
@@ -706,15 +715,24 @@ def compute_factors_vectorized(prices: pd.DataFrame,
 def compute_rankings(df: pd.DataFrame,
                      vol_adjust: bool = True,
                      use_tstats: bool = False,
-                     w6: float = 0.5,
-                     w12: float = 0.5,
-                     w_rev: float = 0.2,
+                     w_s6: float = 1, w_s12: float = 1,
+                     w_res6: float = 2, w_res12: float = 3,
+                     w_t6: float = 1, w_t12: float = 1,
+                     w_s1: float = 1,
+                     w_invvol: float = 2,
+                     w_opa: float = 2,
                      winsor_p: float = 2.0,
-                     vol_floor: float = 0.10) -> pd.DataFrame:
+                     vol_floor: float = 0.10,
+                     opa_dict: dict = None) -> pd.DataFrame:
     """
-    Cross-sectionally standardize S, T, and reversal factors; compute 3-sleeve alpha.
-    alpha = (wS×sSleeve + wT×tSleeve + wRev×revSleeve) / (wS + wT + wRev)
-    Clustering is handled separately by compute_clustering().
+    Cross-sectionally z-score all 9 signals, compute flat weighted alpha.
+
+    alpha = (w_s6·Z(s6) + w_s12·Z(s12) + w_res6·Z(res6) + w_res12·Z(res12)
+           + w_t6·Z(tstat6) + w_t12·Z(tstat12) − w_s1·Z(s1)
+           + w_invvol·Z(1/σ_ewma) + w_opa·Z(OPA)) / Σw
+
+    Note: −s1 applies the reversal (s1 is the positive 1-month Sharpe; we fade it).
+    Clustering handled separately by compute_clustering().
     """
     if df.empty:
         return df
@@ -722,51 +740,69 @@ def compute_rankings(df: pd.DataFrame,
     d = df.copy()
 
     def std_factor(series):
-        v = series[series.notna()]
+        s = pd.to_numeric(series, errors="coerce")
+        v = s[s.notna()]
         if len(v) < 10:
-            return series * 0
-        out = series.copy()
-        out[out.notna()] = zscore(winsorize(v, winsor_p))
+            return pd.Series(0.0, index=s.index)
+        out = pd.Series(np.nan, index=s.index)
+        out[s.notna()] = zscore(winsorize(v, winsor_p))
         return out
 
+    # ── Individual z-scores ───────────────────────────────────────────────────
     d["zS6"]  = std_factor(d["s6"])
     d["zS12"] = std_factor(d["s12"])
     d["zT6"]  = std_factor(d["tstat6"])
     d["zT12"] = std_factor(d["tstat12"])
+    d["zS1"]  = std_factor(d["s1"]) if "s1" in d.columns else pd.Series(0.0, index=d.index)
+    d["zInvVol"] = std_factor(d["inv_vol_ewma"]) if "inv_vol_ewma" in d.columns else pd.Series(0.0, index=d.index)
 
-    # ── Residual momentum blend (when signals are available) ─────────────────
     has_residuals = ("res6" in d.columns and "res12" in d.columns
                      and d["res6"].abs().sum() > 0)
-
     if has_residuals:
         d["zR6"]  = std_factor(d["res6"])
         d["zR12"] = std_factor(d["res12"])
-        # S6_blend = 70% raw Sharpe momentum + 30% residual momentum (6m)
-        # S12_blend = 70% raw Sharpe momentum + 30% residual momentum (12m)
+        alpha_formula = "flat-9"
+    else:
+        d["zR6"]  = pd.Series(0.0, index=d.index)
+        d["zR12"] = pd.Series(0.0, index=d.index)
+        alpha_formula = "flat-7"
+
+    # ── OPA z-score (universe-level, same winsorize+zscore as other signals) ──
+    if opa_dict:
+        opa_vals = d["ticker"].map(
+            lambda t: opa_dict[t].get("opa") if (t in opa_dict and opa_dict[t].get("available")) else np.nan
+        )
+        d["zOPA"] = std_factor(opa_vals)
+    else:
+        d["zOPA"] = pd.Series(0.0, index=d.index)
+
+    # ── Display sleeves (detail panel only — do not affect alpha) ─────────────
+    if has_residuals:
         d["S6_blend"]  = 0.7 * d["zS6"].fillna(0) + 0.3 * d["zR6"].fillna(0)
         d["S12_blend"] = 0.7 * d["zS12"].fillna(0) + 0.3 * d["zR12"].fillna(0)
         d["sSleeve"]   = 0.5 * d["S6_blend"] + 0.5 * d["S12_blend"]
-        alpha_formula  = "S+T+Resid"
     else:
-        d["zR6"]      = 0.0
-        d["zR12"]     = 0.0
-        d["S6_blend"] = d["zS6"].fillna(0)
+        d["S6_blend"]  = d["zS6"].fillna(0)
         d["S12_blend"] = d["zS12"].fillna(0)
-        d["sSleeve"]  = 0.5 * d["zS6"].fillna(0) + 0.5 * d["zS12"].fillna(0)
-        alpha_formula = "S+T"
+        d["sSleeve"]   = 0.5 * d["zS6"].fillna(0) + 0.5 * d["zS12"].fillna(0)
 
-    d["tSleeve"] = 0.5 * d["zT6"].fillna(0) + 0.5 * d["zT12"].fillna(0)
+    d["tSleeve"]   = 0.5 * d["zT6"].fillna(0) + 0.5 * d["zT12"].fillna(0)
+    d["revSleeve"] = -d["zS1"].fillna(0)   # negative for display (reversal direction)
 
-    # ── Reversal sleeve (standalone 1-month mean-reversion signal) ────────────
-    d["zRev"]     = std_factor(d["s1"]) if "s1" in d.columns else pd.Series(0.0, index=d.index)
-    d["revSleeve"] = d["zRev"].fillna(0)
+    # ── Flat alpha ────────────────────────────────────────────────────────────
+    total_w = (w_s6 + w_s12 + w_res6 + w_res12 + w_t6 + w_t12 + w_s1 + w_invvol + w_opa) or 1.0
+    d["alpha"] = (
+          w_s6    * d["zS6"].fillna(0)
+        + w_s12   * d["zS12"].fillna(0)
+        + w_res6  * d["zR6"].fillna(0)
+        + w_res12 * d["zR12"].fillna(0)
+        + w_t6    * d["zT6"].fillna(0)
+        + w_t12   * d["zT12"].fillna(0)
+        - w_s1    * d["zS1"].fillna(0)     # reversal: penalise last-month winners
+        + w_invvol * d["zInvVol"].fillna(0)
+        + w_opa   * d["zOPA"].fillna(0)
+    ) / total_w
 
-    wS      = w6
-    wT      = w12
-    wRev    = w_rev
-    total_w = (wS + wT + wRev) or 1.0
-
-    d["alpha"]        = (wS * d["sSleeve"] + wT * d["tSleeve"] + wRev * d["revSleeve"]) / total_w
     d["alpha_formula"] = alpha_formula
 
     d = d.sort_values("alpha", ascending=False)
@@ -1195,9 +1231,6 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
     t0 = time.time()
     vol_floor        = params.get("vol_floor", 0.10)
     winsor_p         = params.get("winsor_p", 2.0)
-    w6               = params.get("w6", 0.5)
-    w12              = params.get("w12", 0.5)
-    w_rev            = params.get("w_rev", 0.2)
     use_tstats       = params.get("use_tstats", False)
     vol_adjust       = params.get("vol_adjust", True)
     cluster_n        = params.get("cluster_n", 100)
@@ -1205,15 +1238,20 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
     cluster_lookback = params.get("cluster_lookback", 252)
     exclude_sectors  = params.get("exclude_sectors", [])
 
+    # Default weights (fixed server-side; clients own user-facing weight UI)
+    W_S6 = 1; W_S12 = 1; W_RES6 = 2; W_RES12 = 3
+    W_T6 = 1; W_T12 = 1; W_S1 = 1; W_INVVOL = 2; W_OPA = 2
+
+    has_opa = bool(get_quality_opa())
+
     # has_bench in factor key: if benchmark prices arrive after first computation,
     # the key changes → factors are recomputed with residuals on the next request.
     fk = json.dumps({"vol_floor": vol_floor, "winsor_p": winsor_p,
                       "xs":        sorted(exclude_sectors) if exclude_sectors else [],
                       "has_bench": bool(get_benchmark_prices() is not None)},
                      sort_keys=True)
-    rk = json.dumps({"fk": fk, "w6": w6, "w12": w12, "w_rev": w_rev,
-                      "ut": use_tstats, "va": vol_adjust,
-                      "wp": winsor_p}, sort_keys=True)
+    rk = json.dumps({"fk": fk, "ut": use_tstats, "va": vol_adjust,
+                      "wp": winsor_p, "has_opa": has_opa}, sort_keys=True)
     ck = json.dumps({"rk": rk, "cn": cluster_n, "ck": cluster_k,
                       "cl": cluster_lookback}, sort_keys=True)
 
@@ -1265,8 +1303,12 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
                 factors_filtered,
                 vol_adjust=vol_adjust,
                 use_tstats=use_tstats,
-                w6=w6, w12=w12, w_rev=w_rev,
+                w_s6=W_S6, w_s12=W_S12,
+                w_res6=W_RES6, w_res12=W_RES12,
+                w_t6=W_T6, w_t12=W_T12,
+                w_s1=W_S1, w_invvol=W_INVVOL, w_opa=W_OPA,
                 winsor_p=winsor_p, vol_floor=vol_floor,
+                opa_dict=get_quality_opa(),
             )
             _ranking_cache = ranked
             _ranking_key = rk

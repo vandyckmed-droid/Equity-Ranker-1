@@ -46,18 +46,6 @@ export const GetRankingsQueryParams = zod.object({
     .optional()
     .describe("Include quality factor in alpha"),
   useTstats: zod.coerce.boolean().optional().describe("Include OLS t-stats"),
-  w6: zod.coerce
-    .number()
-    .optional()
-    .describe("Weight on 6-month momentum (default 0.4)"),
-  w12: zod.coerce
-    .number()
-    .optional()
-    .describe("Weight on 12-month momentum (default 0.4)"),
-  wRev: zod.coerce
-    .number()
-    .optional()
-    .describe("Weight on reversal sleeve (default 0.2)"),
   volFloor: zod.coerce
     .number()
     .optional()
@@ -121,6 +109,12 @@ export const GetRankingsResponse = zod.object({
       zS12: zod.number().nullish(),
       zT6: zod.number().nullish(),
       zT12: zod.number().nullish(),
+      zR6: zod.number().nullish(),
+      zR12: zod.number().nullish(),
+      zS1: zod.number().nullish(),
+      zInvVol: zod.number().nullish(),
+      zOPA: zod.number().nullish(),
+      sigmaEwma: zod.number().nullish(),
       zQ: zod.number().nullish(),
       sSleeve: zod.number().nullish(),
       tSleeve: zod.number().nullish(),
@@ -217,9 +211,6 @@ export const ApplyUniverseFiltersBody = zod.object({
   volAdjust: zod.boolean().optional(),
   useQuality: zod.boolean().optional(),
   useTstats: zod.boolean().optional(),
-  w6: zod.number().optional(),
-  w12: zod.number().optional(),
-  wRev: zod.number().optional(),
   volFloor: zod.number().optional(),
   winsorP: zod.number().optional(),
   clusterN: zod.number().optional(),
@@ -256,6 +247,12 @@ export const ApplyUniverseFiltersResponse = zod.object({
       zS12: zod.number().nullish(),
       zT6: zod.number().nullish(),
       zT12: zod.number().nullish(),
+      zR6: zod.number().nullish(),
+      zR12: zod.number().nullish(),
+      zS1: zod.number().nullish(),
+      zInvVol: zod.number().nullish(),
+      zOPA: zod.number().nullish(),
+      sigmaEwma: zod.number().nullish(),
       zQ: zod.number().nullish(),
       sSleeve: zod.number().nullish(),
       tSleeve: zod.number().nullish(),
