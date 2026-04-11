@@ -1,0 +1,64 @@
+Refactor the current tag UI so there is no separate “Hide by Tag” category or hide behavior at this time.
+
+Goal:
+Create one organized, consistent tag on / tag off system under the existing Mobile Display area, and make all tag controls behave like the current two mobile display cases.
+
+Requirements
+
+1) Remove hide behavior entirely
+- Remove the “Hide by Tag” section
+- Remove any wording about hidden tags, removed rows, or hide logic
+- Do not implement display filtering based on tags
+- Do not change rankings, alpha, z-scores, universe, or backend calculations
+
+2) Move tag controls under Mobile Display
+- Put tag-related controls in the existing Mobile Display section
+- Make them visually and behaviorally consistent with the current two mobile display toggles/options
+- Same interaction pattern, spacing, typography, and state handling
+
+3) Tag system behavior
+- Tags are simple display toggles only
+- Turning a tag on = show that tag badge in rows where applicable
+- Turning a tag off = do not show that tag badge
+- No stock should be removed from the list because of tag state
+- Tag state is purely presentational
+
+4) Consistency requirement
+- Every tag option should function exactly like the existing mobile display cases:
+  - same control style
+  - same persistence behavior
+  - same update behavior
+  - same rendering logic pattern
+
+5) Current profitability naming
+Use:
+- Category label: Profitability
+- Tag labels:
+  - High Profitability
+  - Low Profitability
+- Compact badges:
+  - HP
+  - LP
+
+Do not use “Quality” for this feature.
+
+6) Rendering
+- On mobile rows, show enabled tag badges in the same current badge location
+- On desktop rows, keep the same badge placement pattern already in use
+- Only render badges for tags that are both:
+  - applicable to that stock
+  - enabled in Mobile Display settings
+
+7) Data logic
+Use existing tag infrastructure and existing profitability-derived tagging inputs.
+Do not add new ranking math.
+Do not recompute anything when a tag toggle changes.
+This is only a UI visibility system.
+
+Definition of done
+- “Hide by Tag” section removed
+- No hide/filter behavior exists
+- Tag controls live under Mobile Display
+- Tag toggles behave consistently with the existing two mobile display controls
+- HP/LP badges appear only when enabled
+- Rankings and list contents never change from toggling tags

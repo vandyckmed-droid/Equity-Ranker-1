@@ -6,7 +6,6 @@ import {
   TagDefinition,
   GetRankingsParams,
 } from "@workspace/api-client-react";
-import { useHiddenTags } from "@/hooks/use-hidden-tags";
 import { useMobilePrefs } from "@/hooks/use-mobile-prefs";
 import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -245,8 +244,12 @@ export default function MainPage() {
   const { basket, basketSet, addToBasket, removeFromBasket, setAllStocks, setRankedStocks } = usePortfolio();
   const { config, orderedVisible, toggleColumn, moveColumn, resetColumns } = useColumnConfig();
   const hiddenColumns = ALL_COLUMN_IDS.filter(id => !config.visible.includes(id));
-  const { hiddenTags, toggleHide } = useHiddenTags();
-  const { showGroup, showSuggestedWeight, toggleShowGroup, toggleShowSuggestedWeight } = useMobilePrefs();
+  const {
+    showGroup, showSuggestedWeight,
+    showTagFB, showTagHP, showTagLP,
+    toggleShowGroup, toggleShowSuggestedWeight,
+    toggleShowTagFB, toggleShowTagHP, toggleShowTagLP,
+  } = useMobilePrefs();
 
   const queryClient = useQueryClient();
 
@@ -481,15 +484,8 @@ export default function MainPage() {
       });
     }
 
-    // ── Tag hide (client-side only, never affects zQ or rankings) ────────────
-    // Stocks are removed from display only. They remain in memory and in the
-    // full dataset. This is NOT filtering — it does not change any computed value.
-    if (hiddenTags.size > 0) {
-      result = result.filter(s => !(s.tags ?? []).some(t => hiddenTags.has(t)));
-    }
-
     return result;
-  }, [clientAlphaStocks, mcapFilter, search, sortField, sortDir, hiddenTags]);
+  }, [clientAlphaStocks, mcapFilter, search, sortField, sortDir]);
 
   const virtualizer = useVirtualizer({
     count: processedStocks.length,
@@ -1072,25 +1068,20 @@ export default function MainPage() {
                   </button>
                 </div>
               ))}
-            </div>
 
-            {/* ── Hide by Tag ─────────────────────────────────────────────── */}
-            {Object.keys(tagDefinitions).length > 0 && (
-              <div className="space-y-1">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Hide by Tag</h3>
-                <p className="text-[10px] text-muted-foreground/60 pb-1">Stocks with a hidden tag are removed from the list. Rankings are never changed.</p>
-                {Object.entries(tagDefinitions).map(([key, def]) => {
-                  const isHidden = hiddenTags.has(key);
+              {/* ── Profitability tag badges ─────────────────────────────── */}
+              {Object.keys(tagDefinitions).length > 0 && (() => {
+                const TAG_ROWS = [
+                  { key: "fallback_profitability", value: showTagFB, toggle: toggleShowTagFB },
+                  { key: "high_profitability",     value: showTagHP, toggle: toggleShowTagHP },
+                  { key: "low_profitability",      value: showTagLP, toggle: toggleShowTagLP },
+                ] as const;
+                return TAG_ROWS.filter(r => tagDefinitions[r.key]).map(({ key, value, toggle }) => {
+                  const def = tagDefinitions[key];
                   const colorCls = TAG_COLOR_CLASSES[def.color] ?? TAG_COLOR_CLASSES.slate;
                   return (
-                    <div
-                      key={key}
-                      className={cn(
-                        "flex items-start gap-3 -mx-1 px-2 rounded-lg py-2.5 transition-opacity",
-                        isHidden ? "opacity-40" : "opacity-100"
-                      )}
-                    >
-                      <span className={cn("inline-flex items-center rounded border px-1.5 text-[9px] font-semibold tracking-wide leading-4 shrink-0 mt-0.5", colorCls)}>
+                    <div key={key} className="flex items-start gap-3 -mx-1 px-2 rounded-lg py-2.5">
+                      <span className={cn("inline-flex items-center rounded border px-1.5 text-[9px] font-semibold tracking-wide leading-4 shrink-0 mt-1", colorCls)}>
                         {def.shortLabel}
                       </span>
                       <span className="flex-1 text-sm min-w-0">
@@ -1100,25 +1091,25 @@ export default function MainPage() {
                         )}
                       </span>
                       <button
-                        onClick={() => toggleHide(key)}
+                        onClick={toggle}
                         className={cn(
-                          "h-9 w-9 flex items-center justify-center rounded transition-colors shrink-0",
-                          isHidden ? "text-muted-foreground hover:bg-muted" : "text-foreground hover:bg-muted"
+                          "h-9 w-9 flex items-center justify-center rounded transition-colors shrink-0 mt-0.5",
+                          value ? "text-primary hover:bg-muted" : "text-muted-foreground/40 hover:bg-muted"
                         )}
-                        aria-label={isHidden ? "Show tag" : "Hide tag"}
-                        title={isHidden ? "Click to show" : "Click to hide"}
+                        aria-label={value ? `Hide ${def.label} badge` : `Show ${def.label} badge`}
+                        title={value ? "Click to hide" : "Click to show"}
                       >
-                        {isHidden ? (
-                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                        ) : (
+                        {value ? (
                           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        ) : (
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
                         )}
                       </button>
                     </div>
                   );
-                })}
-              </div>
-            )}
+                });
+              })()}
+            </div>
 
           </div>
         </SheetContent>
@@ -1393,24 +1384,33 @@ export default function MainPage() {
                           })()}
 
                           {/* Tag badges — display-only, post-calculation */}
-                          {(stock.tags ?? []).length > 0 && (
-                            <div className="flex items-center gap-1 mt-1 flex-wrap">
-                              {(stock.tags ?? []).slice(0, 3).map(tagKey => {
-                                const def = tagDefinitions[tagKey];
-                                if (!def) return null;
-                                const cls = TAG_COLOR_CLASSES[def.color] ?? TAG_COLOR_CLASSES.slate;
-                                return (
-                                  <span
-                                    key={tagKey}
-                                    className={cn("inline-flex items-center rounded border px-1 text-[9px] font-semibold tracking-wide leading-4", cls)}
-                                    title={def.description}
-                                  >
-                                    {def.shortLabel}
-                                  </span>
-                                );
-                              })}
-                            </div>
-                          )}
+                          {(() => {
+                            const visibleTags = (stock.tags ?? []).filter(k => {
+                              if (k === "fallback_profitability") return showTagFB;
+                              if (k === "high_profitability")     return showTagHP;
+                              if (k === "low_profitability")      return showTagLP;
+                              return true;
+                            });
+                            if (visibleTags.length === 0) return null;
+                            return (
+                              <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                {visibleTags.slice(0, 3).map(tagKey => {
+                                  const def = tagDefinitions[tagKey];
+                                  if (!def) return null;
+                                  const cls = TAG_COLOR_CLASSES[def.color] ?? TAG_COLOR_CLASSES.slate;
+                                  return (
+                                    <span
+                                      key={tagKey}
+                                      className={cn("inline-flex items-center rounded border px-1 text-[9px] font-semibold tracking-wide leading-4", cls)}
+                                      title={def.description}
+                                    >
+                                      {def.shortLabel}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
                         </TableCell>
 
                         {/* ── Desktop: ticker (hidden on mobile) ── */}
@@ -1427,24 +1427,33 @@ export default function MainPage() {
                                 ? <ChevronDown className="w-2.5 h-2.5 text-muted-foreground ml-0.5" />
                                 : <ChevronRight className="w-2.5 h-2.5 text-muted-foreground ml-0.5 opacity-0 group-hover:opacity-100" />}
                             </span>
-                            {(stock.tags ?? []).length > 0 && (
-                              <span className="flex items-center gap-0.5 pl-3">
-                                {(stock.tags ?? []).slice(0, 3).map(tagKey => {
-                                  const def = tagDefinitions[tagKey];
-                                  if (!def) return null;
-                                  const cls = TAG_COLOR_CLASSES[def.color] ?? TAG_COLOR_CLASSES.slate;
-                                  return (
-                                    <span
-                                      key={tagKey}
-                                      className={cn("inline-flex items-center rounded border px-1 text-[8px] font-semibold tracking-wide leading-3.5", cls)}
-                                      title={def.description}
-                                    >
-                                      {def.shortLabel}
-                                    </span>
-                                  );
-                                })}
-                              </span>
-                            )}
+                            {(() => {
+                              const visibleTags = (stock.tags ?? []).filter(k => {
+                                if (k === "fallback_profitability") return showTagFB;
+                                if (k === "high_profitability")     return showTagHP;
+                                if (k === "low_profitability")      return showTagLP;
+                                return true;
+                              });
+                              if (visibleTags.length === 0) return null;
+                              return (
+                                <span className="flex items-center gap-0.5 pl-3">
+                                  {visibleTags.slice(0, 3).map(tagKey => {
+                                    const def = tagDefinitions[tagKey];
+                                    if (!def) return null;
+                                    const cls = TAG_COLOR_CLASSES[def.color] ?? TAG_COLOR_CLASSES.slate;
+                                    return (
+                                      <span
+                                        key={tagKey}
+                                        className={cn("inline-flex items-center rounded border px-1 text-[8px] font-semibold tracking-wide leading-3.5", cls)}
+                                        title={def.description}
+                                      >
+                                        {def.shortLabel}
+                                      </span>
+                                    );
+                                  })}
+                                </span>
+                              );
+                            })()}
                           </span>
                         </TableCell>
 

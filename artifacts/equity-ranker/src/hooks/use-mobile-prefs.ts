@@ -1,15 +1,21 @@
 import { useState, useCallback } from "react";
 
-const STORAGE_KEY = "qt:mobile-prefs-v1";
+const STORAGE_KEY = "qt:mobile-prefs-v2";
 
 interface MobilePrefs {
   showGroup: boolean;
   showSuggestedWeight: boolean;
+  showTagFB: boolean;
+  showTagHP: boolean;
+  showTagLP: boolean;
 }
 
 const DEFAULTS: MobilePrefs = {
   showGroup: true,
   showSuggestedWeight: true,
+  showTagFB: true,
+  showTagHP: true,
+  showTagLP: true,
 };
 
 function load(): MobilePrefs {
@@ -18,8 +24,11 @@ function load(): MobilePrefs {
     if (!raw) return { ...DEFAULTS };
     const parsed = JSON.parse(raw) as Partial<MobilePrefs>;
     return {
-      showGroup: parsed.showGroup ?? DEFAULTS.showGroup,
+      showGroup:           parsed.showGroup           ?? DEFAULTS.showGroup,
       showSuggestedWeight: parsed.showSuggestedWeight ?? DEFAULTS.showSuggestedWeight,
+      showTagFB:           parsed.showTagFB           ?? DEFAULTS.showTagFB,
+      showTagHP:           parsed.showTagHP           ?? DEFAULTS.showTagHP,
+      showTagLP:           parsed.showTagLP           ?? DEFAULTS.showTagLP,
     };
   } catch {
     return { ...DEFAULTS };
@@ -45,9 +54,15 @@ export function useMobilePrefs() {
   }, []);
 
   return {
-    showGroup: prefs.showGroup,
-    showSuggestedWeight: prefs.showSuggestedWeight,
-    toggleShowGroup: () => toggle("showGroup"),
+    showGroup:                prefs.showGroup,
+    showSuggestedWeight:      prefs.showSuggestedWeight,
+    showTagFB:                prefs.showTagFB,
+    showTagHP:                prefs.showTagHP,
+    showTagLP:                prefs.showTagLP,
+    toggleShowGroup:          () => toggle("showGroup"),
     toggleShowSuggestedWeight: () => toggle("showSuggestedWeight"),
+    toggleShowTagFB:          () => toggle("showTagFB"),
+    toggleShowTagHP:          () => toggle("showTagHP"),
+    toggleShowTagLP:          () => toggle("showTagLP"),
   };
 }

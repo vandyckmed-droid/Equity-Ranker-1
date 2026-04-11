@@ -65,20 +65,20 @@ TAG_DEFINITIONS: dict = {
         "_rule": lambda s: bool(s.get("qualityMissing")),
     },
 
-    # ── Signal: high-quality business by OPA z-score ─────────────────────────
-    "high_quality": {
-        "label":       "High Quality",
-        "shortLabel":  "HQ",
+    # ── Signal: high profitability by OPA z-score ────────────────────────────
+    "high_profitability": {
+        "label":       "High Profitability",
+        "shortLabel":  "HP",
         "description": "OPA z-score ≥ +0.75 — top ~23% of universe by profitability (display only)",
         "color":       "emerald",
         # zQ is None when quality is missing; treat None as 0 via safe guard.
         "_rule": lambda s: (s.get("zQ") is not None) and (s["zQ"] >= 0.75),
     },
 
-    # ── Signal: low-quality business by OPA z-score ──────────────────────────
-    "low_quality": {
-        "label":       "Low Quality",
-        "shortLabel":  "LQ",
+    # ── Signal: low profitability by OPA z-score ─────────────────────────────
+    "low_profitability": {
+        "label":       "Low Profitability",
+        "shortLabel":  "LP",
         "description": "OPA z-score ≤ −0.75 — bottom ~23% of universe by profitability (display only)",
         "color":       "rose",
         "_rule": lambda s: (s.get("zQ") is not None) and (s["zQ"] <= -0.75),
