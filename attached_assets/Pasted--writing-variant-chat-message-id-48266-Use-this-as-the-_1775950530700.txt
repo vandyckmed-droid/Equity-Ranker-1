@@ -1,0 +1,63 @@
+:::writing{variant=“chat_message” id=“48266”}
+Use this as the canonical source library for Alpha Basket UI language and formula display.
+
+Standalone signals:
+	•	MOM_w = momentum over window w
+	•	RAM_w = risk-adjusted momentum over window w
+	•	RM_12-1 = 12–1 residual momentum
+	•	PROF = profitability
+
+Definitions:
+
+MOM_w = ln(P_t_end / P_t_start)
+
+Examples:
+	•	MOM_12-1 = ln(P_{t-21} / P_{t-252})
+	•	MOM_6-1 = ln(P_{t-21} / P_{t-126})
+	•	MOM_1 = ln(P_t / P_{t-21})  ￼
+
+RAM_w = MOM_w / max(sigma63_ann, 0.15)
+
+where
+
+sigma63_ann = std(r_{t-62}, ..., r_t) * sqrt(252)
+and
+r_t = ln(P_t / P_{t-1})
+
+So RAM always means momentum over window w, divided by 63-day annualized realized volatility, with a hard 15% floor.
+
+RM_12-1_i = sum_{tau=t-252}^{t-22} ( r_{i,tau} - beta_m,i * r_{m,tau} - beta_s,i * r_{s,i,tau} )
+
+where
+	•	r_{m,t} = ln(M_t / M_{t-1})
+	•	r_{s,i,t} = ln(S_{i,t} / S_{i,t-1})
+
+and the betas come from the regression over the same 12–1 window:
+r_{i,tau} = alpha_i + beta_m,i * r_{m,tau} + beta_s,i * r_{s,i,tau} + u_{i,tau}
+
+Interpretation: RM_12-1 is market-plus-sector residual momentum by default.
+
+PROF = best available profitability numerator / average assets
+
+fallback hierarchy:
+Operating Income -> EBIT -> Net Income
+
+Naming rules:
+	•	Use short names only for standalone signals.
+	•	For composites, write the weighted sum directly.
+	•	Do not invent nicknames for composites.
+
+Examples:
+	•	0.7 * RAM_12-1 + 0.3 * RM_12-1
+	•	0.5 * RAM_6-1 + 0.5 * RAM_12-1
+	•	0.35 * RAM_6-1 + 0.35 * RAM_12-1 + 0.30 * PROF
+
+UI implications:
+	•	Do not use non-canonical labels like “Core Momentum,” “Short-Term Reversal,” “Core Mom,” “Reversal,” zM6, zM12, zT6, zT12, or R = -zM1 as primary user-facing names.
+	•	If a 1-month contrarian sleeve is used, write it explicitly as -MOM_1 or -RAM_1, not as a separate branded signal.
+	•	Prefer compact window notation like 12-1, 6-1, and 1.
+
+Use this nomenclature by default in future UI copy, formulas, basket expressions, and audit text unless explicitly overridden.
+:::
+
+This is the shortest version I’d use without dropping anything important.
