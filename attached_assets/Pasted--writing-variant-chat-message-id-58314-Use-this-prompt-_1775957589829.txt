@@ -1,0 +1,138 @@
+:::writing{variant=“chat_message” id=“58314”}
+Use this prompt as a transfer of the current source-language only.
+
+Decision authority:
+	•	Replit agent: 80%
+	•	ChatGPT/source transfer in this prompt: 20%
+
+Interpretation:
+	•	This prompt is meant to communicate source-document terminology, formulas, and stated processing rules.
+	•	Where the source documents are explicit, preserve them.
+	•	Where the source documents are silent, ambiguous, or leave implementation details open, use your own judgment.
+	•	Do not treat this prompt as a rigid implementation spec beyond what is explicitly stated below.
+
+Canonical standalone signals named in the source documents:
+	•	MOM_w
+	•	RAM_w
+	•	RM_w
+	•	TS_w
+	•	PROF
+
+Definitions stated in the source documents:
+
+MOM_w = ln(P_t_end / P_t_start)
+
+Examples given:
+	•	MOM_12-1 = ln(P_{t-21} / P_{t-252})
+	•	MOM_6-1 = ln(P_{t-21} / P_{t-126})
+	•	MOM_1 = ln(P_t / P_{t-21})
+
+RAM_w = MOM_w / max(sigma63_ann, 0.15)
+
+where:
+	•	sigma63_ann = std(r_{t-62}, ..., r_t) * sqrt(252)
+	•	r_t = ln(P_t / P_{t-1})
+
+Source-language interpretation:
+	•	RAM uses log returns
+	•	RAM uses 63-day annualized realized volatility
+	•	RAM uses a 15% annualized floor
+
+Residual momentum definition communicated in the source documents:
+
+RM_{w,i} = sum_{tau in w} ( r_{i,tau} - beta_m,i * r_{m,tau} - beta_s,i * r_{s,i,tau} )
+
+where:
+	•	r_{i,tau} = ln(P_{i,tau} / P_{i,tau-1})
+	•	r_{m,tau} = ln(M_tau / M_{tau-1})
+	•	r_{s,i,tau} = ln(S_{i,tau} / S_{i,tau-1})
+
+and betas are estimated over that same window:
+
+r_{i,tau} = alpha_i + beta_m,i * r_{m,tau} + beta_s,i * r_{s,i,tau} + u_{i,tau}
+
+Examples explicitly stated:
+	•	RM_6-1
+	•	RM_12-1
+
+Source-language interpretation:
+	•	default RM means market-plus-sector residual momentum
+
+Trend-strength definition communicated in the source documents:
+
+Over window w, run
+
+ln(P_{i,tau}) = a_i + b_i * tau + u_{i,tau}
+
+and define
+
+TS_{w,i} = t-stat(b_i)
+
+Examples explicitly stated:
+	•	TS_6-1
+	•	TS_12-1
+
+Source-language interpretation:
+	•	TS_w is distinct from MOM_w, RAM_w, and RM_w
+	•	it captures trend strength / statistical persistence, not cumulative return magnitude
+
+Profitability definition communicated in the source documents:
+
+PROF = best available profitability numerator / average assets
+
+Fallback hierarchy:
+	•	Operating Income
+	•	EBIT
+	•	Net Income
+
+Cross-sectional processing rule stated in the source documents:
+
+For each primitive signal cross-section:
+	1.	compute the raw primitive signal
+	2.	winsorize cross-sectionally at the 2nd and 98th percentiles
+	3.	z-score cross-sectionally
+	4.	form composites from weighted sums of those z-scored primitive sleeves
+
+Formal expressions stated in the source documents:
+
+X_tilde = winsorize(X, 0.02, 0.98)
+
+Z(X) = (X_tilde - mean(X_tilde)) / sd(X_tilde)
+
+Important boundary:
+	•	The source documents refer to cross-sectional z-scoring and in some places refer to the “full eligible universe,” but that term is not fully defined here in a way that should constrain implementation.
+	•	Treat universe definition, scope of cross-section, and related implementation details as under your control unless separately specified elsewhere in the codebase or project requirements.
+
+Composite construction rule stated in the source documents:
+
+Correct pattern:
+	•	weighted sums of already-z-scored primitive sleeves
+
+Examples stated in the source documents:
+	•	0.7 * RAM_12-1 + 0.3 * RM_12-1
+	•	0.5 * RAM_6-1 + 0.5 * RAM_12-1
+	•	0.35 * RAM_6-1 + 0.35 * RAM_12-1 + 0.30 * PROF
+
+Incorrect pattern stated in the source documents:
+	•	Z(0.7 * RAM_12-1 + 0.3 * RM_12-1)
+
+Naming rules stated in the source documents:
+	•	Use short names only for standalone signals.
+	•	For composites, write the weighted sum directly.
+	•	Do not invent a separate shorthand for the composite.
+	•	Prefer compact window notation like 12-1, 6-1, and 1.
+	•	If a 1-month contrarian sleeve is used, write it explicitly as -MOM_1 or -RAM_1, not as a separate branded signal.
+
+Scope of this prompt:
+	•	convey the source terminology
+	•	convey the source formulas
+	•	convey the stated processing order
+	•	convey the stated naming rules
+
+Non-scope:
+	•	This prompt does not attempt to fully specify universe construction.
+	•	This prompt does not attempt to override architecture where the sources are silent.
+	•	This prompt does not attempt to force implementation choices beyond what the source documents explicitly state.
+
+Use this source-language where relevant, but retain broad freedom to decide implementation details not fully defined by the source documents.
+:::
