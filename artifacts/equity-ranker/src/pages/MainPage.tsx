@@ -379,6 +379,7 @@ export default function MainPage() {
       minPrice: saved?.minPrice ?? 5,
       minAdv: saved?.minAdv ?? 10_000_000,
       minMarketCap: saved?.minMarketCap ?? 0,
+      profCoverage: (saved?.profCoverage as "off" | "require_any" | "primary_only") ?? "off",
     };
   });
   const [debouncedServerParams, setDebouncedServerParams] = useState(serverParams);
@@ -426,6 +427,7 @@ export default function MainPage() {
       minPrice: debouncedServerParams.minPrice,
       minAdv: debouncedServerParams.minAdv,
       minMarketCap: debouncedServerParams.minMarketCap,
+      profCoverage: debouncedServerParams.profCoverage !== "off" ? debouncedServerParams.profCoverage : undefined,
     };
     return p;
   }, [debouncedServerParams]);
@@ -1075,11 +1077,45 @@ export default function MainPage() {
                 </div>
               </div>
 
+              {/* PROF Coverage filter */}
+              <div className="bg-muted/40 px-3 py-2 rounded-md space-y-2">
+                <Label className="text-xs">PROF Coverage (optional)</Label>
+                <div className="flex rounded-md overflow-hidden border border-border">
+                  {([
+                    { value: "off",          label: "None" },
+                    { value: "require_any",  label: "Any PROF" },
+                    { value: "primary_only", label: "Primary only" },
+                  ] as const).map((opt, i) => (
+                    <button
+                      key={opt.value}
+                      className={cn(
+                        "flex-1 py-1 text-[11px]",
+                        i > 0 && "border-l border-border",
+                        serverParams.profCoverage === opt.value
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                      onClick={() => handleServerParamChange("profCoverage", opt.value)}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[9px] text-muted-foreground/50 leading-snug">
+                  {serverParams.profCoverage === "require_any"
+                    ? "Excludes stocks with no profitability data"
+                    : serverParams.profCoverage === "primary_only"
+                    ? "Keeps only stocks with primary Op. Income / Avg Assets formula"
+                    : "No profitability coverage requirement"}
+                </p>
+              </div>
+
               {/* Audit summary */}
               {(() => {
                 const excl = (audit as any)?.exclusions ?? {};
+                const profExclKeys = ["no_prof_data", "no_primary_prof"];
                 const structKeys = Object.keys(excl).filter(
-                  k => !["price_below_floor","liquidity_below_floor","market_cap_below_floor"].includes(k) && !k.startsWith("sector_")
+                  k => !["price_below_floor","liquidity_below_floor","market_cap_below_floor",...profExclKeys].includes(k) && !k.startsWith("sector_")
                 );
                 const structCount = structKeys.reduce((s, k) => s + (excl[k] as number), 0);
                 const preN = (audit as any)?.preFilterCount ?? null;
@@ -1115,6 +1151,18 @@ export default function MainPage() {
                       <div className="flex justify-between text-muted-foreground">
                         <span className="font-sans">Mkt cap &lt; {mcapLabel}</span>
                         <span className="text-orange-400">−{(excl.market_cap_below_floor as number).toLocaleString()}</span>
+                      </div>
+                    )}
+                    {serverParams.profCoverage === "require_any" && excl.no_prof_data > 0 && (
+                      <div className="flex justify-between text-muted-foreground">
+                        <span className="font-sans">No PROF data</span>
+                        <span className="text-orange-400">−{(excl.no_prof_data as number).toLocaleString()}</span>
+                      </div>
+                    )}
+                    {serverParams.profCoverage === "primary_only" && excl.no_primary_prof > 0 && (
+                      <div className="flex justify-between text-muted-foreground">
+                        <span className="font-sans">No primary PROF</span>
+                        <span className="text-orange-400">−{(excl.no_primary_prof as number).toLocaleString()}</span>
                       </div>
                     )}
                     <div className="flex justify-between font-semibold text-foreground/80 border-t border-border/20 pt-1 mt-1">

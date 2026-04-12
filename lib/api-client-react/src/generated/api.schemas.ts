@@ -440,9 +440,9 @@ export type GetRankingsParams = {
    */
   excludeSectors?: string;
   /**
-   * Only include stocks with quality coverage (default false)
+   * Profitability coverage filter: off = no filter, require_any = drop stocks with no OPA data, primary_only = keep only primary formula (op_income/avg_assets)
    */
-  requireQuality?: boolean;
+  profCoverage?: GetRankingsProfCoverage;
   /**
    * Minimum stock price filter (0 = disabled, default 5.0)
    */
@@ -456,3 +456,12 @@ export type GetRankingsParams = {
    */
   minMarketCap?: number;
 };
+
+export type GetRankingsProfCoverage =
+  (typeof GetRankingsProfCoverage)[keyof typeof GetRankingsProfCoverage];
+
+export const GetRankingsProfCoverage = {
+  off: "off",
+  require_any: "require_any",
+  primary_only: "primary_only",
+} as const;

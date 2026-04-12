@@ -74,10 +74,12 @@ export const GetRankingsQueryParams = zod.object({
     .string()
     .optional()
     .describe("Comma-separated list of sectors to exclude"),
-  requireQuality: zod.coerce
-    .boolean()
+  profCoverage: zod
+    .enum(["off", "require_any", "primary_only"])
     .optional()
-    .describe("Only include stocks with quality coverage (default false)"),
+    .describe(
+      "Profitability coverage filter: off = no filter, require_any = drop stocks with no OPA data, primary_only = keep only primary formula (op_income\/avg_assets)",
+    ),
   minPrice: zod.coerce
     .number()
     .optional()

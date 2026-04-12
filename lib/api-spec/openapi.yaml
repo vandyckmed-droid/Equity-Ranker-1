@@ -100,11 +100,12 @@ paths:
           schema:
             type: string
           description: Comma-separated list of sectors to exclude
-        - name: requireQuality
+        - name: profCoverage
           in: query
           schema:
-            type: boolean
-          description: Only include stocks with quality coverage (default false)
+            type: string
+            enum: [off, require_any, primary_only]
+          description: "Profitability coverage filter: off = no filter, require_any = drop stocks with no OPA data, primary_only = keep only primary formula (op_income/avg_assets)"
         - name: minPrice
           in: query
           schema:

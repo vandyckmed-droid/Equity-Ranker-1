@@ -1113,10 +1113,16 @@ def apply_universe_filters(df: pd.DataFrame,
                            min_price:       float = 5.0,
                            min_adv:         float = 1e7,
                            min_market_cap:  float = 0.0,
-                           exclude_sectors: list  = None) -> tuple:
+                           exclude_sectors: list  = None,
+                           prof_coverage:   str   = "off") -> tuple:
     """
     Apply base universe filters. Pass 0 for min_price / min_adv / min_market_cap
     to disable that filter entirely (skip it rather than applying a 0 floor).
+
+    prof_coverage:
+      "off"          – no profitability filter (default)
+      "require_any"  – drop stocks with no OPA data at all (qualityMissing=True)
+      "primary_only" – keep only stocks using the primary formula (op_income/avg_assets)
     """
     n_in = len(df)
     mask = pd.Series(True, index=df.index)
@@ -1163,6 +1169,26 @@ def apply_universe_filters(df: pd.DataFrame,
             logger.info(f"Universe exclusion [sector]: {sector_hit.sum()} tickers ({', '.join(excl_set)})")
         mask &= ~df["sector"].isin(excl_set)
 
+    # ── Profitability coverage filter (acts before z-scoring) ─────────────────
+    if prof_coverage in ("require_any", "primary_only"):
+        opa_map = get_quality_opa() or {}
+        ticker_col = df["ticker"] if "ticker" in df.columns else pd.Series(df.index, index=df.index)
+        prof_fail = pd.Series(False, index=df.index)
+        for idx, tk in zip(df.index, ticker_col):
+            rec      = opa_map.get(str(tk))
+            available = bool(rec and rec.get("available"))
+            formula   = rec.get("formula") if rec else None
+            if prof_coverage == "require_any" and not available:
+                prof_fail[idx] = True
+            elif prof_coverage == "primary_only" and (not available or formula != "op_income/avg_assets"):
+                prof_fail[idx] = True
+        n_fail = int(prof_fail.sum())
+        if n_fail > 0:
+            label = "no_prof_data" if prof_coverage == "require_any" else "no_primary_prof"
+            audit_exclusions[label] = n_fail
+            logger.info(f"Universe exclusion [{label}]: {n_fail} tickers")
+        mask &= ~prof_fail
+
     result = df[mask].copy()
     logger.info(f"Universe filters: {n_in} candidates → {len(result)} qualifying stocks")
 
@@ -1181,6 +1207,10 @@ def apply_universe_filters(df: pd.DataFrame,
         active_filters.append(f"mcap>=${min_market_cap/1e9:.0f}B")
     if exclude_sectors:
         active_filters.append(f"exclude_sectors:{','.join(exclude_sectors)}")
+    if prof_coverage == "require_any":
+        active_filters.append("prof_coverage:require_any")
+    elif prof_coverage == "primary_only":
+        active_filters.append("prof_coverage:primary_only")
 
     audit = {
         "preFilterCount":  n_in,
@@ -1286,6 +1316,7 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
     min_price        = float(params.get("min_price", 5.0))
     min_adv          = float(params.get("min_adv", 1e7))
     min_market_cap   = float(params.get("min_market_cap", 0.0))
+    prof_coverage    = str(params.get("prof_coverage", "off"))
 
     # Default weights (fixed server-side; clients own user-facing weight UI)
     W_S6 = 1; W_S12 = 1; W_RES6 = 2; W_RES12 = 3
@@ -1301,7 +1332,8 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
                       "has_bench": bool(get_benchmark_prices() is not None),
                       "min_price": min_price,
                       "min_adv":   min_adv,
-                      "min_mcap":  min_market_cap},
+                      "min_mcap":  min_market_cap,
+                      "prof_cov":  prof_coverage},
                      sort_keys=True)
     rk = json.dumps({"fk": fk, "ut": use_tstats, "va": vol_adjust,
                       "wp": winsor_p, "has_opa": has_opa}, sort_keys=True)
@@ -1333,6 +1365,7 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
                 min_adv=min_adv,
                 min_market_cap=min_market_cap,
                 exclude_sectors=exclude_sectors,
+                prof_coverage=prof_coverage,
             )
 
             if not _audit_printed:

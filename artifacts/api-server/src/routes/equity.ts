@@ -76,6 +76,7 @@ router.get("/equity/rankings", async (req, res): Promise<void> => {
           minPrice: "min_price",
           minAdv: "min_adv",
           minMarketCap: "min_market_cap",
+          profCoverage: "prof_coverage",
         };
         const key = mappings[k] || k;
         params.set(key, String(v));

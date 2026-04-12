@@ -5,6 +5,7 @@
  * Equity Ranking and Risk API
  * OpenAPI spec version: 0.1.0
  */
+import type { GetRankingsProfCoverage } from "./getRankingsProfCoverage";
 
 export type GetRankingsParams = {
   /**
@@ -48,9 +49,9 @@ export type GetRankingsParams = {
    */
   excludeSectors?: string;
   /**
-   * Only include stocks with quality coverage (default false)
+   * Profitability coverage filter: off = no filter, require_any = drop stocks with no OPA data, primary_only = keep only primary formula (op_income/avg_assets)
    */
-  requireQuality?: boolean;
+  profCoverage?: GetRankingsProfCoverage;
   /**
    * Minimum stock price filter (0 = disabled, default 5.0)
    */

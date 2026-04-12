@@ -242,6 +242,7 @@ def get_rankings(
     min_price: float = Query(5.0),
     min_adv: float = Query(1e7),
     min_market_cap: float = Query(0.0),
+    prof_coverage: str = Query("off"),
 ):
     status = engine.get_status()
     if status["status"] == "loading":
@@ -266,6 +267,7 @@ def get_rankings(
         "min_price": min_price,
         "min_adv": min_adv,
         "min_market_cap": min_market_cap,
+        "prof_coverage": prof_coverage if prof_coverage in ("require_any", "primary_only") else "off",
     }
 
     result = engine.get_ranked_data(params)

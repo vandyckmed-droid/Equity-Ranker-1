@@ -14,6 +14,7 @@ export * from "./dataStatusEnrichment";
 export * from "./dataStatusStatus";
 export * from "./dataStatusTimings";
 export * from "./getRankingsParams";
+export * from "./getRankingsProfCoverage";
 export * from "./healthStatus";
 export * from "./portfolioHistoryRequest";
 export * from "./portfolioHistoryResponse";
