@@ -440,7 +440,7 @@ function PresetsTab() {
 
             {/* Active parts summary */}
             <div className="flex flex-wrap gap-1">
-              {preset.items
+              {preset.entries
                 .filter((i) => i.active)
                 .map((i) => {
                   const part = ALPHA_PARTS_MAP.get(i.partId);
@@ -460,7 +460,7 @@ function PresetsTab() {
             <div className="flex items-start gap-1.5">
               <TriangleAlert className="w-2.5 h-2.5 text-amber-500/60 shrink-0 mt-px" />
               <p className="text-[9px] text-muted-foreground/50 leading-snug">
-                {preset.omissionNote}
+                {preset.omitNote}
               </p>
             </div>
           </div>

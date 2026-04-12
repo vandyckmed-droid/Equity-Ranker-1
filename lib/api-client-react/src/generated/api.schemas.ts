@@ -92,6 +92,12 @@ export interface Stock {
   /** @nullable */
   zOPA?: number | null;
   /** @nullable */
+  zRam6?: number | null;
+  /** @nullable */
+  zRam12?: number | null;
+  /** @nullable */
+  zRam1?: number | null;
+  /** @nullable */
   zQ?: number | null;
   /** @nullable */
   sSleeve?: number | null;

@@ -10,7 +10,7 @@ I prefer clear, concise, and structured explanations.
 I value iterative development and prefer to be consulted before major architectural or design changes.
 I expect the coding agent to maintain high code quality, adhering to the established monorepo structure and technology stack.
 All user-facing labels for "clusters" should be "Group" / "Grp" / "G0…G9". Internal code, API schema, Python engine, and cache keys should retain "cluster" as the data field name.
-All user-facing signal labels use canonical names: MOM 6‑1, MOM 12‑1, MOM 1, TS 6‑1, TS 12‑1, RM 6‑1, RM 12‑1, LowVol, PROF. Composites: MOM (Momentum Composite), RM (Residual Momentum), REV (Short-Term Reversal). Internal z-score field keys (zM6, zM12, zT6, zT12, zR6, zR12, zM1, zLowVol, zOPA) are API field names and must not be renamed.
+Canonical signal display names (non-negotiable): MOM_12-1, MOM_6-1, RAM_12-1, RAM_6-1, RM_12-1, RM_6-1, TS_12, TS_6, PROF, REV (RAM_1), REV (MOM_1), LowVol. Internal API field keys (zM6, zM12, zT6, zT12, zR6, zR12, zM1, zLowVol, zOPA, zRam6, zRam12, zRam1) must NOT be renamed. TS signals have no -1 suffix (no skip month applied to OLS t-stats).
 
 ## System Architecture
 

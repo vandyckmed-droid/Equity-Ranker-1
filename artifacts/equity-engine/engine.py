@@ -617,6 +617,17 @@ def compute_factors_vectorized(prices: pd.DataFrame,
     sigma_60 = log_returns.iloc[-60:].std() * np.sqrt(252)
     sigma_60 = sigma_60.where(has_22, np.nan)
 
+    # ── 63-day realized volatility for RAM signals ─────────────────────────────
+    # sigma_63 = std(log_ret[-63:]) × √252  (3-month vol, common denominator for all RAM)
+    # RAM_w = MOM_w / max(sigma_63, vol_floor_ram)  — rewards consistent risk-adjusted drift
+    _VOL_FLOOR_RAM = 0.15  # 15% annualized floor to avoid dividing by near-zero vol
+    sigma_63 = log_returns.iloc[-63:].std() * np.sqrt(252)
+    sigma_63 = sigma_63.where(has_22, np.nan)
+    vol_denom_ram = sigma_63.clip(lower=_VOL_FLOOR_RAM)
+    ram6  = (m6  / vol_denom_ram).where(has_126, np.nan)
+    ram12 = (m12 / vol_denom_ram).where(has_252, np.nan)
+    ram1  = (m1  / vol_denom_ram).where(has_22,  np.nan)
+
     t_ols = time.time()
     tstat12 = _batch_ols_tstat(log_prices)
     tstat6  = _batch_ols_tstat(log_prices.iloc[-126:])
@@ -670,6 +681,9 @@ def compute_factors_vectorized(prices: pd.DataFrame,
         "m1":                   m1.values,
         "m6":                   m6.values,
         "m12":                  m12.values,
+        "ram1":                 ram1.values,
+        "ram6":                 ram6.values,
+        "ram12":                ram12.values,
         "tstat6":               tstat6.values,
         "tstat12":              tstat12.values,
         "sigma_60":             sigma_60.values,
@@ -753,6 +767,10 @@ def compute_rankings(df: pd.DataFrame,
     d["zM1"]  = std_factor(d["m1"])  if "m1"  in d.columns else pd.Series(0.0, index=d.index)
     # lowvol = −Z(sigma_60): 60-day realized std × √252, negated so low-vol → high score
     d["zLowVol"] = -std_factor(d["sigma_60"]) if "sigma_60" in d.columns else pd.Series(0.0, index=d.index)
+    # RAM = MOM / max(σ63, 0.15): vol-adjusted momentum signals
+    d["zRam6"]  = std_factor(d["ram6"])  if "ram6"  in d.columns else pd.Series(0.0, index=d.index)
+    d["zRam12"] = std_factor(d["ram12"]) if "ram12" in d.columns else pd.Series(0.0, index=d.index)
+    d["zRam1"]  = std_factor(d["ram1"])  if "ram1"  in d.columns else pd.Series(0.0, index=d.index)
 
     has_residuals = ("res6" in d.columns and "res12" in d.columns
                      and d["res6"].abs().sum() > 0)

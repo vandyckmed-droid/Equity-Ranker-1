@@ -5,7 +5,7 @@ export default function MethodologyPage() {
     <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-4 md:space-y-6">
       <div>
         <h1 className="text-2xl md:text-3xl font-bold tracking-tight mb-1 text-foreground">Methodology</h1>
-        <p className="text-muted-foreground text-sm">Pipeline: Universe &rarr; Raw signals &rarr; Winsorize &rarr; Z-score &rarr; Composites &rarr; Alpha &rarr; Portfolio</p>
+        <p className="text-muted-foreground text-sm">Pipeline: Universe &rarr; Raw signals &rarr; Winsorize &rarr; Z-score &rarr; Client-weighted alpha &rarr; Portfolio</p>
       </div>
 
       {/* 1. UNIVERSE */}
@@ -24,68 +24,71 @@ export default function MethodologyPage() {
         </CardContent>
       </Card>
 
-      {/* 2. MOMENTUM COMPOSITE */}
+      {/* 2. MOMENTUM SIGNALS */}
       <Card className="border-border bg-card">
-        <CardHeader><CardTitle>2 &mdash; Momentum Composite (MOM)</CardTitle></CardHeader>
+        <CardHeader><CardTitle>2 &mdash; Momentum Signals (MOM_12-1, MOM_6-1)</CardTitle></CardHeader>
         <CardContent>
           <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
-            <p><span className="text-foreground">MOM_6&#x2011;1</span>  = Z(&Sigma; ln(P_t/P_&#123;t&#x2212;1&#125;), t&#x2212;126 : t&#x2212;22)</p>
-            <p><span className="text-foreground">MOM_12&#x2011;1</span> = Z(&Sigma; ln(P_t/P_&#123;t&#x2212;1&#125;), t&#x2212;252 : t&#x2212;22)</p>
-            <p className="mt-2"><span className="text-foreground">TS_6&#x2011;1</span>  = Z(OLS &beta;/SE[&beta;], ln(P)~t, 126d)</p>
-            <p><span className="text-foreground">TS_12&#x2011;1</span> = Z(OLS &beta;/SE[&beta;], ln(P)~t, 252d)</p>
-            <p className="mt-2"><span className="text-foreground">MOM</span>      = &frac14;&middot;(MOM_6&#x2011;1 + MOM_12&#x2011;1 + TS_6&#x2011;1 + TS_12&#x2011;1)</p>
+            <p><span className="text-foreground">MOM_12&#x2011;1</span> = Z(winsorize(&Sigma; ln P, t&#x2212;252 : t&#x2212;22))</p>
+            <p><span className="text-foreground">MOM_6&#x2011;1</span>  = Z(winsorize(&Sigma; ln P, t&#x2212;126 : t&#x2212;22))</p>
+            <p className="mt-1 opacity-60">Skip month (t&#x2212;22) avoids doubling up on 1-month microstructure reversal</p>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            Equal-weight blend of skip-adjusted cumulative log-returns and their OLS trend t-statistics.
-            T-statistics reward consistent price drift over a single large move.
+            Baseline skip-adjusted cumulative log-returns. MOM_12-1 is the standard medium-term momentum signal;
+            MOM_6-1 is more responsive. Both are individual building blocks — combine freely.
           </p>
         </CardContent>
       </Card>
 
-      {/* 3. RESIDUAL MOMENTUM */}
+      {/* 3. RISK-ADJUSTED MOMENTUM */}
       <Card className="border-border bg-card">
-        <CardHeader><CardTitle>3 &mdash; Residual Momentum (RM)</CardTitle></CardHeader>
+        <CardHeader><CardTitle>3 &mdash; Risk-Adjusted Momentum (RAM_12-1, RAM_6-1)</CardTitle></CardHeader>
         <CardContent>
           <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
-            <p>r_i = &alpha; + &beta;_m&middot;r_mkt + &beta;_p&middot;r_peer + &epsilon;&#x0303;  <span className="opacity-60">&mdash; OLS with intercept</span></p>
-            <p>&epsilon; = r_i &minus; &beta;_m&middot;r_mkt &minus; &beta;_p&middot;r_peer  <span className="opacity-60">&mdash; betas-only residual, &alpha; retained</span></p>
-            <p className="mt-2"><span className="text-foreground">RM_6&#x2011;1</span>  = Z(&Sigma; &epsilon;, t&#x2212;126 : t&#x2212;22)</p>
-            <p><span className="text-foreground">RM_12&#x2011;1</span> = Z(&Sigma; &epsilon;, t&#x2212;252 : t&#x2212;22)</p>
-            <p className="mt-2"><span className="text-foreground">RM</span>       = 0.4&middot;RM_6&#x2011;1 + 0.6&middot;RM_12&#x2011;1</p>
+            <p>&sigma;&#x2086;&#x2083; = std(log_ret[&#x2212;63:]) &times; &radic;252 &nbsp; <span className="opacity-60">&mdash; 3-month realized vol, annualized</span></p>
+            <p className="mt-2"><span className="text-foreground">RAM_12&#x2011;1</span> = Z(winsorize(m12 / max(&sigma;&#x2086;&#x2083;, 0.15)))</p>
+            <p><span className="text-foreground">RAM_6&#x2011;1</span>  = Z(winsorize(m6 &nbsp;/ max(&sigma;&#x2086;&#x2083;, 0.15)))</p>
+            <p className="mt-1 opacity-60">Vol floor = 0.15 (15% ann.) prevents division by near-zero vol</p>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            Momentum in returns after removing market and sector co-movement.
+            Sharpe-style signals: same cumulative return as MOM but divided by recent realized volatility.
+            Rewards stocks with consistent, low-noise uptrends. A single common 63-day vol window is used
+            for both RAM_12-1 and RAM_6-1.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* 4. RESIDUAL MOMENTUM */}
+      <Card className="border-border bg-card">
+        <CardHeader><CardTitle>4 &mdash; Residual Momentum (RM_12-1, RM_6-1)</CardTitle></CardHeader>
+        <CardContent>
+          <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
+            <p>r_i = &alpha; + &beta;_m&middot;r_mkt + &beta;_p&middot;r_peer + &epsilon;&#x0303; &nbsp; <span className="opacity-60">&mdash; OLS with intercept</span></p>
+            <p>&epsilon; = r_i &minus; &beta;_m&middot;r_mkt &minus; &beta;_p&middot;r_peer &nbsp; <span className="opacity-60">&mdash; betas-only residual; &alpha; retained</span></p>
+            <p className="mt-2"><span className="text-foreground">RM_12&#x2011;1</span> = Z(winsorize(&Sigma; &epsilon;, t&#x2212;252 : t&#x2212;22))</p>
+            <p><span className="text-foreground">RM_6&#x2011;1</span>  = Z(winsorize(&Sigma; &epsilon;, t&#x2212;126 : t&#x2212;22))</p>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Momentum after removing market beta and industry peer co-movement.
             Captures stock-specific alpha accumulation less sensitive to sector rotations.
+            Peer group regression falls back from industry to sector to universe when the group has fewer than 10 stocks.
           </p>
         </CardContent>
       </Card>
 
-      {/* 4. SHORT-TERM REVERSAL */}
+      {/* 5. TREND STRENGTH */}
       <Card className="border-border bg-card">
-        <CardHeader><CardTitle>4 &mdash; Short-Term Reversal (REV)</CardTitle></CardHeader>
+        <CardHeader><CardTitle>5 &mdash; Trend Strength (TS_12)</CardTitle></CardHeader>
         <CardContent>
           <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
-            <p><span className="text-foreground">MOM_1</span>  = Z(&Sigma; ln(P_t/P_&#123;t&#x2212;1&#125;), t&#x2212;21 : t)</p>
-            <p className="mt-2"><span className="text-foreground">REV</span>    = &minus;MOM_1</p>
+            <p>Fit ln(P_t) = &alpha; + &beta;&middot;t + &epsilon; by OLS over 252 trading days</p>
+            <p className="mt-2"><span className="text-foreground">TS_12</span> = Z(winsorize(&beta; / SE[&beta;]))</p>
+            <p className="mt-1 opacity-60">High t-stat &rarr; smooth, persistent uptrend; low t-stat &rarr; noisy or stalling price</p>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            Fades last-month winners. Prevents doubling up on the same recent move
-            that the 12&#x2011;1 momentum window already captures.
-          </p>
-        </CardContent>
-      </Card>
-
-      {/* 5. LOW VOLATILITY */}
-      <Card className="border-border bg-card">
-        <CardHeader><CardTitle>5 &mdash; Low Volatility (LowVol)</CardTitle></CardHeader>
-        <CardContent>
-          <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
-            <p>&sigma;&#x2086;&#x2080; = std(ln(P_t/P_&#123;t&#x2212;1&#125;)[&#x2212;60:]) &times; &radic;252</p>
-            <p className="mt-2"><span className="text-foreground">LowVol</span> = &minus;Z(winsorize(&sigma;&#x2086;&#x2080;))  <span className="opacity-60">&mdash; sign flipped: lower vol &rarr; higher score</span></p>
-          </div>
-          <p className="text-xs text-muted-foreground mt-2">
-            Captures the low-vol anomaly. This is an approximation &mdash; a cleaner implementation
-            would use idiosyncratic vol rather than total vol.
+            The OLS t-statistic of the log-price trend. Complements return-magnitude signals because it rewards
+            trend persistence and smoothness rather than a single large move. No skip-month is applied
+            (the regression uses the full 252-day window).
           </p>
         </CardContent>
       </Card>
@@ -100,30 +103,52 @@ export default function MethodologyPage() {
             <p className="mt-2"><span className="text-foreground">PROF</span> = Z(winsorize(OPA, 2%, 98%))</p>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            Partial quality proxy. Fama&ndash;French quality adds investment, accruals, and earnings stability.
-            Coverage is ~97&ndash;98% of the universe.
+            Non-momentum quality anchor. Tends to be uncorrelated with momentum signals and adds
+            diversification in momentum-reversal regimes. Coverage is ~97&ndash;98% of the universe.
+            Partial quality proxy &mdash; Fama&ndash;French quality adds investment, accruals, and earnings stability.
           </p>
         </CardContent>
       </Card>
 
-      {/* 7. COMPOSITE ALPHA */}
+      {/* 7. SHORT-TERM REVERSAL */}
       <Card className="border-border bg-card">
-        <CardHeader><CardTitle>7 &mdash; Composite Alpha</CardTitle></CardHeader>
+        <CardHeader><CardTitle>7 &mdash; Short-Term Reversal (REV)</CardTitle></CardHeader>
         <CardContent>
           <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
-            <p><span className="text-foreground">&alpha;</span> = &Sigma;(w_i &middot; part_i) / &Sigma;w_i</p>
-            <p className="mt-2 opacity-60">Default weights: MOM&times;4 + RM&times;3 + LowVol&times;2 + PROF&times;2 + REV&times;1</p>
+            <p>MOM_1  = &Sigma; log_ret[t&#x2212;21 : t] &nbsp; <span className="opacity-60">&mdash; last-month return, no skip</span></p>
+            <p>RAM_1  = MOM_1 / max(&sigma;&#x2086;&#x2083;, 0.15) &nbsp; <span className="opacity-60">&mdash; vol-adjusted 1-month return</span></p>
+            <p className="mt-2"><span className="text-foreground">REV (RAM_1)</span> = &minus;Z(winsorize(RAM_1))</p>
+            <p className="mt-1 opacity-60">Negative sign: fade last-month winners (reversal direction)</p>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            Client owns the weight math for instant re-ranking. Weights are configured in the Alpha Basket panel.
-            Stocks ranked descending by alpha. Missing data &rarr; z = 0.
+            Fades last-month winners. Prevents doubling up on the same recent move already captured by
+            skip-adjusted momentum signals. The vol-adjusted variant (RAM_1) is recommended; a raw
+            MOM_1 version is also available in the parts library.
           </p>
         </CardContent>
       </Card>
 
-      {/* 8. COVARIANCE & RISK */}
+      {/* 8. ALPHA BUILDING BLOCKS */}
       <Card className="border-border bg-card">
-        <CardHeader><CardTitle>8 &mdash; Covariance &amp; Risk Model</CardTitle></CardHeader>
+        <CardHeader><CardTitle>8 &mdash; Alpha Building Blocks</CardTitle></CardHeader>
+        <CardContent>
+          <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
+            <p><span className="text-foreground">&alpha;</span> = &Sigma;(w_i &middot; signal_i) / &Sigma;w_i</p>
+            <p className="mt-2 opacity-60">All signals are individually winsorized (2%/98%) and cross-sectionally z-scored</p>
+            <p className="opacity-60">No re-z-scoring of composites &mdash; each block enters the alpha directly</p>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            The alpha is a flat weighted sum of individual z-scored signals. There are no intermediate
+            composite layers &mdash; each building block (MOM_12-1, RAM_12-1, RM_12-1, TS_12, PROF,
+            MOM_6-1, RAM_6-1, RM_6-1, REV) enters alpha directly with its own weight.
+            Client owns the weights for instant re-ranking. Missing data &rarr; z&nbsp;=&nbsp;0.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* 9. COVARIANCE & RISK */}
+      <Card className="border-border bg-card">
+        <CardHeader><CardTitle>9 &mdash; Covariance &amp; Risk Model</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="bg-muted p-4 rounded-md font-mono text-xs text-muted-foreground space-y-1">
             <p className="text-foreground/60">EWMA covariance (Risk Parity)</p>
@@ -139,9 +164,9 @@ export default function MethodologyPage() {
         </CardContent>
       </Card>
 
-      {/* 9. PORTFOLIO CONSTRUCTION */}
+      {/* 10. PORTFOLIO CONSTRUCTION */}
       <Card className="border-border bg-card">
-        <CardHeader><CardTitle>9 &mdash; Portfolio Construction</CardTitle></CardHeader>
+        <CardHeader><CardTitle>10 &mdash; Portfolio Construction</CardTitle></CardHeader>
         <CardContent className="space-y-4">
 
           <p className="text-xs text-muted-foreground">

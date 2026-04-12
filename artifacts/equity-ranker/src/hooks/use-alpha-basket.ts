@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { ALPHA_PARTS, ALPHA_PARTS_MAP, AlphaPart, ZScores } from "./alpha-parts-library";
 
-const BASKET_KEY = "qt:basket-v2";
+const BASKET_KEY = "qt:basket-v3";
 
 export interface BasketEntry {
   partId: string;
@@ -27,68 +27,99 @@ export interface PartContribution {
 
 export const ALPHA_PRESETS: AlphaPreset[] = [
   {
-    id: "institutional_default",
-    label: "Institutional Default",
-    description: "Balanced 5-factor model: core momentum, residual momentum, short-term reversal, low vol, and quality. The recommended starting point.",
-    omitNote: "Omits value signals and extended quality dimensions (not yet built).",
+    id: "equal_9",
+    label: "Equal Weight (9 Signals)",
+    description:
+      "All 9 building blocks at equal weight — the recommended starting point. " +
+      "Spans medium-term momentum, vol-adjusted momentum, residual momentum, trend strength, and quality.",
+    omitNote: "PROF uses operating income / assets with fallbacks. Value not yet built.",
     entries: [
-      { partId: "momentum_core",     weight: 4, active: true },
-      { partId: "residual_momentum", weight: 3, active: true },
-      { partId: "short_reversal",    weight: 1, active: true },
-      { partId: "low_volatility",    weight: 2, active: true },
-      { partId: "quality_opa",       weight: 2, active: true },
+      { partId: "mom_12_1",  weight: 1, active: true },
+      { partId: "ram_12_1",  weight: 1, active: true },
+      { partId: "rm_12_1",   weight: 1, active: true },
+      { partId: "ts_12",     weight: 1, active: true },
+      { partId: "prof",      weight: 1, active: true },
+      { partId: "mom_6_1",   weight: 1, active: true },
+      { partId: "ram_6_1",   weight: 1, active: true },
+      { partId: "rm_6_1",    weight: 1, active: true },
+      { partId: "rev_ram_1", weight: 1, active: true },
     ],
   },
   {
-    id: "institutional_quality",
-    label: "Institutional + Quality",
-    description: "Tilts heavier toward profitability — doubles the PROF weight relative to the default. Suitable for quality-oriented mandates.",
-    omitNote: "Uses approximate PROF (operating income / assets with fallbacks). Value not included.",
+    id: "ram_core",
+    label: "RAM Core",
+    description:
+      "Emphasizes risk-adjusted momentum: double-weights both RAM signals and RM_12-1 " +
+      "alongside trend strength and quality. A strong default for quality-momentum mandates.",
+    omitNote: "Lighter on raw MOM signals — they're partially redundant with the RAM sleeve.",
     entries: [
-      { partId: "momentum_core",     weight: 4, active: true },
-      { partId: "residual_momentum", weight: 3, active: true },
-      { partId: "short_reversal",    weight: 1, active: true },
-      { partId: "low_volatility",    weight: 1, active: true },
-      { partId: "quality_opa",       weight: 4, active: true },
+      { partId: "mom_12_1",  weight: 1, active: true },
+      { partId: "ram_12_1",  weight: 2, active: true },
+      { partId: "rm_12_1",   weight: 2, active: true },
+      { partId: "ts_12",     weight: 1, active: true },
+      { partId: "prof",      weight: 2, active: true },
+      { partId: "mom_6_1",   weight: 1, active: true },
+      { partId: "ram_6_1",   weight: 2, active: true },
+      { partId: "rm_6_1",    weight: 1, active: true },
+      { partId: "rev_ram_1", weight: 1, active: true },
     ],
   },
   {
-    id: "institutional_lowvol",
-    label: "Institutional + Low Vol",
-    description: "Defensive tilt: doubles low-vol weight to reduce portfolio volatility while keeping momentum exposure.",
-    omitNote: "Low-vol signal uses total vol rather than idiosyncratic vol — an approximation.",
+    id: "quality_tilt",
+    label: "Quality Tilt",
+    description:
+      "Equal-weight momentum signals with PROF at 3\u00D7 weight. Suitable for quality-oriented " +
+      "mandates that want diversification away from pure momentum concentration.",
+    omitNote: "PROF is approximate — operating income / assets with EBIT and net income fallbacks.",
     entries: [
-      { partId: "momentum_core",     weight: 4, active: true },
-      { partId: "residual_momentum", weight: 3, active: true },
-      { partId: "short_reversal",    weight: 1, active: true },
-      { partId: "low_volatility",    weight: 4, active: true },
-      { partId: "quality_opa",       weight: 1, active: true },
+      { partId: "mom_12_1",  weight: 1, active: true },
+      { partId: "ram_12_1",  weight: 1, active: true },
+      { partId: "rm_12_1",   weight: 1, active: true },
+      { partId: "ts_12",     weight: 1, active: true },
+      { partId: "prof",      weight: 3, active: true },
+      { partId: "mom_6_1",   weight: 1, active: true },
+      { partId: "ram_6_1",   weight: 1, active: true },
+      { partId: "rm_6_1",    weight: 1, active: true },
+      { partId: "rev_ram_1", weight: 1, active: true },
     ],
   },
   {
-    id: "full_model",
-    label: "Full Model",
-    description: "All 5 active parts weighted equally. Maximally diversified across the available signal universe.",
-    omitNote: "All 5 active signals are approximations to varying degrees. Value and extended quality not yet built.",
+    id: "pure_momentum",
+    label: "Pure Momentum",
+    description:
+      "All momentum signals (no quality). Spans raw MOM, vol-adjusted RAM, " +
+      "residual RM, trend strength, and a reversal dampener across both 6- and 12-month horizons.",
+    omitNote: "High momentum concentration — may underperform in crowded or reversing momentum regimes.",
     entries: [
-      { partId: "momentum_core",     weight: 2, active: true },
-      { partId: "residual_momentum", weight: 2, active: true },
-      { partId: "short_reversal",    weight: 2, active: true },
-      { partId: "low_volatility",    weight: 2, active: true },
-      { partId: "quality_opa",       weight: 2, active: true },
+      { partId: "mom_12_1",  weight: 1, active: true  },
+      { partId: "ram_12_1",  weight: 1, active: true  },
+      { partId: "rm_12_1",   weight: 1, active: true  },
+      { partId: "ts_12",     weight: 1, active: true  },
+      { partId: "prof",      weight: 0, active: false },
+      { partId: "mom_6_1",   weight: 1, active: true  },
+      { partId: "ram_6_1",   weight: 1, active: true  },
+      { partId: "rm_6_1",    weight: 1, active: true  },
+      { partId: "rev_ram_1", weight: 1, active: true  },
     ],
   },
   {
-    id: "momentum_only",
-    label: "Momentum Only",
-    description: "Pure momentum exposure combining core and residual momentum signals. No reversal dampener, no quality, no low-vol.",
-    omitNote: "High momentum concentration — may perform poorly in crowded or reversing momentum regimes.",
+    id: "residual_quality",
+    label: "Residual + Quality",
+    description:
+      "Emphasizes stock-specific signals: residual momentum (RM_12-1, RM_6-1) and " +
+      "trend strength double-weighted, plus quality. Reduces sector-rotation exposure while " +
+      "maintaining a quality anchor.",
+    omitNote: "Less raw MOM exposure — best suited for less sector-directional mandates.",
     entries: [
-      { partId: "momentum_core",     weight: 6, active: true  },
-      { partId: "residual_momentum", weight: 4, active: true  },
-      { partId: "short_reversal",    weight: 0, active: false },
-      { partId: "low_volatility",    weight: 0, active: false },
-      { partId: "quality_opa",       weight: 0, active: false },
+      { partId: "mom_12_1",  weight: 1, active: true },
+      { partId: "ram_12_1",  weight: 1, active: true },
+      { partId: "rm_12_1",   weight: 2, active: true },
+      { partId: "ts_12",     weight: 2, active: true },
+      { partId: "prof",      weight: 2, active: true },
+      { partId: "mom_6_1",   weight: 1, active: true },
+      { partId: "ram_6_1",   weight: 1, active: true },
+      { partId: "rm_6_1",    weight: 2, active: true },
+      { partId: "rev_ram_1", weight: 1, active: true },
     ],
   },
 ];

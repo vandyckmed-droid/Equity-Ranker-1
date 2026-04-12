@@ -309,10 +309,12 @@ function AuditTab({
 }) {
   const activeEntries = entries.filter((e) => e.active);
 
-  const hasMomentum    = activeEntries.some((e) => e.partId === "momentum_core" || e.partId === "residual_momentum");
+  const MOMENTUM_IDS = new Set(["mom_12_1","ram_12_1","mom_6_1","ram_6_1","rm_12_1","rm_6_1","ts_12"]);
+  const REVERSAL_IDS = new Set(["rev_ram_1","rev_mom_1"]);
+  const hasMomentum    = activeEntries.some((e) => MOMENTUM_IDS.has(e.partId));
   const hasLowVol      = activeEntries.some((e) => e.partId === "low_volatility");
-  const hasQuality     = activeEntries.some((e) => e.partId === "quality_opa");
-  const hasReversal    = activeEntries.some((e) => e.partId === "short_reversal");
+  const hasQuality     = activeEntries.some((e) => e.partId === "prof");
+  const hasReversal    = activeEntries.some((e) => REVERSAL_IDS.has(e.partId));
 
   const coverageWarnings: string[] = [];
   if (!hasMomentum)  coverageWarnings.push("No momentum signal — basket has no trend-following component.");
@@ -375,15 +377,15 @@ function AuditTab({
         <div className="space-y-2 text-[11px] text-muted-foreground/70 leading-relaxed">
           <div>
             <span className="text-emerald-400 font-semibold">What is institutional-grade:</span>
-            <p className="mt-0.5">Momentum composite (MOM, 4 signals averaged) and residual momentum (RM) are clean, standard institutional signals with strong academic backing.</p>
+            <p className="mt-0.5">MOM, RAM (volatility-adjusted momentum), RM (residual momentum after market/sector), TS_12 (trend t-stat), and short-term reversal are all clean, standard institutional signals with strong academic backing.</p>
           </div>
           <div>
             <span className="text-amber-400 font-semibold">What is approximate:</span>
-            <p className="mt-0.5">Low volatility uses total return volatility rather than idiosyncratic volatility. PROF uses a fallback cascade for missing financial data, which may be noisier than primary data.</p>
+            <p className="mt-0.5">PROF uses a fallback cascade (op. income → EBIT → net income) / avg. assets, which may be noisier than primary-sourced data. LowVol uses total volatility rather than idiosyncratic vol.</p>
           </div>
           <div>
             <span className="text-muted-foreground font-semibold">What is not yet built:</span>
-            <p className="mt-0.5">Value signals (earnings yield, book-to-price) and extended quality dimensions (leverage, accruals, earnings quality) are not yet implemented. These are defined as future stubs in the Parts Library.</p>
+            <p className="mt-0.5">Value signals (earnings yield, book-to-price) and extended quality dimensions (leverage, accruals, earnings quality) are not yet implemented.</p>
           </div>
         </div>
       </div>

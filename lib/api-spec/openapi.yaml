@@ -316,6 +316,12 @@ components:
           type: ["number", "null"]
         zOPA:
           type: ["number", "null"]
+        zRam6:
+          type: ["number", "null"]
+        zRam12:
+          type: ["number", "null"]
+        zRam1:
+          type: ["number", "null"]
         zQ:
           type: ["number", "null"]
         sSleeve:
