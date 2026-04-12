@@ -29,10 +29,6 @@ export type GetRankingsParams = {
    */
   winsorP?: number;
   /**
-   * Top N stocks to cluster (default 100)
-   */
-  clusterN?: number;
-  /**
    * Number of clusters (default 10)
    */
   clusterK?: number;

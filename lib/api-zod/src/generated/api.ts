@@ -54,10 +54,6 @@ export const GetRankingsQueryParams = zod.object({
     .number()
     .optional()
     .describe("Winsorization percentile (default 2)"),
-  clusterN: zod.coerce
-    .number()
-    .optional()
-    .describe("Top N stocks to cluster (default 100)"),
   clusterK: zod.coerce
     .number()
     .optional()
@@ -225,7 +221,6 @@ export const ApplyUniverseFiltersBody = zod.object({
   useTstats: zod.boolean().optional(),
   volFloor: zod.number().optional(),
   winsorP: zod.number().optional(),
-  clusterN: zod.number().optional(),
   clusterK: zod.number().optional(),
   clusterLookback: zod.number().optional(),
 });

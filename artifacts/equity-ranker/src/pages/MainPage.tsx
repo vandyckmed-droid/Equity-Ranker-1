@@ -373,7 +373,6 @@ export default function MainPage() {
     return {
       volFloor: saved?.volFloor ?? 0.10,
       winsorP: saved?.winsorP ?? 2,
-      clusterN: saved?.clusterN ?? 100,
       clusterK: saved?.clusterK ?? 10,
       clusterLookback: saved?.clusterLookback ?? 252,
       minPrice: saved?.minPrice ?? 5,
@@ -421,7 +420,6 @@ export default function MainPage() {
       useTstats: false,
       volFloor: debouncedServerParams.volFloor,
       winsorP: debouncedServerParams.winsorP,
-      clusterN: Math.min(debouncedServerParams.clusterN * 6, 800),
       clusterK: debouncedServerParams.clusterK,
       clusterLookback: debouncedServerParams.clusterLookback,
       minPrice: debouncedServerParams.minPrice,
@@ -510,16 +508,14 @@ export default function MainPage() {
     }
 
     if (sortField && sortDir) {
-      const clN = serverParams.clusterN;
       result.sort((a, b) => {
         if (sortField === "cluster") {
-          // Only stocks within the user's top-N belong in the grouped section
-          const aInN = a.cluster != null && (a.rank ?? Infinity) <= clN;
-          const bInN = b.cluster != null && (b.rank ?? Infinity) <= clN;
-          // top-N clustered stocks come first; everything else falls below by alpha rank
-          if (aInN !== bInN) return aInN ? -1 : 1;
-          if (!aInN && !bInN) return (a.rank ?? Infinity) - (b.rank ?? Infinity);
-          // Both in top-N: sort by cluster label, then alpha descending within cluster
+          const aHasCluster = a.cluster != null;
+          const bHasCluster = b.cluster != null;
+          // Stocks without a cluster assignment fall to the bottom
+          if (aHasCluster !== bHasCluster) return aHasCluster ? -1 : 1;
+          if (!aHasCluster && !bHasCluster) return (a.rank ?? Infinity) - (b.rank ?? Infinity);
+          // Both clustered: sort by cluster label, then alpha rank within cluster
           if (a.cluster !== b.cluster) return (a.cluster ?? 0) - (b.cluster ?? 0);
           return (b.alpha ?? 0) - (a.alpha ?? 0);
         }
@@ -537,7 +533,7 @@ export default function MainPage() {
     }
 
     return result;
-  }, [clientAlphaStocks, search, sortField, sortDir, serverParams.clusterN]);
+  }, [clientAlphaStocks, search, sortField, sortDir]);
 
   const virtualizer = useVirtualizer({
     count: processedStocks.length,
@@ -814,13 +810,11 @@ export default function MainPage() {
   })();
 
   // Rank-within-group: plain IIFE const (no hook)
-  // Only stocks ranked within the top-N (clusterN) receive a group assignment.
-  // Stocks ranked beyond clusterN keep the server's cluster field but are not shown as grouped.
+  // All eligible stocks in the ranked universe receive a group assignment.
   const clusterRankMap: Map<string, { rankInGroup: number; groupSize: number }> = (() => {
     const byCluster = new Map<number, { ticker: string; rank: number }[]>();
     for (const s of clientAlphaStocks) {
       if (s.cluster == null) continue;
-      if ((s.rank ?? Infinity) > serverParams.clusterN) continue;
       if (!byCluster.has(s.cluster)) byCluster.set(s.cluster, []);
       byCluster.get(s.cluster)!.push({ ticker: s.ticker, rank: s.rank ?? Infinity });
     }
@@ -1187,10 +1181,14 @@ export default function MainPage() {
                     onValueChange={(v) => handleServerParamChange("clusterK", v[0])} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Top N to Group ({serverParams.clusterN})</Label>
-                  <Slider value={[serverParams.clusterN || 100]} min={20} max={500} step={10}
-                    onValueChange={(v) => handleServerParamChange("clusterN", v[0])} />
+                  <Label className="text-xs">Lookback ({serverParams.clusterLookback}d)</Label>
+                  <Slider value={[serverParams.clusterLookback || 252]} min={63} max={504} step={21}
+                    onValueChange={(v) => handleServerParamChange("clusterLookback", v[0])} />
                 </div>
+                <p className="text-[9px] text-muted-foreground/50 leading-snug">
+                  Computed over the full eligible universe using standardized return histories.
+                  Reflects behavioural similarity, not raw volatility.
+                </p>
               </div>
             </div>
 
@@ -1199,7 +1197,7 @@ export default function MainPage() {
               <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Mobile Display</h3>
               {(
                 [
-                  { label: "Group badge", sub: "G1 · #2/27 shown on each row", value: showGroup, toggle: toggleShowGroup },
+                  { label: "Group badge", sub: "G1 · #2/180 shown on each row", value: showGroup, toggle: toggleShowGroup },
                   { label: "Suggested weight", sub: "Position size % for top-25 names", value: showSuggestedWeight, toggle: toggleShowSuggestedWeight },
                 ] as const
               ).map(({ label, sub, value, toggle }) => (
@@ -1409,9 +1407,7 @@ export default function MainPage() {
                     const stock = processedStocks[virtualRow.index];
                     if (!stock) return null;
                     const inPortfolio = portfolioSet.has(stock.ticker);
-                    // Only show cluster badge for stocks within the top-N (clusterN) in the current ranking.
-                    // Stocks ranked beyond clusterN keep the server's cluster field but display as ungrouped.
-                    const inClusteredN = stock.cluster != null && (stock.rank ?? Infinity) <= serverParams.clusterN;
+                    const inClusteredN = stock.cluster != null;
                     const dotColor =
                       inClusteredN && stock.cluster! < CLUSTER_DOT_COLORS.length
                         ? CLUSTER_DOT_COLORS[stock.cluster!]
@@ -1427,12 +1423,12 @@ export default function MainPage() {
                     const sectorAbbr = stock.sector ? (SECTOR_ABBR[stock.sector] ?? stock.sector) : "—";
 
                     const prevStock = processedStocks[virtualRow.index - 1];
-                    const prevInClusteredN = !!prevStock && prevStock.cluster != null && (prevStock.rank ?? Infinity) <= serverParams.clusterN;
+                    const prevInClusteredN = !!prevStock && prevStock.cluster != null;
                     const isNewGroup = sortField === "cluster" && inClusteredN && (!prevInClusteredN || stock.cluster !== prevStock?.cluster);
 
                     return (
                       <React.Fragment key={stock.ticker}>
-                      {/* Group section header — only when sorted by group and stock is within top-N */}
+                      {/* Group section header — shown when sorted by group */}
                       {isNewGroup && inClusteredN && (
                         <tr>
                           <td colSpan={99} className="pt-3 pb-0.5 px-3">

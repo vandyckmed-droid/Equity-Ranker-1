@@ -15,7 +15,6 @@ export interface UniverseFilters {
   useTstats?: boolean;
   volFloor?: number;
   winsorP?: number;
-  clusterN?: number;
   clusterK?: number;
   clusterLookback?: number;
 }

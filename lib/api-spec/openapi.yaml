@@ -75,11 +75,6 @@ paths:
           schema:
             type: number
           description: Winsorization percentile (default 2)
-        - name: clusterN
-          in: query
-          schema:
-            type: integer
-          description: Top N stocks to cluster (default 100)
         - name: clusterK
           in: query
           schema:
@@ -511,8 +506,6 @@ components:
           type: number
         winsorP:
           type: number
-        clusterN:
-          type: integer
         clusterK:
           type: integer
         clusterLookback:

@@ -69,7 +69,6 @@ router.get("/equity/rankings", async (req, res): Promise<void> => {
           useTstats: "use_tstats",
           volFloor: "vol_floor",
           winsorP: "winsor_p",
-          clusterN: "cluster_n",
           clusterK: "cluster_k",
           clusterLookback: "cluster_lookback",
           excludeSectors: "exclude_sectors",

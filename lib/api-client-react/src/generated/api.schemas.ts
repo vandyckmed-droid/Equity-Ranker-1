@@ -218,7 +218,6 @@ export interface UniverseFilters {
   useTstats?: boolean;
   volFloor?: number;
   winsorP?: number;
-  clusterN?: number;
   clusterK?: number;
   clusterLookback?: number;
 }
@@ -419,10 +418,6 @@ export type GetRankingsParams = {
    * Winsorization percentile (default 2)
    */
   winsorP?: number;
-  /**
-   * Top N stocks to cluster (default 100)
-   */
-  clusterN?: number;
   /**
    * Number of clusters (default 10)
    */

@@ -831,28 +831,28 @@ def compute_rankings(df: pd.DataFrame,
 
 def compute_clustering(d: pd.DataFrame,
                        prices: pd.DataFrame,
-                       cluster_n: int = 100,
                        cluster_k: int = 10,
                        cluster_lookback: int = 252) -> pd.DataFrame:
-    """Run Ward clustering on top-N alpha stocks. Separated from rankings for caching."""
+    """Run Ward clustering on the full eligible universe using standardized return histories."""
     t0 = time.time()
     result = d.copy()
 
     if prices is None or len(result) == 0:
         return result
 
-    top_n        = result.head(cluster_n)["ticker"].tolist()
-    valid_tickers = [t for t in top_n if t in prices.columns]
+    all_tickers   = result["ticker"].tolist()
+    valid_tickers = [t for t in all_tickers if t in prices.columns]
 
     if len(valid_tickers) < cluster_k:
         _timings["clustering"] = round(time.time() - t0, 3)
         return result
 
     try:
-        sub  = prices[valid_tickers].tail(cluster_lookback)
-        lr   = sub.pct_change().dropna()
+        sub = prices[valid_tickers].tail(cluster_lookback)
+        lr  = sub.pct_change().dropna()
         if lr.shape[0] > 30:
-            corr  = lr.corr().fillna(0).clip(-1, 1)
+            # Standardize each stock's return history so clustering reflects
+            # behavioural shape (direction, timing) rather than raw vol magnitude.
             lr_z  = (lr - lr.mean()) / lr.std().clip(lower=1e-8)
             feat  = lr_z.T.fillna(0).values
             k     = min(cluster_k, len(valid_tickers))
@@ -864,34 +864,13 @@ def compute_clustering(d: pd.DataFrame,
             label_map = dict(zip(valid_tickers, labels.tolist()))
             result["cluster"] = result["ticker"].map(label_map)
 
+            # Audit: cluster sizes only (within-corr skipped for full-universe scale)
             sizes = {}
-            within_corrs = {}
             for ci in range(k):
-                members = [t for t, lbl in label_map.items() if lbl == ci]
-                sizes[ci] = len(members)
-                if len(members) >= 2:
-                    sub_corr = corr.loc[members, members]
-                    mask = np.ones(sub_corr.shape, dtype=bool)
-                    np.fill_diagonal(mask, False)
-                    within_corrs[ci] = round(float(sub_corr.values[mask].mean()), 2)
-                else:
-                    within_corrs[ci] = float("nan")
-
-            all_members_list = list(label_map.keys())
-            all_labels_arr   = np.array([label_map[t] for t in all_members_list])
-            cross_vals = []
-            n_m = len(all_members_list)
-            for i in range(n_m):
-                for j in range(i + 1, n_m):
-                    if all_labels_arr[i] != all_labels_arr[j]:
-                        cross_vals.append(corr.loc[all_members_list[i], all_members_list[j]])
-            avg_cross = round(float(np.mean(cross_vals)), 2) if cross_vals else float("nan")
+                sizes[ci] = int(sum(1 for lbl in labels if lbl == ci))
             logger.info(
-                "Clustering audit (k=%d, n=%d stocks):\n"
-                "  Cluster sizes: %s\n"
-                "  Avg within-cluster corr: %s\n"
-                "  Avg cross-cluster corr: %s",
-                k, len(valid_tickers), sizes, within_corrs, avg_cross
+                "Clustering audit (k=%d, n=%d stocks, lookback=%dd): sizes=%s",
+                k, len(valid_tickers), cluster_lookback, sizes
             )
     except Exception as e:
         logger.error(f"Clustering error: {e}")
@@ -1309,7 +1288,6 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
     winsor_p         = params.get("winsor_p", 2.0)
     use_tstats       = params.get("use_tstats", False)
     vol_adjust       = params.get("vol_adjust", True)
-    cluster_n        = params.get("cluster_n", 100)
     cluster_k        = params.get("cluster_k", 10)
     cluster_lookback = params.get("cluster_lookback", 252)
     exclude_sectors  = params.get("exclude_sectors", [])
@@ -1337,7 +1315,7 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
                      sort_keys=True)
     rk = json.dumps({"fk": fk, "ut": use_tstats, "va": vol_adjust,
                       "wp": winsor_p, "has_opa": has_opa}, sort_keys=True)
-    ck = json.dumps({"rk": rk, "cn": cluster_n, "ck": cluster_k,
+    ck = json.dumps({"rk": rk, "ck": cluster_k,
                       "cl": cluster_lookback}, sort_keys=True)
 
     cache_info = []
@@ -1411,7 +1389,6 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
         else:
             result = compute_clustering(
                 ranked, _price_data,
-                cluster_n=cluster_n,
                 cluster_k=cluster_k,
                 cluster_lookback=cluster_lookback,
             )

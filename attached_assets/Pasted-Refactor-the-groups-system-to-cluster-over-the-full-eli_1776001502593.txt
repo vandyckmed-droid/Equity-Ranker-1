@@ -1,0 +1,42 @@
+Refactor the groups system to cluster over the full eligible universe at all times and remove Top N from the groups UI.
+
+Objective:
+Move the current groups feature toward a more stable, institutional-style behavior clustering setup while simplifying the controls and preserving current UI usefulness.
+
+Required changes:
+
+1. Universe
+- Eliminate the need to define Top N or any sliced clustering universe for group formation.
+- Compute clusters over the full eligible universe used by the rankings engine at all times.
+- Group assignments should be based on the entire eligible universe, not a top-ranked subset.
+
+2. Inputs to clustering
+- Do not cluster on raw return histories.
+- Cluster on standardized return histories so similarity reflects behavioral shape rather than raw volatility magnitude.
+- Standardize each stock’s return-history input consistently before clustering.
+
+3. UI / controls
+- Remove Top N from the Groups section of the UI.
+- Keep only the controls that still matter for clustering, such as K and lookback.
+- Remove any UI language implying that groups are only computed for top-ranked stocks.
+- Groups should now be a global property of the eligible universe.
+
+4. Output behavior
+- Keep the existing concept of group labels and rank-within-group.
+- Group labels remain arbitrary identifiers only, not ordinal signals.
+- Rank within group should still be determined by alpha rank.
+
+5. Goal
+- Make groups more stable over time and less dependent on a moving top-ranked slice.
+- Make groups a cleaner measure of behavioral similarity across the whole investable universe.
+- Preserve the current user-facing purpose: helping reveal redundancy and hidden concentration among ranked names.
+
+Implementation notes
+- Keep k-means for now.
+- Keep the current K control.
+- Keep the current lookback control.
+- Use deterministic / stable clustering behavior where practical.
+- Do not add advanced diagnostics yet.
+- Update backend logic and UI copy so “groups” consistently means behavior clusters computed from the full eligible universe using standardized return histories.
+
+Please implement this cleanly and consistently across backend logic, controls, and display language.
