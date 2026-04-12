@@ -1,12 +1,13 @@
 import { ReactNode, createContext, useCallback, useContext, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { BarChart3, LineChart, Terminal } from "lucide-react";
+import { BarChart3, LineChart, Network, Terminal } from "lucide-react";
 import { usePortfolio } from "@/hooks/use-portfolio";
 
 const TABS = [
   { href: "/", label: "Rankings", icon: BarChart3 },
   { href: "/portfolio", label: "Portfolio", icon: LineChart },
+  { href: "/groups", label: "Groups", icon: Network },
 ] as const;
 
 type BottomActionsCtx = { setActions: (node: ReactNode) => void };
@@ -64,6 +65,7 @@ function DesktopSidebar() {
   const NAV = [
     { href: "/", label: "Universe Rankings", icon: BarChart3 },
     { href: "/portfolio", label: "Portfolio & Risk", icon: LineChart },
+    { href: "/groups", label: "Behavior Groups", icon: Network },
   ] as const;
 
   return (

@@ -7,6 +7,7 @@ import { Layout } from "@/components/layout/Layout";
 import { PortfolioProvider } from "@/hooks/use-portfolio";
 import MainPage from "@/pages/MainPage";
 import PortfolioPage from "@/pages/PortfolioPage";
+import GroupsPage from "@/pages/GroupsPage";
 import MethodologyPage from "@/pages/MethodologyPage";
 import NotFound from "@/pages/not-found";
 
@@ -50,6 +51,7 @@ function Router() {
       <Switch>
         <Route path="/" component={MainPage} />
         <Route path="/portfolio" component={PortfolioPage} />
+        <Route path="/groups" component={GroupsPage} />
         <Route path="/methodology" component={MethodologyPage} />
         <Route component={NotFound} />
       </Switch>
