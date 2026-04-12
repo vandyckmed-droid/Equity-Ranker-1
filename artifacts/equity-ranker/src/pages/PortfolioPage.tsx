@@ -849,66 +849,69 @@ function RiskContribChart({
   const maxRC = sorted[0]?.riskContrib ?? 0.01;
 
   return (
-    <Card className="bg-card border-border">
-      <CardHeader className="p-4 pb-2">
-        <CardTitle className="text-sm">Risk Contribution by Holding</CardTitle>
-        <CardDescription className="text-[11px]">
-          Share of total portfolio variance · bar = risk%, label = position weight
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="px-4 pb-4 pt-2 space-y-1.5">
-        {sorted.map((h) => {
+    <div className="rounded-xl overflow-hidden border border-blue-900/25 bg-slate-900/60 shadow-[0_0_14px_rgba(59,130,246,0.06)]">
+      {/* Header */}
+      <div className="px-4 py-3 border-b border-white/[0.05]">
+        <h3 className="text-sm font-semibold text-foreground">Risk Contribution by Holding</h3>
+        <p className="text-[10px] text-muted-foreground/45 mt-0.5">
+          Share of portfolio risk · Bar shows risk contribution · Right label shows weight
+        </p>
+      </div>
+
+      {/* Column headers */}
+      <div className="flex items-center gap-3 px-4 pt-2.5 pb-1">
+        <span className="w-14 text-[9px] text-muted-foreground/35 font-sans">Ticker</span>
+        <div className="flex-1" />
+        <span className="w-14 text-right text-[9px] text-muted-foreground/35 font-sans">Weight</span>
+      </div>
+
+      {/* Rows */}
+      <div className="px-4 pb-4 space-y-0">
+        {sorted.map((h, i) => {
           const rc = h.riskContrib;
           const bw = h.baseWeight;
           const isConcentrated = rc > bw * 1.4;
-          const barPct = (rc / maxRC) * 100;
-          const wtPct = (bw / maxRC) * 100;
+          const intensity = rc / maxRC;
+          const barPct = intensity * 100;
+
+          const barClass = isConcentrated
+            ? intensity > 0.5
+              ? "bg-gradient-to-r from-amber-600/80 to-amber-400/90"
+              : "bg-gradient-to-r from-amber-700/70 to-amber-500/80"
+            : "bg-gradient-to-r from-emerald-800/70 to-emerald-600/80";
+
+          const labelClass = isConcentrated ? "text-amber-100" : "text-emerald-100/90";
 
           return (
-            <div key={h.ticker} className="flex items-center gap-2">
-              <div className="w-12 text-xs font-bold text-foreground/80 shrink-0 font-mono">{h.ticker}</div>
-              <div className="flex-1 relative h-5 flex items-center">
-                {/* Weight ghost bar */}
+            <div
+              key={h.ticker}
+              className={cn("flex items-center gap-3 py-2", i > 0 && "border-t border-white/[0.04]")}
+            >
+              <div className="w-14 text-[13px] font-bold text-foreground/80 shrink-0 font-mono">{h.ticker}</div>
+              <div className="flex-1 relative h-6 rounded-md overflow-hidden bg-white/[0.03]">
+                {/* Risk bar */}
                 <div
-                  className="absolute h-5 rounded-sm bg-muted/60"
-                  style={{ width: `${Math.min(wtPct, 100)}%` }}
-                />
-                {/* Risk contrib bar */}
-                <div
-                  className={cn(
-                    "absolute h-5 rounded-sm opacity-80 transition-all",
-                    isConcentrated ? "bg-amber-500/70" : "bg-primary/60"
-                  )}
+                  className={cn("absolute top-0 left-0 h-full rounded-md transition-all", barClass)}
                   style={{ width: `${Math.min(barPct, 100)}%` }}
-                />
-                <div className="absolute inset-0 flex items-center px-1.5">
-                  <span className={cn("text-[10px] font-bold mix-blend-plus-lighter",
-                    isConcentrated ? "text-amber-200" : "text-primary-foreground/90"
+                >
+                  <span className={cn(
+                    "absolute right-1.5 top-0 bottom-0 flex items-center text-[10px] font-bold tabular-nums",
+                    labelClass
                   )}>
                     {formatPercent(rc, 1)}
                   </span>
                 </div>
               </div>
-              <div className="w-12 text-right text-[10px] text-muted-foreground/60 shrink-0 font-mono">
-                {formatPercent(bw, 1)}
+              <div className="w-14 text-right shrink-0">
+                <span className="text-[10px] font-mono text-muted-foreground/50 bg-white/[0.05] px-1.5 py-0.5 rounded">
+                  {formatPercent(bw, 1)}
+                </span>
               </div>
             </div>
           );
         })}
-        <div className="flex items-center gap-2 pt-1 border-t border-border/30">
-          <div className="w-12" />
-          <div className="flex-1 flex items-center gap-3 text-[9px] text-muted-foreground/50">
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-3 h-2 rounded-sm bg-primary/60 opacity-80" /> risk contrib
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-3 h-2 rounded-sm bg-muted/60" /> position wt
-            </span>
-          </div>
-          <div className="w-12 text-right text-[9px] text-muted-foreground/40">pos wt</div>
-        </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
