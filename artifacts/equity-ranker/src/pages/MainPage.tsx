@@ -606,7 +606,7 @@ export default function MainPage() {
   };
 
   // ─── Column cell renderer ──────────────────────────────────────────────────
-  const renderCell = (colId: ColumnId, stock: Stock, badgeColor: string, alphaP?: number) => {
+  const renderCell = (colId: ColumnId, stock: Stock, badgeColor: string, alphaP?: number, inClusteredN?: boolean) => {
     switch (colId) {
       case "rank":
         return (
@@ -658,7 +658,7 @@ export default function MainPage() {
       case "cluster":
         return (
           <TableCell key={colId} className="text-center p-1">
-            {stock.cluster !== null && stock.cluster !== undefined ? (
+            {inClusteredN ? (
               <Badge variant="outline" className={cn("text-[9px] px-1 py-0 h-4 border-opacity-30 rounded-sm font-mono", badgeColor)}>
                 G{stock.cluster}
               </Badge>
@@ -723,11 +723,13 @@ export default function MainPage() {
   })();
 
   // Rank-within-group: plain IIFE const (no hook)
-  // Universe filters are applied server-side, so clientAlphaStocks is already the filtered set.
+  // Only stocks ranked within the top-N (clusterN) receive a group assignment.
+  // Stocks ranked beyond clusterN keep the server's cluster field but are not shown as grouped.
   const clusterRankMap: Map<string, { rankInGroup: number; groupSize: number }> = (() => {
     const byCluster = new Map<number, { ticker: string; rank: number }[]>();
     for (const s of clientAlphaStocks) {
       if (s.cluster == null) continue;
+      if ((s.rank ?? Infinity) > serverParams.clusterN) continue;
       if (!byCluster.has(s.cluster)) byCluster.set(s.cluster, []);
       byCluster.get(s.cluster)!.push({ ticker: s.ticker, rank: s.rank ?? Infinity });
     }
@@ -1272,27 +1274,31 @@ export default function MainPage() {
                     const stock = processedStocks[virtualRow.index];
                     if (!stock) return null;
                     const inPortfolio = portfolioSet.has(stock.ticker);
+                    // Only show cluster badge for stocks within the top-N (clusterN) in the current ranking.
+                    // Stocks ranked beyond clusterN keep the server's cluster field but display as ungrouped.
+                    const inClusteredN = stock.cluster != null && (stock.rank ?? Infinity) <= serverParams.clusterN;
                     const dotColor =
-                      stock.cluster !== null && stock.cluster !== undefined && stock.cluster < CLUSTER_DOT_COLORS.length
-                        ? CLUSTER_DOT_COLORS[stock.cluster]
+                      inClusteredN && stock.cluster! < CLUSTER_DOT_COLORS.length
+                        ? CLUSTER_DOT_COLORS[stock.cluster!]
                         : "bg-muted-foreground/40";
                     const badgeColor =
-                      stock.cluster !== null && stock.cluster !== undefined && stock.cluster < CLUSTER_COLORS.length
-                        ? CLUSTER_COLORS[stock.cluster]
+                      inClusteredN && stock.cluster! < CLUSTER_COLORS.length
+                        ? CLUSTER_COLORS[stock.cluster!]
                         : "bg-muted text-muted-foreground";
                     const clusterText =
-                      stock.cluster !== null && stock.cluster !== undefined && stock.cluster < CLUSTER_TEXT_COLORS.length
-                        ? CLUSTER_TEXT_COLORS[stock.cluster]
+                      inClusteredN && stock.cluster! < CLUSTER_TEXT_COLORS.length
+                        ? CLUSTER_TEXT_COLORS[stock.cluster!]
                         : "text-muted-foreground";
                     const sectorAbbr = stock.sector ? (SECTOR_ABBR[stock.sector] ?? stock.sector) : "—";
 
-                    const prevCluster = processedStocks[virtualRow.index - 1]?.cluster;
-                    const isNewGroup = sortField === "cluster" && stock.cluster !== prevCluster;
+                    const prevStock = processedStocks[virtualRow.index - 1];
+                    const prevInClusteredN = prevStock != null && prevStock.cluster != null && (prevStock.rank ?? Infinity) <= serverParams.clusterN;
+                    const isNewGroup = sortField === "cluster" && (inClusteredN !== prevInClusteredN || (inClusteredN && stock.cluster !== prevStock?.cluster));
 
                     return (
                       <React.Fragment key={stock.ticker}>
-                      {/* Group section header — only when sorted by group */}
-                      {isNewGroup && stock.cluster != null && (
+                      {/* Group section header — only when sorted by group and stock is within top-N */}
+                      {isNewGroup && inClusteredN && (
                         <tr>
                           <td colSpan={99} className="pt-3 pb-0.5 px-3">
                             <div className="flex items-center gap-2">
@@ -1356,11 +1362,11 @@ export default function MainPage() {
 
                           {/* Line 2: #rank · G{n} · rankInGroup/groupSize · Vol X% · sector */}
                           {(() => {
-                            const grp = stock.cluster != null ? clusterRankMap.get(stock.ticker) : undefined;
+                            const grp = inClusteredN ? clusterRankMap.get(stock.ticker) : undefined;
                             return (
                               <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
                                 <span className="font-mono">#{stock.rank ?? "—"}</span>
-                                {showGroup && stock.cluster != null && (
+                                {showGroup && inClusteredN && (
                                   <>
                                     <span className="opacity-40">·</span>
                                     <span className={cn("font-semibold font-mono", clusterText)}>
@@ -1479,7 +1485,7 @@ export default function MainPage() {
 
                         {/* ── Desktop: data columns (hidden on mobile) ── */}
                         {activeColumns.map((id) => {
-                          const cell = renderCell(id, stock, badgeColor, alphaPercentileMap.get(stock.ticker) ?? 0.5);
+                          const cell = renderCell(id, stock, badgeColor, alphaPercentileMap.get(stock.ticker) ?? 0.5, inClusteredN);
                           if (!cell) return null;
                           return React.cloneElement(cell as React.ReactElement<{ className?: string }>, {
                             className: cn("hidden lg:table-cell", (cell as React.ReactElement<{ className?: string }>).props.className),
