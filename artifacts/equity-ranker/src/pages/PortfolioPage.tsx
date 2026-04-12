@@ -19,6 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Trash2, Calculator, Loader2, Info, AlertTriangle, Plus, Sparkles } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type SeedMode = "alpha" | "group" | "corr";
 type SuggestMode = "group" | "sector" | "both";
@@ -96,24 +97,28 @@ function BasketSummary({
   const tiles = [
     {
       key: "alpha", label: "Avg α",
+      desc: "Portfolio-weighted average alpha z-score across all holdings. Measures the average signal strength captured by the basket. Positive means all holdings rank well on the alpha model; higher is better.",
       value: avgAlpha != null ? `${avgAlpha > 0 ? "+" : ""}${formatNumber(avgAlpha, 2)}` : isComputing ? "…" : "—",
       highlight: avgAlpha != null && avgAlpha > 0.3,
       warn: avgAlpha != null && avgAlpha < 0,
     },
     {
       key: "vol", label: "Vol",
+      desc: "Annualized portfolio volatility (σ × √252) of the equal-weight basket before any vol-targeting or SGOV cash overlay. The portfolio targets 15% vol — if base vol is above that, cash is added to scale it down.",
       value: riskData ? formatPercent(riskData.basePortVol, 1) : isComputing ? "…" : "—",
       highlight: riskData != null && riskData.basePortVol < 0.12,
       warn: riskData != null && riskData.basePortVol > 0.18,
     },
     {
       key: "corr", label: "Corr",
+      desc: "Average pairwise Pearson correlation between all holdings over a trailing 252-day window. Lower means more independent bets and better diversification. Below 0.25 is low (green); above 0.45 is elevated (amber).",
       value: riskData ? formatNumber(riskData.avgCorrelation, 2) : isComputing ? "…" : "—",
       highlight: riskData != null && riskData.avgCorrelation < 0.25,
       warn: riskData != null && riskData.avgCorrelation > 0.45,
     },
     {
       key: "effN", label: "Eff N",
+      desc: "Effective number of independent positions = 1 / Σwᵢ². For a perfectly equal-weight N-stock portfolio, Eff N = N exactly. Concentration or high correlation between holdings reduces it below N — higher means more genuine diversification.",
       value: riskData ? formatNumber(riskData.effectiveN ?? riskData.numHoldings, 1) : isComputing ? "…" : "—",
       highlight: riskData != null && (riskData.effectiveN ?? riskData.numHoldings) >= 15,
       warn: riskData != null && (riskData.effectiveN ?? riskData.numHoldings) < 8,
@@ -121,20 +126,33 @@ function BasketSummary({
   ];
 
   return (
-    <div className="grid grid-cols-4 border-b border-border/40">
-      {tiles.map(({ key, label, value, highlight, warn }) => (
-        <div key={key} className={cn(
-          "flex flex-col gap-0.5 px-3 py-2 transition-colors duration-700",
-          flashing.has(key) && "bg-primary/10"
-        )}>
-          <span className="text-[9px] uppercase tracking-wider font-medium text-muted-foreground/40 leading-none">{label}</span>
-          <span className={cn(
-            "text-sm font-mono font-semibold leading-none mt-0.5",
-            warn ? "text-amber-400" : highlight ? "text-primary" : "text-foreground/80"
-          )}>{value}</span>
-        </div>
-      ))}
-    </div>
+    <TooltipProvider delayDuration={200}>
+      <div className="grid grid-cols-4 border-b border-border/40">
+        {tiles.map(({ key, label, desc, value, highlight, warn }) => (
+          <div key={key} className={cn(
+            "flex flex-col gap-0.5 px-3 py-2 transition-colors duration-700",
+            flashing.has(key) && "bg-primary/10"
+          )}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="flex items-center gap-0.5 w-fit cursor-help">
+                  <span className="text-[9px] uppercase tracking-wider font-medium text-muted-foreground/40 leading-none">{label}</span>
+                  <Info className="w-2.5 h-2.5 text-muted-foreground/25 shrink-0" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-[220px] text-xs leading-snug">
+                <p className="font-semibold mb-1">{label}</p>
+                <p className="text-muted-foreground">{desc}</p>
+              </TooltipContent>
+            </Tooltip>
+            <span className={cn(
+              "text-sm font-mono font-semibold leading-none mt-0.5",
+              warn ? "text-amber-400" : highlight ? "text-primary" : "text-foreground/80"
+            )}>{value}</span>
+          </div>
+        ))}
+      </div>
+    </TooltipProvider>
   );
 }
 
