@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { ReactNode, createContext, useCallback, useContext, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { BarChart3, LineChart, Terminal } from "lucide-react";
@@ -9,7 +9,11 @@ const TABS = [
   { href: "/portfolio", label: "Portfolio", icon: LineChart },
 ] as const;
 
-function MobileTabBar() {
+type BottomActionsCtx = { setActions: (node: ReactNode) => void };
+const BottomActionsContext = createContext<BottomActionsCtx | null>(null);
+export function useBottomActions() { return useContext(BottomActionsContext); }
+
+function MobileTabBar({ actions }: { actions: ReactNode }) {
   const [location] = useLocation();
   const { basket } = usePortfolio();
 
@@ -44,6 +48,11 @@ function MobileTabBar() {
           </Link>
         );
       })}
+      {actions && (
+        <div className="flex items-stretch border-l border-border/40">
+          {actions}
+        </div>
+      )}
     </nav>
   );
 }
@@ -110,16 +119,21 @@ function MobileHeader() {
 }
 
 export function Layout({ children }: { children: ReactNode }) {
+  const [actions, setActionsState] = useState<ReactNode>(null);
+  const setActions = useCallback((node: ReactNode) => setActionsState(node), []);
+  const ctx = useMemo(() => ({ setActions }), [setActions]);
   return (
-    <div className="flex h-screen bg-background text-foreground overflow-hidden">
-      <DesktopSidebar />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <MobileHeader />
-        <main className="flex-1 overflow-auto min-h-0 pb-16 lg:pb-0">
-          {children}
-        </main>
-        <MobileTabBar />
+    <BottomActionsContext.Provider value={ctx}>
+      <div className="flex h-screen bg-background text-foreground overflow-hidden">
+        <DesktopSidebar />
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <MobileHeader />
+          <main className="flex-1 overflow-auto min-h-0 pb-16 lg:pb-0">
+            {children}
+          </main>
+          <MobileTabBar actions={actions} />
+        </div>
       </div>
-    </div>
+    </BottomActionsContext.Provider>
   );
 }

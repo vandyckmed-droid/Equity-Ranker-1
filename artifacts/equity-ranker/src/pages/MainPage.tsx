@@ -46,12 +46,14 @@ import {
   ArrowUp,
   ArrowDown,
   SlidersHorizontal,
+  FlaskConical,
   RefreshCw,
   Loader2,
   Columns3,
   RotateCcw,
   X,
 } from "lucide-react";
+import { useBottomActions } from "@/components/layout/Layout";
 type SortField = keyof Stock;
 type SortDirection = "asc" | "desc";
 
@@ -236,6 +238,81 @@ function QualityAuditChip(p: QualityAuditChipProps) {
   );
 }
 
+// ─── PageActions — registers basket + filters as bottom-bar tab items on mobile ─
+function PageActions({
+  stockCount,
+  lastRefresh,
+  audit,
+  onOpenControls,
+  controlsOpen,
+  activeFilterCount,
+}: {
+  stockCount: number;
+  lastRefresh?: string;
+  audit?: Record<string, unknown>;
+  onOpenControls: () => void;
+  controlsOpen: boolean;
+  activeFilterCount: number;
+}) {
+  const bottomCtx = useBottomActions();
+  const [basketOpen, setBasketOpen] = useState(false);
+  const { activeCount } = useAlphaBasket();
+
+  useEffect(() => {
+    if (!bottomCtx) return;
+    bottomCtx.setActions(
+      <>
+        <button
+          onClick={() => setBasketOpen(true)}
+          className={cn(
+            "flex flex-col items-center justify-center gap-0.5 px-4 py-2.5 touch-manipulation select-none transition-colors",
+            basketOpen ? "text-primary" : "text-muted-foreground/60 hover:text-muted-foreground"
+          )}
+        >
+          <div className="relative">
+            <FlaskConical className="w-5 h-5 transition-transform" />
+            {activeCount > 0 && (
+              <span className="absolute -top-1 -right-2 bg-primary text-primary-foreground text-[9px] font-bold min-w-[15px] h-[15px] rounded-full flex items-center justify-center px-0.5 leading-none">
+                {activeCount > 9 ? "9+" : activeCount}
+              </span>
+            )}
+          </div>
+          <span className={cn("text-[10px] tracking-wide", basketOpen ? "font-semibold" : "font-medium")}>Alpha</span>
+        </button>
+        <button
+          onClick={onOpenControls}
+          className={cn(
+            "flex flex-col items-center justify-center gap-0.5 px-4 py-2.5 touch-manipulation select-none transition-colors",
+            controlsOpen ? "text-primary" : activeFilterCount > 0 ? "text-primary/70" : "text-muted-foreground/60 hover:text-muted-foreground"
+          )}
+        >
+          <div className="relative">
+            <SlidersHorizontal className="w-5 h-5 transition-transform" />
+            {activeFilterCount > 0 && (
+              <span className="absolute -top-1 -right-2 bg-primary text-primary-foreground text-[9px] font-bold min-w-[15px] h-[15px] rounded-full flex items-center justify-center px-0.5 leading-none">
+                {activeFilterCount > 9 ? "9+" : activeFilterCount}
+              </span>
+            )}
+          </div>
+          <span className={cn("text-[10px] tracking-wide", controlsOpen ? "font-semibold" : "font-medium")}>Filters</span>
+        </button>
+      </>
+    );
+    return () => bottomCtx.setActions(null);
+  }, [bottomCtx, basketOpen, activeCount, onOpenControls, controlsOpen, activeFilterCount]);
+
+  return (
+    <AlphaBasketButton
+      stockCount={stockCount}
+      lastRefresh={lastRefresh}
+      audit={audit}
+      open={basketOpen}
+      onOpenChange={setBasketOpen}
+      hideButton
+    />
+  );
+}
+
 export default function MainPage() {
   const { basket, basketSet, addToBasket, removeFromBasket, setAllStocks, setRankedStocks } = usePortfolio();
   const { config, orderedVisible, toggleColumn, moveColumn, resetColumns } = useColumnConfig();
@@ -393,6 +470,7 @@ export default function MainPage() {
     clearRankingsCache();
     queryClient.invalidateQueries({ queryKey: ["/api/equity/rankings"] });
   }, [queryClient]);
+  const handleOpenControls = useCallback(() => setControlsOpen(true), []);
 
   useEffect(() => {
     if (stocks.length > 0) setAllStocks(stocks);
@@ -757,6 +835,15 @@ export default function MainPage() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {/* Mobile bottom-bar: basket + filters tabs (desktop sees them in top bar) */}
+      <PageActions
+        stockCount={clientAlphaStocks.length}
+        lastRefresh={rankingsResult?.cachedAt}
+        audit={audit as Record<string, unknown> | undefined}
+        onOpenControls={handleOpenControls}
+        controlsOpen={controlsOpen}
+        activeFilterCount={activeFilterChips.length}
+      />
 
       {/* ── Sticky header shell ──────────────────────────────────────────── */}
       <div className="flex-none border-b border-border bg-card/60 backdrop-blur-sm sticky top-0 z-20">
@@ -805,23 +892,25 @@ export default function MainPage() {
               >
                 <span>Group</span>
               </Button>
-              <AlphaBasketButton
-                stockCount={clientAlphaStocks.length}
-                lastRefresh={rankingsResult?.cachedAt}
-                audit={audit as Record<string, unknown> | undefined}
-              />
+              <div className="hidden lg:flex">
+                <AlphaBasketButton
+                  stockCount={clientAlphaStocks.length}
+                  lastRefresh={rankingsResult?.cachedAt}
+                  audit={audit as Record<string, unknown> | undefined}
+                />
+              </div>
               <Button
                 variant={controlsOpen ? "secondary" : "ghost"}
                 size="sm"
                 className={cn(
-                  "h-7 px-2 gap-1 text-xs",
+                  "hidden lg:flex h-7 px-2 gap-1 text-xs",
                   controlsOpen ? "" : "text-muted-foreground hover:text-foreground",
                   activeFilterChips.length > 0 && !controlsOpen && "text-primary"
                 )}
                 onClick={() => setControlsOpen(true)}
               >
                 <SlidersHorizontal className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Filters</span>
+                <span>Filters</span>
                 {activeFilterChips.length > 0 && (
                   <span className="ml-0.5 tabular-nums bg-primary/20 text-primary rounded-full px-1 text-[10px] leading-none py-0.5">
                     {activeFilterChips.length}

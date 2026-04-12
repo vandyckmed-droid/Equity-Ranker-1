@@ -604,14 +604,23 @@ interface AlphaBasketButtonProps {
   stockCount?: number;
   lastRefresh?: string;
   audit?: Record<string, unknown>;
+  open?: boolean;
+  onOpenChange?: (v: boolean) => void;
+  hideButton?: boolean;
 }
 
 export function AlphaBasketButton({
   stockCount = 0,
   lastRefresh,
   audit,
+  open: openProp,
+  onOpenChange,
+  hideButton = false,
 }: AlphaBasketButtonProps) {
-  const [open, setOpen] = useState(false);
+  const [openInternal, setOpenInternal] = useState(false);
+  const controlled = openProp !== undefined && onOpenChange !== undefined;
+  const open = controlled ? openProp! : openInternal;
+  const setOpen = controlled ? onOpenChange! : setOpenInternal;
   const [tab, setTab] = useState<TabId>("basket");
   const { activeCount, activePresetId } = useAlphaBasket();
 
@@ -619,26 +628,28 @@ export function AlphaBasketButton({
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className={cn(
-          "inline-flex items-center gap-1 h-7 rounded px-2 text-xs font-medium transition-colors",
-          "border border-border/40 text-muted-foreground hover:text-foreground hover:border-border/70",
-          open && "bg-muted text-foreground border-border/70"
-        )}
-        title="Alpha Basket — configure alpha construction"
-      >
-        <FlaskConical className="w-3.5 h-3.5 shrink-0" />
-        <span className="hidden sm:inline">Alpha</span>
-        {matchedPreset && (
-          <span className="hidden md:inline text-[10px] text-muted-foreground/60 font-normal">
-            · {matchedPreset.label}
+      {!hideButton && (
+        <button
+          onClick={() => setOpen(true)}
+          className={cn(
+            "inline-flex items-center gap-1 h-7 rounded px-2 text-xs font-medium transition-colors",
+            "border border-border/40 text-muted-foreground hover:text-foreground hover:border-border/70",
+            open && "bg-muted text-foreground border-border/70"
+          )}
+          title="Alpha Basket — configure alpha construction"
+        >
+          <FlaskConical className="w-3.5 h-3.5 shrink-0" />
+          <span className="hidden sm:inline">Alpha</span>
+          {matchedPreset && (
+            <span className="hidden md:inline text-[10px] text-muted-foreground/60 font-normal">
+              · {matchedPreset.label}
+            </span>
+          )}
+          <span className="tabular-nums bg-primary/15 text-primary rounded-full px-1 text-[9px] leading-none py-0.5 ml-0.5">
+            {activeCount}
           </span>
-        )}
-        <span className="tabular-nums bg-primary/15 text-primary rounded-full px-1 text-[9px] leading-none py-0.5 ml-0.5">
-          {activeCount}
-        </span>
-      </button>
+        </button>
+      )}
 
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="bottom" className="h-[85dvh] p-0 flex flex-col rounded-t-xl">
