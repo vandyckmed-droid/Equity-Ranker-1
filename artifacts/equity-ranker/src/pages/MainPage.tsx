@@ -1627,80 +1627,93 @@ export default function MainPage() {
                         };
                         const formulaInfo = qFormula ? formulaMap[qFormula] ?? null : null;
 
+                        const activeContribs = contributions.filter(c => c.active && c.weight > 0);
                         return (
-                          <TableRow key={`${stock.ticker}-audit`} className="bg-muted/20 border-b-border/20">
-                            <TableCell colSpan={activeColumns.length + 2} className="px-3 py-3">
-                              <div className="flex flex-wrap gap-x-6 gap-y-3 text-[10px] font-mono">
+                          <TableRow key={`${stock.ticker}-audit`} className="border-b border-blue-900/10">
+                            <TableCell colSpan={activeColumns.length + 2} className="px-3 pb-4 pt-2">
+                              <div className="flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-start">
 
-                                {/* Alpha parts breakdown — from basket */}
-                                <div className="space-y-2.5 min-w-[180px]">
-                                  <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Alpha Parts</p>
-                                  {contributions.filter(c => c.active && c.weight > 0).map((c) => (
-                                    <div key={c.part.id} className="space-y-0.5">
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="text-muted-foreground/80 font-medium w-[90px] shrink-0 text-[10px]">{c.part.shortLabel}</span>
-                                        <span className="font-bold w-10 text-right" style={heat(c.score)}>{c.score.toFixed(2)}</span>
-                                        <span className="text-muted-foreground/40 text-[9px] w-7 text-right">{wPct(c.weight)}</span>
-                                        <span className="text-[9px] w-9 text-right" style={{ ...heat(c.contribution), opacity: 0.7 }}>
-                                          {c.contribution > 0 ? "+" : ""}{c.contribution.toFixed(2)}
-                                        </span>
-                                      </div>
-                                      {c.part.subSignals?.map(ss => {
-                                        const zVal = (s as Record<string, number | null | undefined>)[ss.key];
-                                        return (
-                                          <div key={ss.key} className="flex items-center gap-1.5 pl-2">
-                                            <span className="text-muted-foreground/40 text-[9px] w-[82px] shrink-0">{ss.label}</span>
-                                            <span className="text-[9px] w-10 text-right" style={heat(zVal)}>{fmt2(zVal)}</span>
-                                          </div>
-                                        );
-                                      })}
+                                {/* ── ALPHA PARTS card ── */}
+                                <div className="rounded-xl overflow-hidden border border-blue-900/25 bg-slate-900/60 shadow-[0_0_14px_rgba(59,130,246,0.06)] flex-1 min-w-[220px]">
+                                  <div className="px-3 py-2 border-b border-white/[0.05]">
+                                    <span className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/50 font-semibold font-sans">Alpha Parts</span>
+                                  </div>
+                                  <div className="grid grid-cols-[1fr_52px_36px_52px] px-3 pt-2 pb-1">
+                                    <span className="text-[9px] text-muted-foreground/35 font-sans">Component</span>
+                                    <span className="text-[9px] text-muted-foreground/35 font-sans text-right">Score</span>
+                                    <span className="text-[9px] text-muted-foreground/35 font-sans text-right">Wgt</span>
+                                    <span className="text-[9px] text-muted-foreground/35 font-sans text-right">Contrib</span>
+                                  </div>
+                                  {activeContribs.map((c, i) => (
+                                    <div
+                                      key={c.part.id}
+                                      className={cn(
+                                        "grid grid-cols-[1fr_52px_36px_52px] px-3 py-2 font-mono",
+                                        i > 0 && "border-t border-white/[0.04]"
+                                      )}
+                                    >
+                                      <span className="text-[11px] text-foreground/75 font-medium tracking-tight">{c.part.shortLabel}</span>
+                                      <span className="text-[12px] font-bold text-right tabular-nums" style={heat(c.score)}>
+                                        {c.score > 0 ? "+" : ""}{c.score.toFixed(2)}
+                                      </span>
+                                      <span className="text-[10px] text-muted-foreground/40 text-right tabular-nums">{wPct(c.weight)}</span>
+                                      <span className="text-[11px] font-semibold text-right tabular-nums" style={heat(c.contribution)}>
+                                        {c.contribution > 0 ? "+" : ""}{c.contribution.toFixed(2)}
+                                      </span>
                                     </div>
                                   ))}
                                 </div>
 
-                                {/* divider */}
-                                <div className="hidden sm:block w-px self-stretch bg-border/30 mx-1" />
+                                {/* ── COMPOSITE card ── */}
+                                <div className="rounded-xl overflow-hidden border border-blue-900/25 bg-slate-900/60 shadow-[0_0_14px_rgba(59,130,246,0.06)] min-w-[130px]">
+                                  <div className="px-3 py-2 border-b border-white/[0.05]">
+                                    <span className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/50 font-semibold font-sans">Composite</span>
+                                  </div>
+                                  <div className="px-3 py-2 space-y-2 font-mono">
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className="text-[10px] text-muted-foreground/50">Alpha</span>
+                                      <span className="text-[13px] font-bold tabular-nums" style={heat(stock.alpha)}>{fmt2(stock.alpha)}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3 border-t border-white/[0.04] pt-2">
+                                      <span className="text-[10px] text-muted-foreground/50">Rank</span>
+                                      <span className="text-[11px] text-foreground/80 tabular-nums">#{stock.rank}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className="text-[10px] text-muted-foreground/50">Pct</span>
+                                      <span className="text-[11px] text-foreground/80 tabular-nums">{stock.percentile != null ? stock.percentile.toFixed(1) + "%" : "—"}</span>
+                                    </div>
+                                  </div>
+                                </div>
 
-                                {/* Composite */}
-                                <div className="space-y-1 min-w-[100px]">
-                                  <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1.5">Composite</p>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-muted-foreground/70 w-10">Alpha</span>
-                                    <span className="font-bold" style={heat(stock.alpha)}>{fmt2(stock.alpha)}</span>
+                                {/* ── PROF card ── */}
+                                <div className="rounded-xl overflow-hidden border border-blue-900/25 bg-slate-900/60 shadow-[0_0_14px_rgba(59,130,246,0.06)] min-w-[160px]">
+                                  <div className="px-3 py-2 border-b border-white/[0.05]">
+                                    <span className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/50 font-semibold font-sans">PROF</span>
                                   </div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-muted-foreground/70 w-10">Rank</span>
-                                    <span className="text-foreground">#{stock.rank}</span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-muted-foreground/70 w-10">Pct</span>
-                                    <span className="text-foreground">{stock.percentile != null ? stock.percentile.toFixed(1) + "%" : "—"}</span>
-                                  </div>
-
-                                  {/* PROF raw + formula */}
-                                  <div className="pt-1.5 space-y-1">
-                                    <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1">PROF</p>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-muted-foreground/70 w-10">Raw</span>
-                                      <span style={heat(s.zOPA)}>
+                                  <div className="px-3 py-2 space-y-2 font-mono">
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className="text-[10px] text-muted-foreground/50">Raw</span>
+                                      <span className="text-[11px] tabular-nums" style={heat(s.zOPA)}>
                                         {stock.quality != null ? (stock.quality * 100).toFixed(2) + "%" : "—"}
                                       </span>
                                     </div>
                                     {formulaInfo && (
-                                      <div className="flex items-center gap-1.5 flex-wrap">
-                                        <span className="text-muted-foreground/50 text-[9px]">{formulaInfo.label}</span>
+                                      <div className="flex items-center justify-between gap-2 border-t border-white/[0.04] pt-2 flex-wrap">
+                                        <span className="text-[9px] text-muted-foreground/40 font-sans">· {formulaInfo.label}</span>
                                         {formulaInfo.primary ? (
-                                          <span className="text-[8px] px-1 py-0.5 rounded font-semibold tracking-wide bg-emerald-950/50 text-emerald-400/80">Primary</span>
+                                          <span className="text-[8px] px-1.5 py-0.5 rounded font-semibold tracking-wide bg-emerald-950/60 text-emerald-400/80 border border-emerald-900/30">Primary</span>
                                         ) : (
-                                          <span className="text-[8px] px-1 py-0.5 rounded font-semibold tracking-wide bg-amber-950/50 text-amber-400/80 cursor-help"
-                                            title="Fallback metrics are less clean and may be less predictive than operating profitability.">
+                                          <span
+                                            className="text-[8px] px-1.5 py-0.5 rounded font-semibold tracking-wide bg-amber-950/60 text-amber-400/80 border border-amber-900/30 cursor-help"
+                                            title="Fallback metrics are less clean and may be less predictive than operating profitability."
+                                          >
                                             Fallback
                                           </span>
                                         )}
                                       </div>
                                     )}
                                     {stock.qualityMissing && stock.qualityMissingReason && (
-                                      <div className="text-muted-foreground/50 text-[9px]">{stock.qualityMissingReason}</div>
+                                      <div className="text-muted-foreground/40 text-[9px] font-sans">{stock.qualityMissingReason}</div>
                                     )}
                                   </div>
                                 </div>
