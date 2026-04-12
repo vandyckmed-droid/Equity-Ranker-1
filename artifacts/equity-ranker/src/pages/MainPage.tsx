@@ -338,7 +338,7 @@ export default function MainPage() {
       useTstats: false,
       volFloor: debouncedServerParams.volFloor,
       winsorP: debouncedServerParams.winsorP,
-      clusterN: debouncedServerParams.clusterN,
+      clusterN: Math.min(debouncedServerParams.clusterN * 2, 500),
       clusterK: debouncedServerParams.clusterK,
       clusterLookback: debouncedServerParams.clusterLookback,
       minPrice: debouncedServerParams.minPrice,
