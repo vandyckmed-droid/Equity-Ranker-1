@@ -239,6 +239,9 @@ def get_rankings(
     cluster_k: int = Query(10),
     cluster_lookback: int = Query(252),
     exclude_sectors: Optional[str] = Query(None),
+    min_price: float = Query(5.0),
+    min_adv: float = Query(1e7),
+    min_market_cap: float = Query(0.0),
 ):
     status = engine.get_status()
     if status["status"] == "loading":
@@ -260,6 +263,9 @@ def get_rankings(
         "cluster_k": cluster_k,
         "cluster_lookback": cluster_lookback,
         "exclude_sectors": sectors_list,
+        "min_price": min_price,
+        "min_adv": min_adv,
+        "min_market_cap": min_market_cap,
     }
 
     result = engine.get_ranked_data(params)

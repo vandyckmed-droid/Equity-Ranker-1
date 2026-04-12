@@ -2,7 +2,7 @@
 
 ## Overview
 
-Quant Terminal is a mobile-first equity ranking and risk application that ranks ~1,817 large liquid US stocks (NYSE + NASDAQ, market cap ≥ $2B) using real Yahoo Finance data and a residual momentum alpha model.
+Quant Terminal is a mobile-first equity ranking and risk application that ranks ~1,800 large liquid US stocks (NYSE + NASDAQ) using real Yahoo Finance data and a residual momentum alpha model. The base universe can be filtered server-side by price floor, ADV floor, and an optional market cap tier.
 
 ## User Preferences
 

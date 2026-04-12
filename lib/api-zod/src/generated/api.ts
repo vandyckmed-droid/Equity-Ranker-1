@@ -78,6 +78,22 @@ export const GetRankingsQueryParams = zod.object({
     .boolean()
     .optional()
     .describe("Only include stocks with quality coverage (default false)"),
+  minPrice: zod.coerce
+    .number()
+    .optional()
+    .describe("Minimum stock price filter (0 = disabled, default 5.0)"),
+  minAdv: zod.coerce
+    .number()
+    .optional()
+    .describe(
+      "Minimum average daily dollar volume in USD (0 = disabled, default 10000000)",
+    ),
+  minMarketCap: zod.coerce
+    .number()
+    .optional()
+    .describe(
+      "Minimum market cap in USD (0 = disabled, options 0\/1e9\/10e9\/50e9)",
+    ),
 });
 
 export const GetRankingsResponse = zod.object({

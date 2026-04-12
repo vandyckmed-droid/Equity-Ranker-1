@@ -1112,8 +1112,12 @@ def _compute_residual_signals(
 def apply_universe_filters(df: pd.DataFrame,
                            min_price:       float = 5.0,
                            min_adv:         float = 1e7,
-                           min_market_cap:  float = 1e9,
+                           min_market_cap:  float = 0.0,
                            exclude_sectors: list  = None) -> tuple:
+    """
+    Apply base universe filters. Pass 0 for min_price / min_adv / min_market_cap
+    to disable that filter entirely (skip it rather than applying a 0 floor).
+    """
     n_in = len(df)
     mask = pd.Series(True, index=df.index)
     audit_exclusions = {}
@@ -1127,21 +1131,21 @@ def apply_universe_filters(df: pd.DataFrame,
                 logger.info(f"Universe exclusion [{reason}]: {n} tickers")
         mask &= ~struct_fail
 
-    if "price" in df.columns:
+    if min_price > 0 and "price" in df.columns:
         price_fail = df["price"].fillna(0) < min_price
         if price_fail.any():
             audit_exclusions["price_below_floor"] = int(price_fail.sum())
             logger.info(f"Universe exclusion [price_below_floor]: {price_fail.sum()} tickers")
         mask &= ~price_fail
 
-    if "adv" in df.columns:
+    if min_adv > 0 and "adv" in df.columns:
         adv_fail = df["adv"].fillna(0) < min_adv
         if adv_fail.any():
             audit_exclusions["liquidity_below_floor"] = int(adv_fail.sum())
             logger.info(f"Universe exclusion [liquidity_below_floor]: {adv_fail.sum()} tickers")
         mask &= ~adv_fail
 
-    if "market_cap" in df.columns:
+    if min_market_cap > 0 and "market_cap" in df.columns:
         cap_fail = df["market_cap"].fillna(0) < min_market_cap
         if cap_fail.any():
             audit_exclusions["market_cap_below_floor"] = int(cap_fail.sum())
@@ -1168,13 +1172,13 @@ def apply_universe_filters(df: pd.DataFrame,
             if s:
                 sector_counts[s] = int(cnt)
 
-    active_filters = [
-        f"price>=${min_price}",
-        f"adv>=${min_adv/1e6:.0f}M",
-        f"mcap>=${min_market_cap/1e9:.0f}B",
-        "history>=252d",
-        "common_stock_only",
-    ]
+    active_filters = ["history>=252d", "common_stock_only"]
+    if min_price > 0:
+        active_filters.append(f"price>=${min_price}")
+    if min_adv > 0:
+        active_filters.append(f"adv>=${min_adv/1e6:.0f}M")
+    if min_market_cap > 0:
+        active_filters.append(f"mcap>=${min_market_cap/1e9:.0f}B")
     if exclude_sectors:
         active_filters.append(f"exclude_sectors:{','.join(exclude_sectors)}")
 
@@ -1279,6 +1283,9 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
     cluster_k        = params.get("cluster_k", 10)
     cluster_lookback = params.get("cluster_lookback", 252)
     exclude_sectors  = params.get("exclude_sectors", [])
+    min_price        = float(params.get("min_price", 5.0))
+    min_adv          = float(params.get("min_adv", 1e7))
+    min_market_cap   = float(params.get("min_market_cap", 0.0))
 
     # Default weights (fixed server-side; clients own user-facing weight UI)
     W_S6 = 1; W_S12 = 1; W_RES6 = 2; W_RES12 = 3
@@ -1288,9 +1295,13 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
 
     # has_bench in factor key: if benchmark prices arrive after first computation,
     # the key changes → factors are recomputed with residuals on the next request.
+    # Filter params are also in fk so changing them busts the factor cache correctly.
     fk = json.dumps({"vol_floor": vol_floor, "winsor_p": winsor_p,
                       "xs":        sorted(exclude_sectors) if exclude_sectors else [],
-                      "has_bench": bool(get_benchmark_prices() is not None)},
+                      "has_bench": bool(get_benchmark_prices() is not None),
+                      "min_price": min_price,
+                      "min_adv":   min_adv,
+                      "min_mcap":  min_market_cap},
                      sort_keys=True)
     rk = json.dumps({"fk": fk, "ut": use_tstats, "va": vol_adjust,
                       "wp": winsor_p, "has_opa": has_opa}, sort_keys=True)
@@ -1318,6 +1329,9 @@ def get_ranked_data(params: dict) -> Optional[pd.DataFrame]:
             factors_pre = factors_raw.copy()
             factors_filtered, audit = apply_universe_filters(
                 factors_raw,
+                min_price=min_price,
+                min_adv=min_adv,
+                min_market_cap=min_market_cap,
                 exclude_sectors=exclude_sectors,
             )
 

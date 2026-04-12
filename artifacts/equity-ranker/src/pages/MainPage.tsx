@@ -94,17 +94,12 @@ const CLUSTER_TEXT_COLORS = [
   "text-sky-500",
 ];
 
-type McapFilter = "all" | "no_small" | "large_only";
-const MCAP_THRESHOLDS: Record<McapFilter, number | null> = {
-  all:        null,
-  no_small:   2_000_000_000,    // Exclude Small Caps ≈ $2B+
-  large_only: 10_000_000_000,   // Large Caps Only   ≈ $10B+
-};
-const MCAP_LABELS: Record<McapFilter, string> = {
-  all:        "All",
-  no_small:   "≥$2B",
-  large_only: "≥$10B",
-};
+const MCAP_TIERS = [
+  { value: 0,           label: "None",  short: null },
+  { value: 1_000_000_000,  label: "≥$1B",  short: "≥$1B" },
+  { value: 10_000_000_000, label: "≥$10B", short: "≥$10B" },
+  { value: 50_000_000_000, label: "≥$50B", short: "≥$50B" },
+] as const;
 
 const SECTOR_ABBR: Record<string, string> = {
   "Information Technology": "Tech",
@@ -285,7 +280,7 @@ export default function MainPage() {
     movedTimerRef.current = setTimeout(() => setRecentlyMoved(null), 600);
   }, [moveColumn]);
 
-  const CONTROLS_KEY = "qt:controls-v7";
+  const CONTROLS_KEY = "qt:controls-v8";
 
   const loadControlsFromStorage = () => {
     try {
@@ -304,6 +299,9 @@ export default function MainPage() {
       clusterN: saved?.clusterN ?? 100,
       clusterK: saved?.clusterK ?? 10,
       clusterLookback: saved?.clusterLookback ?? 252,
+      minPrice: saved?.minPrice ?? 5,
+      minAdv: saved?.minAdv ?? 10_000_000,
+      minMarketCap: saved?.minMarketCap ?? 0,
     };
   });
   const [debouncedServerParams, setDebouncedServerParams] = useState(serverParams);
@@ -312,13 +310,6 @@ export default function MainPage() {
     const timer = setTimeout(() => setDebouncedServerParams(serverParams), 400);
     return () => clearTimeout(timer);
   }, [serverParams]);
-
-  // Local params: handled client-side (instant, no API call)
-  const [mcapFilter, setMcapFilter] = useState<McapFilter>(() => {
-    const saved = loadControlsFromStorage();
-    const v = saved?.mcapFilter;
-    return (v === "no_small" || v === "large_only") ? v : "all";
-  });
 
   // UI state — persisted together with controls in CONTROLS_KEY
   const [sortField, setSortField] = useState<SortField>(() => {
@@ -334,12 +325,12 @@ export default function MainPage() {
     return s?.alphaMode === 'pct' ? 'pct' : 'z';
   });
 
-  // Persist controls to localStorage whenever they change (weights now in qt:basket-v2)
+  // Persist controls to localStorage whenever they change (weights now in qt:basket-v3)
   useEffect(() => {
     try {
-      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, mcapFilter, sortField, sortDir, alphaMode }));
+      localStorage.setItem(CONTROLS_KEY, JSON.stringify({ ...serverParams, sortField, sortDir, alphaMode }));
     } catch {}
-  }, [serverParams, mcapFilter, sortField, sortDir, alphaMode]);
+  }, [serverParams, sortField, sortDir, alphaMode]);
 
   const params: GetRankingsParams = useMemo(() => {
     const p: GetRankingsParams = {
@@ -350,6 +341,9 @@ export default function MainPage() {
       clusterN: debouncedServerParams.clusterN,
       clusterK: debouncedServerParams.clusterK,
       clusterLookback: debouncedServerParams.clusterLookback,
+      minPrice: debouncedServerParams.minPrice,
+      minAdv: debouncedServerParams.minAdv,
+      minMarketCap: debouncedServerParams.minMarketCap,
     };
     return p;
   }, [debouncedServerParams]);
@@ -402,14 +396,9 @@ export default function MainPage() {
       const reranked = stocks
         .map((s: any) => ({ ...s, alpha: computeAlpha(s) }))
         .sort((a, b) => (b.alpha ?? 0) - (a.alpha ?? 0));
-      const threshold = MCAP_THRESHOLDS[mcapFilter];
-      setRankedStocks(
-        threshold !== null
-          ? reranked.filter((s) => s.marketCap == null || s.marketCap >= threshold)
-          : reranked
-      );
+      setRankedStocks(reranked);
     }
-  }, [stocks, computeAlpha, mcapFilter, setAllStocks, setRankedStocks]);
+  }, [stocks, computeAlpha, setAllStocks, setRankedStocks]);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -427,11 +416,6 @@ export default function MainPage() {
   // Filtering and Sorting
   const processedStocks = useMemo(() => {
     let result = [...clientAlphaStocks];
-
-    const mcapThreshold = MCAP_THRESHOLDS[mcapFilter];
-    if (mcapThreshold !== null) {
-      result = result.filter((s) => s.marketCap == null || s.marketCap >= mcapThreshold);
-    }
 
     if (search) {
       const q = search.toLowerCase();
@@ -464,7 +448,7 @@ export default function MainPage() {
     }
 
     return result;
-  }, [clientAlphaStocks, mcapFilter, search, sortField, sortDir]);
+  }, [clientAlphaStocks, search, sortField, sortDir]);
 
   const virtualizer = useVirtualizer({
     count: processedStocks.length,
@@ -712,8 +696,10 @@ export default function MainPage() {
   // ─── Main render ──────────────────────────────────────────────────────────
   // Active filter chips — computed inline (O(5), no useMemo needed)
   const activeFilterChips: string[] = [];
-  if (mcapFilter === "no_small") activeFilterChips.push("≥$2B");
-  if (mcapFilter === "large_only") activeFilterChips.push("≥$10B");
+  const activeMcapTier = MCAP_TIERS.find(t => t.value === serverParams.minMarketCap);
+  if (activeMcapTier?.short) activeFilterChips.push(`mcap ${activeMcapTier.short}`);
+  if (!serverParams.minPrice) activeFilterChips.push("no price floor");
+  if (!serverParams.minAdv) activeFilterChips.push("no ADV floor");
 
   // Suggested % for top-25: alpha/vol normalized weights (no hook — plain IIFE)
   const suggestedWeights: Map<string, number> = (() => {
@@ -736,16 +722,11 @@ export default function MainPage() {
     return map;
   })();
 
-  // Rank-within-group: plain IIFE const (no hook) — mcap-filtered universe only
-  // Uses the mcap threshold so group rank and group size reflect the active filter,
-  // matching the spec: "group rank and alpha computed after universe filters applied".
+  // Rank-within-group: plain IIFE const (no hook)
+  // Universe filters are applied server-side, so clientAlphaStocks is already the filtered set.
   const clusterRankMap: Map<string, { rankInGroup: number; groupSize: number }> = (() => {
-    const mcapThr = MCAP_THRESHOLDS[mcapFilter];
-    const filteredForGroups = mcapThr != null
-      ? clientAlphaStocks.filter(s => (s.marketCap ?? 0) >= mcapThr)
-      : clientAlphaStocks;
     const byCluster = new Map<number, { ticker: string; rank: number }[]>();
-    for (const s of filteredForGroups) {
+    for (const s of clientAlphaStocks) {
       if (s.cluster == null) continue;
       if (!byCluster.has(s.cluster)) byCluster.set(s.cluster, []);
       byCluster.get(s.cluster)!.push({ ticker: s.ticker, rank: s.rank ?? Infinity });
@@ -933,54 +914,126 @@ export default function MainPage() {
 
             {/* Universe Filters */}
             <div className="space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Universe</h3>
-              <div className="space-y-2">
-                <div className="bg-muted/40 px-3 py-2 rounded-md space-y-2">
-                  <Label className="text-xs">Market Cap</Label>
-                  <div className="flex rounded-md overflow-hidden border border-border">
-                    {(["all", "no_small", "large_only"] as McapFilter[]).map((v, i) => (
-                      <button
-                        key={v}
-                        className={cn(
-                          "flex-1 py-1 text-[11px]",
-                          i > 0 && "border-l border-border",
-                          mcapFilter === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                        )}
-                        onClick={() => setMcapFilter(v)}
-                      >
-                        {MCAP_LABELS[v]}
-                      </button>
-                    ))}
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Universe Filters</h3>
+
+              {/* Toggleable base filters */}
+              <div className="space-y-1">
+                {/* Price filter */}
+                <div className="flex items-center justify-between px-3 py-2 rounded-md bg-muted/40">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={serverParams.minPrice > 0}
+                      onCheckedChange={(on) => handleServerParamChange("minPrice", on ? 5 : 0)}
+                    />
+                    <span className={cn("text-xs", !serverParams.minPrice && "text-muted-foreground line-through")}>
+                      Price ≥ $5
+                    </span>
                   </div>
+                  <span className="text-[10px] font-mono text-orange-400">
+                    {serverParams.minPrice > 0 && (audit as any)?.exclusions?.price_below_floor
+                      ? `−${((audit as any).exclusions.price_below_floor as number).toLocaleString()}`
+                      : serverParams.minPrice > 0 ? "—" : "off"}
+                  </span>
+                </div>
+
+                {/* ADV filter */}
+                <div className="flex items-center justify-between px-3 py-2 rounded-md bg-muted/40">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={serverParams.minAdv > 0}
+                      onCheckedChange={(on) => handleServerParamChange("minAdv", on ? 10_000_000 : 0)}
+                    />
+                    <span className={cn("text-xs", !serverParams.minAdv && "text-muted-foreground line-through")}>
+                      ADV ≥ $10M
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono text-orange-400">
+                    {serverParams.minAdv > 0 && (audit as any)?.exclusions?.liquidity_below_floor
+                      ? `−${((audit as any).exclusions.liquidity_below_floor as number).toLocaleString()}`
+                      : serverParams.minAdv > 0 ? "—" : "off"}
+                  </span>
+                </div>
+
+                {/* History — always on, shown for audit transparency */}
+                <div className="flex items-center justify-between px-3 py-2 rounded-md bg-muted/20 opacity-60 pointer-events-none select-none">
+                  <div className="flex items-center gap-2">
+                    <Switch checked disabled />
+                    <span className="text-xs">History ≥ 252d</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground">always on</span>
                 </div>
               </div>
+
+              {/* Market cap tier selector */}
+              <div className="bg-muted/40 px-3 py-2 rounded-md space-y-2">
+                <Label className="text-xs">Market Cap (optional)</Label>
+                <div className="flex rounded-md overflow-hidden border border-border">
+                  {MCAP_TIERS.map((tier, i) => (
+                    <button
+                      key={tier.value}
+                      className={cn(
+                        "flex-1 py-1 text-[11px]",
+                        i > 0 && "border-l border-border",
+                        serverParams.minMarketCap === tier.value
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                      onClick={() => handleServerParamChange("minMarketCap", tier.value)}
+                    >
+                      {tier.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Audit summary */}
               {(() => {
-                const threshold  = MCAP_THRESHOLDS[mcapFilter];
-                const baseCount  = clientAlphaStocks.length;
-                const mcapCount  = threshold != null
-                  ? clientAlphaStocks.filter(s => (s.marketCap ?? 0) >= threshold).length
-                  : baseCount;
-                const universeN  = audit?.preFilterCount ?? null;
+                const excl = (audit as any)?.exclusions ?? {};
+                const structKeys = Object.keys(excl).filter(
+                  k => !["price_below_floor","liquidity_below_floor","market_cap_below_floor"].includes(k) && !k.startsWith("sector_")
+                );
+                const structCount = structKeys.reduce((s, k) => s + (excl[k] as number), 0);
+                const preN = (audit as any)?.preFilterCount ?? null;
+                const postN = clientAlphaStocks.length;
+                const mcapLabel = MCAP_TIERS.find(t => t.value === serverParams.minMarketCap)?.label ?? "";
                 return (
-                  <div className="text-[10px] font-mono pt-1.5 border-t border-border/40 space-y-1">
-                    {universeN != null && (
+                  <div className="text-[10px] font-mono border-t border-border/40 pt-2 space-y-0.5">
+                    {preN != null && (
                       <div className="flex justify-between text-muted-foreground">
-                        <span className="font-sans font-normal">Universe (raw)</span>
-                        <span>{universeN.toLocaleString()}</span>
+                        <span className="font-sans">Universe (≥252d history)</span>
+                        <span>{preN.toLocaleString()}</span>
                       </div>
                     )}
-                    <div className="flex justify-between text-muted-foreground">
-                      <span className="font-sans font-normal">After base filters</span>
-                      <span>{baseCount > 0 ? baseCount.toLocaleString() : "—"}</span>
+                    {structCount > 0 && (
+                      <div className="flex justify-between text-muted-foreground">
+                        <span className="font-sans">Structural excl.</span>
+                        <span className="text-orange-400">−{structCount.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {serverParams.minPrice > 0 && excl.price_below_floor > 0 && (
+                      <div className="flex justify-between text-muted-foreground">
+                        <span className="font-sans">Price &lt; $5</span>
+                        <span className="text-orange-400">−{(excl.price_below_floor as number).toLocaleString()}</span>
+                      </div>
+                    )}
+                    {serverParams.minAdv > 0 && excl.liquidity_below_floor > 0 && (
+                      <div className="flex justify-between text-muted-foreground">
+                        <span className="font-sans">ADV &lt; $10M</span>
+                        <span className="text-orange-400">−{(excl.liquidity_below_floor as number).toLocaleString()}</span>
+                      </div>
+                    )}
+                    {serverParams.minMarketCap > 0 && excl.market_cap_below_floor > 0 && (
+                      <div className="flex justify-between text-muted-foreground">
+                        <span className="font-sans">Mkt cap &lt; {mcapLabel}</span>
+                        <span className="text-orange-400">−{(excl.market_cap_below_floor as number).toLocaleString()}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between font-semibold text-foreground/80 border-t border-border/20 pt-1 mt-1">
+                      <span className="font-sans normal-case tracking-normal">After all filters</span>
+                      <span className="text-primary">{postN > 0 ? postN.toLocaleString() : "—"}</span>
                     </div>
-                    {mcapFilter !== "all" && (
-                      <div className="flex justify-between text-foreground/90">
-                        <span className="font-sans font-normal">Mkt cap {MCAP_LABELS[mcapFilter]}</span>
-                        <span className="text-primary font-semibold">{mcapCount.toLocaleString()}</span>
-                      </div>
-                    )}
                     <p className="font-sans text-muted-foreground/50 pt-0.5 leading-snug normal-case tracking-normal text-[9px]">
-                      Filters applied before cross-sectional z-scoring
+                      All filters applied before cross-sectional z-scoring
                     </p>
                   </div>
                 );

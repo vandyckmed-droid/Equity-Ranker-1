@@ -443,4 +443,16 @@ export type GetRankingsParams = {
    * Only include stocks with quality coverage (default false)
    */
   requireQuality?: boolean;
+  /**
+   * Minimum stock price filter (0 = disabled, default 5.0)
+   */
+  minPrice?: number;
+  /**
+   * Minimum average daily dollar volume in USD (0 = disabled, default 10000000)
+   */
+  minAdv?: number;
+  /**
+   * Minimum market cap in USD (0 = disabled, options 0/1e9/10e9/50e9)
+   */
+  minMarketCap?: number;
 };

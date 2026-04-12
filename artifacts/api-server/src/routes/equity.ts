@@ -73,6 +73,9 @@ router.get("/equity/rankings", async (req, res): Promise<void> => {
           clusterK: "cluster_k",
           clusterLookback: "cluster_lookback",
           excludeSectors: "exclude_sectors",
+          minPrice: "min_price",
+          minAdv: "min_adv",
+          minMarketCap: "min_market_cap",
         };
         const key = mappings[k] || k;
         params.set(key, String(v));
