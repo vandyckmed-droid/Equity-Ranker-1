@@ -320,10 +320,15 @@ export default function MainPage() {
     const s = loadControlsFromStorage();
     return s?.sortDir === "asc" ? "asc" : "desc";
   });
-  const [alphaMode, setAlphaMode] = useState<'z' | 'pct'>(() => {
+  const [alphaMode, setAlphaMode] = useState<'z' | 'pct' | 'rank'>(() => {
     const s = loadControlsFromStorage();
-    return s?.alphaMode === 'pct' ? 'pct' : 'z';
+    if (s?.alphaMode === 'pct') return 'pct';
+    if (s?.alphaMode === 'rank') return 'rank';
+    return 'z';
   });
+  const cycleAlphaMode = useCallback(() => {
+    setAlphaMode(prev => prev === 'z' ? 'pct' : prev === 'pct' ? 'rank' : 'z');
+  }, []);
 
   // Persist controls to localStorage whenever they change (weights now in qt:basket-v3)
   useEffect(() => {
@@ -590,7 +595,7 @@ export default function MainPage() {
         return (
           <TableHead key={colId} className="text-right bg-emerald-950/20 font-bold cursor-pointer hover:text-foreground" onClick={() => handleSort("alpha")}>
             <div className="flex items-center justify-end gap-1 text-emerald-500">
-              {alphaMode === 'pct' ? 'Pctl' : 'Alpha'} {getSortIcon("alpha")}
+              {alphaMode === 'pct' ? 'Pctl' : alphaMode === 'rank' ? 'Rank' : 'Alpha'} {getSortIcon("alpha")}
             </div>
           </TableHead>
         );
@@ -656,7 +661,9 @@ export default function MainPage() {
             style={{ color: getAlphaColor(alphaP ?? 0.5) }}>
             {alphaMode === 'pct'
               ? (stock.percentile != null ? stock.percentile.toFixed(1) + "%" : "—")
-              : formatNumber(stock.alpha)}
+              : alphaMode === 'rank'
+                ? (stock.rank != null ? `#${stock.rank}` : "—")
+                : formatNumber(stock.alpha)}
           </TableCell>
         );
       case "cluster":
@@ -797,19 +804,6 @@ export default function MainPage() {
                 }}
               >
                 <span>Group</span>
-              </Button>
-              {/* Alpha display mode toggle */}
-              <Button
-                variant={alphaMode === 'pct' ? "secondary" : "ghost"}
-                size="sm"
-                className={cn(
-                  "h-7 px-2 text-xs font-mono tracking-tight",
-                  alphaMode === 'pct' ? "text-primary" : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={() => setAlphaMode(prev => prev === 'z' ? 'pct' : 'z')}
-                title="Toggle alpha display: z-score ↔ percentile"
-              >
-                α·{alphaMode === 'z' ? 'Z' : '%'}
               </Button>
               <AlphaBasketButton
                 stockCount={clientAlphaStocks.length}
@@ -1355,12 +1349,15 @@ export default function MainPage() {
                                 : <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100" />}
                             </div>
                             <span
-                              className="font-bold tabular-nums text-[17px] shrink-0 tracking-tight"
+                              className="font-bold tabular-nums text-[17px] shrink-0 tracking-tight cursor-pointer select-none active:opacity-60"
                               style={{ color: getAlphaColor(alphaPercentileMap.get(stock.ticker) ?? 0.5) }}
+                              onClick={(e) => { e.stopPropagation(); cycleAlphaMode(); }}
                             >
                               {alphaMode === 'pct'
                                 ? (stock.percentile != null ? stock.percentile.toFixed(1) + "%" : "—")
-                                : (stock.alpha != null ? (stock.alpha > 0 ? "+" : "") + stock.alpha.toFixed(2) : "—")}
+                                : alphaMode === 'rank'
+                                  ? (stock.rank != null ? `#${stock.rank}` : "—")
+                                  : (stock.alpha != null ? (stock.alpha > 0 ? "+" : "") + stock.alpha.toFixed(2) : "—")}
                             </span>
                           </div>
 
