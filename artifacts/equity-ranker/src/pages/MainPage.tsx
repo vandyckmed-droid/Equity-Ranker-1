@@ -1401,87 +1401,99 @@ export default function MainPage() {
                           </td>
                         </tr>
                       )}
-                      <TableRow className="group transition-colors border-b border-border/30 hover:bg-muted/30">
+                      <TableRow className="group border-b border-blue-900/20 bg-transparent hover:bg-blue-950/5 transition-colors">
 
                         {/* ── +/- button — always visible, bigger on mobile ── */}
-                        <TableCell className="p-0 text-center sticky left-0 z-10 bg-background">
+                        <TableCell className="p-0 text-center sticky left-0 z-10 bg-transparent">
                           <button
                             className={cn(
-                              "flex items-center justify-center rounded transition-colors",
-                              "h-14 w-12 lg:h-8 lg:w-8",
-                              inPortfolio
-                                ? "text-primary"
-                                : "text-muted-foreground/50 hover:text-foreground"
+                              "flex items-center justify-center transition-all",
+                              "lg:h-8 lg:w-8 lg:rounded",
+                              "h-14 w-12 lg:bg-transparent",
                             )}
                             onClick={() => inPortfolio ? removeFromBasket(stock.ticker) : addToBasket(stock.ticker)}
                             aria-label={inPortfolio ? "Remove from portfolio" : "Add to portfolio"}
                           >
-                            {inPortfolio
-                              ? <Check className="w-4 h-4 lg:w-3.5 lg:h-3.5" />
-                              : <Plus className="w-4 h-4 lg:w-3.5 lg:h-3.5" />}
+                            <div className={cn(
+                              "lg:hidden flex items-center justify-center rounded-full w-9 h-9 border transition-all",
+                              inPortfolio
+                                ? "bg-primary/15 border-primary/30 text-primary"
+                                : "bg-slate-800/70 border-white/8 text-muted-foreground/60 hover:text-foreground hover:border-white/15"
+                            )}>
+                              {inPortfolio
+                                ? <Check className="w-4 h-4" />
+                                : <Plus className="w-4 h-4" />}
+                            </div>
+                            <span className={cn(
+                              "hidden lg:flex items-center justify-center",
+                              inPortfolio ? "text-primary" : "text-muted-foreground/50 hover:text-foreground"
+                            )}>
+                              {inPortfolio
+                                ? <Check className="w-3.5 h-3.5" />
+                                : <Plus className="w-3.5 h-3.5" />}
+                            </span>
                           </button>
                         </TableCell>
 
                         {/* ── Mobile 2-line layout (hidden on lg+) ── */}
                         <TableCell
-                          className="lg:hidden py-2 pr-3 w-[calc(100vw-3.5rem)] cursor-pointer select-none"
+                          className="lg:hidden py-3 pr-3 w-[calc(100vw-3.5rem)] cursor-pointer select-none"
                           onClick={() => setExpandedTicker(prev => prev === stock.ticker ? null : stock.ticker)}
                         >
-                          {/* Line 1: ticker (de-emphasized) · score (dominant) */}
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <span className="text-[13px] font-medium tracking-tight text-muted-foreground">
-                                {stock.ticker}
-                              </span>
-                              {expandedTicker === stock.ticker
-                                ? <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
-                                : <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100" />}
-                            </div>
-                            <span
-                              className="font-bold tabular-nums text-[17px] shrink-0 tracking-tight cursor-pointer select-none active:opacity-60"
-                              style={{ color: getAlphaColor(alphaPercentileMap.get(stock.ticker) ?? 0.5) }}
-                              onClick={(e) => { e.stopPropagation(); cycleAlphaMode(); }}
-                            >
-                              {alphaMode === 'pct'
-                                ? (stock.percentile != null ? stock.percentile.toFixed(1) + "%" : "—")
-                                : alphaMode === 'rank'
-                                  ? (stock.rank != null ? `#${stock.rank}` : "—")
-                                  : (stock.alpha != null ? (stock.alpha > 0 ? "+" : "") + stock.alpha.toFixed(2) : "—")}
+                          {/* Line 1: ticker bold/white · alpha pill */}
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-base font-bold tracking-tight text-foreground">
+                              {stock.ticker}
                             </span>
+                            {(() => {
+                              const alphaP = alphaPercentileMap.get(stock.ticker) ?? 0.5;
+                              const color = getAlphaColor(alphaP);
+                              const bgOpacity = alphaP > 0.6 ? "bg-emerald-950/60" : alphaP < 0.4 ? "bg-rose-950/60" : "bg-slate-800/60";
+                              return (
+                                <span
+                                  className={cn("font-bold tabular-nums text-[17px] shrink-0 tracking-tight cursor-pointer select-none active:opacity-70 rounded-xl px-3 py-1 border border-white/5", bgOpacity)}
+                                  style={{ color }}
+                                  onClick={(e) => { e.stopPropagation(); cycleAlphaMode(); }}
+                                >
+                                  {alphaMode === 'pct'
+                                    ? (stock.percentile != null ? stock.percentile.toFixed(1) + "%" : "—")
+                                    : alphaMode === 'rank'
+                                      ? (stock.rank != null ? `#${stock.rank}` : "—")
+                                      : (stock.alpha != null ? (stock.alpha > 0 ? "+" : "") + stock.alpha.toFixed(2) : "—")}
+                                </span>
+                              );
+                            })()}
                           </div>
 
-                          {/* Line 2: #rank · G{n} · rankInGroup/groupSize · Vol X% · sector */}
+                          {/* Line 2: #rank · [G0 badge] · rankInGroup/groupSize · sector */}
                           {(() => {
                             const grp = inClusteredN ? clusterRankMap.get(stock.ticker) : undefined;
                             return (
-                              <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
-                                <span className="font-mono">#{stock.rank ?? "—"}</span>
+                              <div className="flex items-center gap-1.5 mt-1 text-[11px] text-muted-foreground/70">
+                                <span className="font-mono text-muted-foreground">#{stock.rank ?? "—"}</span>
                                 {showGroup && inClusteredN && (
                                   <>
-                                    <span className="opacity-40">·</span>
-                                    <span className={cn("font-semibold font-mono", clusterText)}>
+                                    <span className="opacity-30">·</span>
+                                    <span className={cn(
+                                      "inline-flex items-center px-1.5 py-0 rounded text-[10px] font-bold font-mono leading-5",
+                                      badgeColor
+                                    )}>
                                       G{stock.cluster}
                                     </span>
                                     {grp && (
                                       <>
-                                        <span className="opacity-40">·</span>
-                                        <span className="font-mono opacity-60 text-[10px]">
-                                          #{grp.rankInGroup}/{grp.groupSize}
+                                        <span className="opacity-30">·</span>
+                                        <span className="font-mono text-muted-foreground/60 text-[10px]">
+                                          {grp.rankInGroup}/{grp.groupSize}
                                         </span>
                                       </>
                                     )}
                                   </>
                                 )}
-                                {stock.sigma12 != null && (
-                                  <>
-                                    <span className="opacity-40">·</span>
-                                    <span>Vol {(stock.sigma12 * 100).toFixed(1)}%</span>
-                                  </>
-                                )}
                                 {stock.sector && (
                                   <>
-                                    <span className="opacity-40">·</span>
-                                    <span>{sectorAbbr}</span>
+                                    <span className="opacity-30">·</span>
+                                    <span className="text-muted-foreground/60">{sectorAbbr}</span>
                                   </>
                                 )}
                               </div>
