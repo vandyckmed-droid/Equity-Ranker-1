@@ -425,13 +425,17 @@ export default function MainPage() {
     }
 
     if (sortField && sortDir) {
+      const clN = serverParams.clusterN;
       result.sort((a, b) => {
-        // Cluster: primary = cluster number, secondary = alpha descending within each cluster
         if (sortField === "cluster") {
-          const ca = a.cluster ?? (sortDir === "asc" ? Infinity : -Infinity);
-          const cb = b.cluster ?? (sortDir === "asc" ? Infinity : -Infinity);
-          if (ca !== cb) return sortDir === "asc" ? ca - cb : cb - ca;
-          // Secondary: alpha descending (best names first inside each cluster)
+          // Only stocks within the user's top-N belong in the grouped section
+          const aInN = a.cluster != null && (a.rank ?? Infinity) <= clN;
+          const bInN = b.cluster != null && (b.rank ?? Infinity) <= clN;
+          // top-N clustered stocks come first; everything else falls below by alpha rank
+          if (aInN !== bInN) return aInN ? -1 : 1;
+          if (!aInN && !bInN) return (a.rank ?? Infinity) - (b.rank ?? Infinity);
+          // Both in top-N: sort by cluster label, then alpha descending within cluster
+          if (a.cluster !== b.cluster) return (a.cluster ?? 0) - (b.cluster ?? 0);
           return (b.alpha ?? 0) - (a.alpha ?? 0);
         }
 
@@ -448,7 +452,7 @@ export default function MainPage() {
     }
 
     return result;
-  }, [clientAlphaStocks, search, sortField, sortDir]);
+  }, [clientAlphaStocks, search, sortField, sortDir, serverParams.clusterN]);
 
   const virtualizer = useVirtualizer({
     count: processedStocks.length,
@@ -1292,8 +1296,8 @@ export default function MainPage() {
                     const sectorAbbr = stock.sector ? (SECTOR_ABBR[stock.sector] ?? stock.sector) : "—";
 
                     const prevStock = processedStocks[virtualRow.index - 1];
-                    const prevInClusteredN = prevStock != null && prevStock.cluster != null && (prevStock.rank ?? Infinity) <= serverParams.clusterN;
-                    const isNewGroup = sortField === "cluster" && (inClusteredN !== prevInClusteredN || (inClusteredN && stock.cluster !== prevStock?.cluster));
+                    const prevInClusteredN = !!prevStock && prevStock.cluster != null && (prevStock.rank ?? Infinity) <= serverParams.clusterN;
+                    const isNewGroup = sortField === "cluster" && inClusteredN && (!prevInClusteredN || stock.cluster !== prevStock?.cluster);
 
                     return (
                       <React.Fragment key={stock.ticker}>
