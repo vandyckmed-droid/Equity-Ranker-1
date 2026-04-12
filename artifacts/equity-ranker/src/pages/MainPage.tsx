@@ -1644,24 +1644,42 @@ export default function MainPage() {
                                     <span className="text-[9px] text-muted-foreground/35 font-sans text-right">Wgt</span>
                                     <span className="text-[9px] text-muted-foreground/35 font-sans text-right">Contrib</span>
                                   </div>
-                                  {activeContribs.map((c, i) => (
-                                    <div
-                                      key={c.part.id}
-                                      className={cn(
-                                        "grid grid-cols-[1fr_52px_36px_52px] px-3 py-2 font-mono",
-                                        i > 0 && "border-t border-white/[0.04]"
-                                      )}
-                                    >
-                                      <span className="text-[11px] text-foreground/75 font-medium tracking-tight">{c.part.shortLabel}</span>
-                                      <span className="text-[12px] font-bold text-right tabular-nums" style={heat(c.score)}>
-                                        {c.score > 0 ? "+" : ""}{c.score.toFixed(2)}
-                                      </span>
-                                      <span className="text-[10px] text-muted-foreground/40 text-right tabular-nums">{wPct(c.weight)}</span>
-                                      <span className="text-[11px] font-semibold text-right tabular-nums" style={heat(c.contribution)}>
-                                        {c.contribution > 0 ? "+" : ""}{c.contribution.toFixed(2)}
-                                      </span>
-                                    </div>
-                                  ))}
+                                  {activeContribs.map((c, i) => {
+                                    const isProf = c.part.id === "prof";
+                                    return (
+                                      <div
+                                        key={c.part.id}
+                                        className={cn(
+                                          "grid grid-cols-[1fr_52px_36px_52px] px-3 py-2 font-mono items-center",
+                                          i > 0 && "border-t border-white/[0.04]"
+                                        )}
+                                      >
+                                        <span className="flex flex-col gap-0.5">
+                                          <span className="text-[11px] text-foreground/75 font-medium tracking-tight">{c.part.shortLabel}</span>
+                                          {isProf && formulaInfo && (
+                                            formulaInfo.primary ? (
+                                              <span className="self-start text-[8px] px-1 py-0 rounded font-semibold tracking-wide bg-emerald-950/60 text-emerald-400/80 border border-emerald-900/30 leading-[14px]">Primary</span>
+                                            ) : (
+                                              <span
+                                                className="self-start text-[8px] px-1 py-0 rounded font-semibold tracking-wide bg-amber-950/60 text-amber-400/80 border border-amber-900/30 leading-[14px] cursor-help"
+                                                title="Fallback metrics are less clean and may be less predictive than operating profitability."
+                                              >Fallback</span>
+                                            )
+                                          )}
+                                          {isProf && stock.qualityMissing && stock.qualityMissingReason && (
+                                            <span className="text-[8px] text-muted-foreground/40 font-sans leading-[13px]">{stock.qualityMissingReason}</span>
+                                          )}
+                                        </span>
+                                        <span className="text-[12px] font-bold text-right tabular-nums" style={heat(c.score)}>
+                                          {c.score > 0 ? "+" : ""}{c.score.toFixed(2)}
+                                        </span>
+                                        <span className="text-[10px] text-muted-foreground/40 text-right tabular-nums">{wPct(c.weight)}</span>
+                                        <span className="text-[11px] font-semibold text-right tabular-nums" style={heat(c.contribution)}>
+                                          {c.contribution > 0 ? "+" : ""}{c.contribution.toFixed(2)}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
 
                                 {/* ── COMPOSITE card ── */}
@@ -1682,39 +1700,6 @@ export default function MainPage() {
                                       <span className="text-[10px] text-muted-foreground/50">Pct</span>
                                       <span className="text-[11px] text-foreground/80 tabular-nums">{stock.percentile != null ? stock.percentile.toFixed(1) + "%" : "—"}</span>
                                     </div>
-                                  </div>
-                                </div>
-
-                                {/* ── PROF card ── */}
-                                <div className="rounded-xl overflow-hidden border border-blue-900/25 bg-slate-900/60 shadow-[0_0_14px_rgba(59,130,246,0.06)] min-w-[160px]">
-                                  <div className="px-3 py-2 border-b border-white/[0.05]">
-                                    <span className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/50 font-semibold font-sans">PROF</span>
-                                  </div>
-                                  <div className="px-3 py-2 space-y-2 font-mono">
-                                    <div className="flex items-center justify-between gap-3">
-                                      <span className="text-[10px] text-muted-foreground/50">Raw</span>
-                                      <span className="text-[11px] tabular-nums" style={heat(s.zOPA)}>
-                                        {stock.quality != null ? (stock.quality * 100).toFixed(2) + "%" : "—"}
-                                      </span>
-                                    </div>
-                                    {formulaInfo && (
-                                      <div className="flex items-center justify-between gap-2 border-t border-white/[0.04] pt-2 flex-wrap">
-                                        <span className="text-[9px] text-muted-foreground/40 font-sans">· {formulaInfo.label}</span>
-                                        {formulaInfo.primary ? (
-                                          <span className="text-[8px] px-1.5 py-0.5 rounded font-semibold tracking-wide bg-emerald-950/60 text-emerald-400/80 border border-emerald-900/30">Primary</span>
-                                        ) : (
-                                          <span
-                                            className="text-[8px] px-1.5 py-0.5 rounded font-semibold tracking-wide bg-amber-950/60 text-amber-400/80 border border-amber-900/30 cursor-help"
-                                            title="Fallback metrics are less clean and may be less predictive than operating profitability."
-                                          >
-                                            Fallback
-                                          </span>
-                                        )}
-                                      </div>
-                                    )}
-                                    {stock.qualityMissing && stock.qualityMissingReason && (
-                                      <div className="text-muted-foreground/40 text-[9px] font-sans">{stock.qualityMissingReason}</div>
-                                    )}
                                   </div>
                                 </div>
 
