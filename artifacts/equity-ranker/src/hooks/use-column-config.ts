@@ -15,12 +15,12 @@ export const COLUMN_LABELS: Record<ColumnId, string> = {
   price: "Price",
   marketCap: "Mkt Cap",
   adv: "ADV",
-  momentum6: "M6 / S6",
-  momentum12: "M12 / S12",
+  momentum6: "MOM 6\u20111",
+  momentum12: "MOM 12\u20111",
   vol12: "Vol (12m)",
   alpha: "Alpha",
   cluster: "Group",
-  quality: "Prof",
+  quality: "PROF",
 };
 
 export const DEFAULT_VISIBLE: ColumnId[] = [

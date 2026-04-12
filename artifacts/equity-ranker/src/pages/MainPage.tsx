@@ -202,9 +202,9 @@ function QualityAuditChip(p: QualityAuditChipProps) {
       <button
         onClick={() => setOpen(true)}
         className="inline-flex items-center gap-1 h-5 rounded-full px-2 text-[11px] bg-muted/60 border border-border/40 whitespace-nowrap shrink-0 text-muted-foreground/70 hover:text-foreground hover:border-border/70 transition-colors"
-        title="Profitability data coverage — tap for full breakdown"
+        title="PROF signal coverage — tap for full breakdown"
       >
-        <span>OPA {coveragePct % 1 === 0 ? coveragePct.toFixed(0) : coveragePct.toFixed(1)}%</span>
+        <span>PROF {coveragePct % 1 === 0 ? coveragePct.toFixed(0) : coveragePct.toFixed(1)}%</span>
         {primaryPct > 0  && <span className="text-emerald-400/80">· Primary {primaryPct.toFixed(1)}%</span>}
         {fallbackPct > 0 && <span className="text-amber-400/70">· Fallback {fallbackPct.toFixed(1)}%</span>}
       </button>
@@ -212,7 +212,7 @@ function QualityAuditChip(p: QualityAuditChipProps) {
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="bottom" className="rounded-t-xl pb-8">
           <SheetHeader className="pb-3 border-b border-border">
-            <SheetTitle className="text-sm font-semibold">Profitability Coverage</SheetTitle>
+            <SheetTitle className="text-sm font-semibold">PROF Signal Coverage</SheetTitle>
           </SheetHeader>
           <div className="pt-4 space-y-4 text-xs">
             <div className="flex justify-between items-center font-mono">
@@ -577,16 +577,16 @@ export default function MainPage() {
       case "momentum6":
         return (
           <TableHead key={colId} className="text-right bg-blue-950/20 cursor-pointer hover:text-foreground" onClick={() => handleSort("m6")}>
-            <div className="flex items-center justify-end" title="6-1 Momentum — cumulative log-return (M6)">
-              M6 {getSortIcon("m6")}
+            <div className="flex items-center justify-end" title="MOM 6‑1 — 6-month skip-adjusted cumulative log-return">
+              MOM 6‑1 {getSortIcon("m6")}
             </div>
           </TableHead>
         );
       case "momentum12":
         return (
           <TableHead key={colId} className="text-right bg-blue-950/20 cursor-pointer hover:text-foreground" onClick={() => handleSort("m12")}>
-            <div className="flex items-center justify-end" title="12-1 Momentum — cumulative log-return (M12)">
-              M12 {getSortIcon("m12")}
+            <div className="flex items-center justify-end" title="MOM 12‑1 — 12-month skip-adjusted cumulative log-return">
+              MOM 12‑1 {getSortIcon("m12")}
             </div>
           </TableHead>
         );
@@ -614,8 +614,8 @@ export default function MainPage() {
         );
       case "quality":
         return (
-          <TableHead key={colId} className="text-center w-10" title="Profitability — Operating Profit / Assets (display only, does not affect alpha)">
-            <div className="flex items-center justify-center text-xs">Prof</div>
+          <TableHead key={colId} className="text-center w-10" title="PROF — Operating Profitability / Assets">
+            <div className="flex items-center justify-center text-xs">PROF</div>
           </TableHead>
         );
     }
@@ -694,7 +694,7 @@ export default function MainPage() {
         }
         const tooltipText = qMissing || zQ == null
           ? "Profitability data unavailable"
-          : `OPA: ${rawOpa != null ? (rawOpa * 100).toFixed(2) + "%" : "—"}  zQ: ${zQ != null ? zQ.toFixed(2) : "—"}`;
+          : `PROF: ${rawOpa != null ? (rawOpa * 100).toFixed(2) + "%" : "—"}  z: ${zQ != null ? zQ.toFixed(2) : "—"}`;
         return (
           <TableCell key={colId} className="text-center p-1">
             <span
@@ -891,7 +891,7 @@ export default function MainPage() {
                 loading
               </span>
             )}
-            {/* OPA coverage chip — tappable, opens detail sheet */}
+            {/* PROF coverage chip — tappable, opens detail sheet */}
             {audit && (
               <QualityAuditChip
                 qualityCoverage={audit.qualityCoverage}
@@ -1516,9 +1516,9 @@ export default function MainPage() {
                                     <span className="text-foreground">{stock.percentile != null ? stock.percentile.toFixed(1) + "%" : "—"}</span>
                                   </div>
 
-                                  {/* OPA raw + formula */}
+                                  {/* PROF raw + formula */}
                                   <div className="pt-1.5 space-y-1">
-                                    <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1">OPA</p>
+                                    <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-sans font-semibold mb-1">PROF</p>
                                     <div className="flex items-center gap-2">
                                       <span className="text-muted-foreground/70 w-10">Raw</span>
                                       <span style={heat(s.zOPA)}>

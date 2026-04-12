@@ -534,7 +534,7 @@ function AuditTab({
           </p>
           <div className="border border-border/40 rounded-lg px-3 py-2.5 space-y-1.5">
             <div className="flex justify-between items-center">
-              <span className="text-[10px] text-muted-foreground/70">Profitability (OPA)</span>
+              <span className="text-[10px] text-muted-foreground/70">Profitability (PROF)</span>
               <span className="text-[10px] font-mono text-foreground/80">
                 {qualityCoverage ?? "—"} ({qualityPct.toFixed(1)}%)
               </span>
@@ -566,7 +566,7 @@ function AuditTab({
               },
               {
                 label: "Quality",
-                note: "OPA (profitability) only. Institutional quality adds investment, accruals, and earnings stability.",
+                note: "PROF (profitability) only. Institutional quality adds investment, accruals, and earnings stability.",
               },
               {
                 label: "Value",

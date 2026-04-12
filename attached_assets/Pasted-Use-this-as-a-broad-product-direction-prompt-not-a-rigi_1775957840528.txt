@@ -1,0 +1,43 @@
+Use this as a broad product-direction prompt, not a rigid implementation spec.
+
+Please treat the following as the goal:
+
+Remodel the UI so the application feels like a clear upgrade of the existing interface and architecture. Improve processing time, internal consistency, transparency, and overall visual quality. Remove redundancy across the product. The result should look more polished, feel more coherent, and communicate methodology and data more clearly.
+
+Priority outcomes:
+- remodel and elevate the UI
+- improve clarity of writing throughout the app
+- improve consistency of naming, structure, and presentation
+- improve transparency and auditability
+- improve perceived and actual responsiveness where possible
+- remove redundant elements, duplicate logic, duplicate displays, and unnecessary clutter
+- enhance visuals across the app while preserving usability
+- make the app feel cleaner, more intentional, and more mature
+
+Intent:
+This should feel like an upgrade to the existing UI architecture, not a superficial reskin. I want the product to be more organized, more readable, more standardized, and more visually refined.
+
+Implementation authority:
+You have full authority over how to interpret this and how to implement it. Use your judgment across architecture, layout, styling, interaction design, rendering strategy, wording, hierarchy, and cleanup. Do not treat this as a request for narrow patches. Treat it as permission to make broad improvements wherever needed.
+
+You should decide:
+- what to simplify
+- what to remove
+- what to consolidate
+- what to restyle
+- what to rewrite
+- what to restructure
+- what to optimize
+- what to leave alone
+
+Please prioritize a result that is:
+- faster
+- clearer
+- more consistent
+- more transparent
+- less redundant
+- more visually polished
+- easier to understand at a glance
+- more trustworthy in how it presents information
+
+Do not feel constrained by the current UI if a better structure is available. Preserve what is working, but improve the overall system decisively.

@@ -42,8 +42,8 @@ export const ALPHA_PRESETS: AlphaPreset[] = [
   {
     id: "institutional_quality",
     label: "Institutional + Quality",
-    description: "Tilts heavier toward quality — doubles the OPA weight relative to the default. Suitable for quality-oriented mandates.",
-    omitNote: "Uses approximate OPA quality (operating income / assets with fallbacks). Value not included.",
+    description: "Tilts heavier toward profitability — doubles the PROF weight relative to the default. Suitable for quality-oriented mandates.",
+    omitNote: "Uses approximate PROF (operating income / assets with fallbacks). Value not included.",
     entries: [
       { partId: "momentum_core",     weight: 4, active: true },
       { partId: "residual_momentum", weight: 3, active: true },

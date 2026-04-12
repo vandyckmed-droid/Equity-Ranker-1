@@ -46,28 +46,28 @@ function n(v: number | null | undefined): number {
 export const ALPHA_PARTS: AlphaPart[] = [
   {
     id: "momentum_core",
-    label: "Core Momentum",
-    shortLabel: "Core Mom",
+    label: "Momentum Composite",
+    shortLabel: "MOM",
     category: "Momentum",
     description:
       "Equal-weight blend of 6-month and 12-month skip-adjusted cumulative log-returns " +
       "plus their OLS trend t-statistics. The t-statistics add signal robustness by " +
       "rewarding consistent price drift rather than a single large move.",
-    displayFormula: "M = ¼·(zM6 + zM12 + zT6 + zT12)",
+    displayFormula: "M = \u00BC\u00B7(MOM_6\u20111 + MOM_12\u20111 + TS_6\u20111 + TS_12\u20111)",
     variableDefinitions: [
-      "zM6  = Z(Σ log-ret, t-126:t-22)   — 6-month cumulative return (skip-adjusted)",
-      "zM12 = Z(Σ log-ret, t-252:t-22)   — 12-month cumulative return (skip-adjusted)",
-      "zT6  = Z(OLS β/SE[β], ln(P)~t, 126d)  — 6-month trend quality",
-      "zT12 = Z(OLS β/SE[β], ln(P)~t, 252d)  — 12-month trend quality",
+      "MOM_6\u20111 = Z(\u03A3 ln(P_t/P_{t\u22121}), t\u2212126 : t\u221222)",
+      "MOM_12\u20111 = Z(\u03A3 ln(P_t/P_{t\u22121}), t\u2212252 : t\u221222)",
+      "TS_6\u20111 = Z(OLS \u03B2/SE[\u03B2], ln(P)~t, 126d)",
+      "TS_12\u20111 = Z(OLS \u03B2/SE[\u03B2], ln(P)~t, 252d)",
     ],
     status: "institutional_core",
     statusLabel: "Institutional Core",
     defaultWeight: 4,
     subSignals: [
-      { key: "zM6",  label: "zM6"  },
-      { key: "zM12", label: "zM12" },
-      { key: "zT6",  label: "zT6"  },
-      { key: "zT12", label: "zT12" },
+      { key: "zM6",  label: "MOM 6\u20111"  },
+      { key: "zM12", label: "MOM 12\u20111" },
+      { key: "zT6",  label: "TS 6\u20111"   },
+      { key: "zT12", label: "TS 12\u20111"  },
     ],
     compute: (z) =>
       0.25 * n(z.zM6) + 0.25 * n(z.zM12) + 0.25 * n(z.zT6) + 0.25 * n(z.zT12),
@@ -75,92 +75,92 @@ export const ALPHA_PARTS: AlphaPart[] = [
   {
     id: "residual_momentum",
     label: "Residual Momentum",
-    shortLabel: "Resid Mom",
+    shortLabel: "RM",
     category: "Residual",
     description:
       "Momentum in returns after removing market and industry/sector co-movement. " +
       "Captures stock-specific alpha accumulation that is less sensitive to sector rotations. " +
       "Regression uses OLS with intercept for beta estimation; residuals retain the alpha term.",
-    displayFormula: "RM = 0.4·zR6 + 0.6·zR12",
+    displayFormula: "RM = 0.4\u00B7RM_6\u20111 + 0.6\u00B7RM_12\u20111",
     variableDefinitions: [
-      "r_i = α + β_m·r_mkt + β_p·r_peer + ε̃  (OLS with intercept)",
-      "ε   = r_i − β_m·r_mkt − β_p·r_peer    (betas-only residual, alpha retained)",
-      "zR6  = Z(Σ ε, t-126:t-22)  — 6-month cumulative residual",
-      "zR12 = Z(Σ ε, t-252:t-22)  — 12-month cumulative residual",
+      "r_i = \u03B1 + \u03B2_m\u00B7r_mkt + \u03B2_p\u00B7r_peer + \u03B5\u0303  (OLS with intercept)",
+      "\u03B5 = r_i \u2212 \u03B2_m\u00B7r_mkt \u2212 \u03B2_p\u00B7r_peer  (betas-only residual, \u03B1 retained)",
+      "RM_6\u20111 = Z(\u03A3 \u03B5, t\u2212126 : t\u221222)",
+      "RM_12\u20111 = Z(\u03A3 \u03B5, t\u2212252 : t\u221222)",
     ],
     status: "institutional_core",
     statusLabel: "Institutional Core",
     defaultWeight: 3,
     subSignals: [
-      { key: "zR6",  label: "zR6"  },
-      { key: "zR12", label: "zR12" },
+      { key: "zR6",  label: "RM 6\u20111"  },
+      { key: "zR12", label: "RM 12\u20111" },
     ],
     compute: (z) => 0.4 * n(z.zR6) + 0.6 * n(z.zR12),
   },
   {
     id: "short_reversal",
     label: "Short-Term Reversal",
-    shortLabel: "Reversal",
+    shortLabel: "REV",
     category: "Momentum",
     description:
       "Fades last-month winners. Standard institutional alpha component paired with " +
-      "cross-sectional momentum — prevents doubling up on the same recent move that " +
-      "the 12-1 momentum window already captures.",
-    displayFormula: "R = −zM1",
+      "cross-sectional momentum \u2014 prevents doubling up on the same recent move that " +
+      "the 12\u20111 momentum window already captures.",
+    displayFormula: "REV = \u2212MOM_1",
     variableDefinitions: [
-      "zM1 = Z(Σ log-ret, t-21:t)  — 1-month cumulative return",
-      "Signal enters α with a negative sign (reversal)",
+      "MOM_1 = Z(\u03A3 ln(P_t/P_{t\u22121}), t\u221221 : t)",
+      "Signal enters \u03B1 with a negative sign (reversal)",
     ],
     status: "institutional_core",
     statusLabel: "Institutional Core",
     defaultWeight: 1,
     subSignals: [
-      { key: "zM1", label: "zM1" },
+      { key: "zM1", label: "MOM 1" },
     ],
     compute: (z) => -n(z.zM1),
   },
   {
     id: "low_volatility",
     label: "Low Volatility",
-    shortLabel: "Low Vol",
+    shortLabel: "LowVol",
     category: "Risk",
     description:
       "Favors stocks with lower realized short-term volatility. Captures the low-vol " +
-      "anomaly — lower-risk stocks have historically delivered risk-adjusted outperformance. " +
-      "Note: this is an approximation — a cleaner implementation would use idiosyncratic vol rather than total vol.",
-    displayFormula: "LV = zLowVol",
+      "anomaly \u2014 lower-risk stocks have historically delivered risk-adjusted outperformance. " +
+      "Note: this is an approximation \u2014 a cleaner implementation would use idiosyncratic vol rather than total vol.",
+    displayFormula: "LV = LowVol",
     variableDefinitions: [
-      "σ₆₀ = std(log-ret[-60:]) × √252  — 60-day annualized realized volatility",
-      "zLowVol = −Z(winsorize(σ₆₀))     — sign flipped: lower vol → higher score",
+      "\u03C3\u2086\u2080 = std(ln(P_t/P_{t\u22121})[\u221260:]) \u00D7 \u221A252",
+      "LowVol = \u2212Z(winsorize(\u03C3\u2086\u2080))  (sign flipped: lower vol \u2192 higher score)",
     ],
     status: "institutional_approximation",
     statusLabel: "Institutional Approximation",
     defaultWeight: 2,
     subSignals: [
-      { key: "zLowVol", label: "zLowVol" },
+      { key: "zLowVol", label: "LowVol" },
     ],
     compute: (z) => n(z.zLowVol),
   },
   {
     id: "quality_opa",
-    label: "Quality (OPA)",
-    shortLabel: "Quality",
+    label: "Profitability",
+    shortLabel: "PROF",
     category: "Quality",
     description:
-      "Operating profitability / assets. A standard quality signal. This implementation is approximate — " +
+      "Operating profitability / assets. A standard quality signal. This implementation is approximate \u2014 " +
       "operating income is used with EBIT and net income as fallbacks. " +
       "A fuller quality factor would additionally incorporate investment, accruals, and earnings stability.",
-    displayFormula: "Q = zOPA",
+    displayFormula: "PROF = z(OPA)",
     variableDefinitions: [
       "OPA = Operating Income / Average Total Assets",
-      "zOPA = Z(winsorize(OPA, 2%, 98%))",
-      "Note: partial quality proxy. Fama-French quality adds investment and accruals.",
+      "PROF = Z(winsorize(OPA, 2%, 98%))",
+      "Note: partial quality proxy. Fama\u2013French quality adds investment and accruals.",
     ],
     status: "institutional_approximation",
     statusLabel: "Institutional Approximation",
     defaultWeight: 2,
     subSignals: [
-      { key: "zOPA", label: "zOPA" },
+      { key: "zOPA", label: "PROF" },
     ],
     compute: (z) => n(z.zOPA),
   },
@@ -170,7 +170,7 @@ export const ALPHA_PARTS: AlphaPart[] = [
     shortLabel: "Value",
     category: "Research",
     description:
-      "Placeholder for a value signal (e.g., earnings yield, book-to-price). Not yet implemented — requires fundamental data pipeline expansion.",
+      "Placeholder for a value signal (e.g., earnings yield, book-to-price). Not yet implemented \u2014 requires fundamental data pipeline expansion.",
     displayFormula: "V = (not yet built)",
     variableDefinitions: [],
     status: "future",

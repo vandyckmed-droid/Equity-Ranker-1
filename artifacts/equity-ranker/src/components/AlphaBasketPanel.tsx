@@ -375,11 +375,11 @@ function AuditTab({
         <div className="space-y-2 text-[11px] text-muted-foreground/70 leading-relaxed">
           <div>
             <span className="text-emerald-400 font-semibold">What is institutional-grade:</span>
-            <p className="mt-0.5">Core momentum (4 signals averaged) and residual momentum are clean, standard institutional signals with strong academic backing.</p>
+            <p className="mt-0.5">Momentum composite (MOM, 4 signals averaged) and residual momentum (RM) are clean, standard institutional signals with strong academic backing.</p>
           </div>
           <div>
             <span className="text-amber-400 font-semibold">What is approximate:</span>
-            <p className="mt-0.5">Low volatility uses total return volatility rather than idiosyncratic volatility. Quality (OPA) uses a fallback cascade for missing financial data, which may be noisier than primary data.</p>
+            <p className="mt-0.5">Low volatility uses total return volatility rather than idiosyncratic volatility. PROF uses a fallback cascade for missing financial data, which may be noisier than primary data.</p>
           </div>
           <div>
             <span className="text-muted-foreground font-semibold">What is not yet built:</span>
